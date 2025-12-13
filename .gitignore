@@ -37,9 +37,18 @@ env/
 .env
 .env.local
 
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
 # OS
 .DS_Store
 Thumbs.db
 
 # Logs
 *.log
+
+# Bot data
+bot_data/
+sessions/
