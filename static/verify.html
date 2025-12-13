@@ -70,11 +70,19 @@
         // Get parameters from URL
         const params = new URLSearchParams(window.location.search);
         const sessionId = params.get('session_id');
+        const appName = params.get('app_name') || 'Telegram Verification Bot';
+        const appDomain = params.get('app_domain') || 'telegram.mercle.ai';
         const base64Qr = params.get('base64_qr') || '';
 
-        // Construct deep link - use base64_qr which contains all data
-        // The QR data already has: session_id, app_name, app_domain, type
-        const deepLink = `mercle://verify?data=${base64Qr}`;
+        // Construct CORRECT deep link with separate parameters
+        // The Mercle app expects: session_id, app_name, app_domain, base64_qr
+        const deepLinkParams = new URLSearchParams({
+            session_id: sessionId,
+            app_name: appName,
+            app_domain: appDomain,
+            base64_qr: base64Qr
+        });
+        const deepLink = `mercle://verify?${deepLinkParams.toString()}`;
         
         // Detect platform
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
