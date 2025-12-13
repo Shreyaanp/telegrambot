@@ -57,7 +57,7 @@ class VerificationService:
             sdk_response = await self.mercle_sdk.create_session(metadata=metadata)
             session_id = sdk_response["session_id"]
             base64_qr = sdk_response.get("base64_qr", "")
-            deep_link = sdk_response.get("deep_link", "")
+            qr_data = sdk_response.get("qr_data", "")
             
             # Save session to database
             expires_at = datetime.utcnow() + timedelta(seconds=self.config.verification_timeout)
@@ -69,27 +69,49 @@ class VerificationService:
                 group_id=group_id
             )
             
-            # Generate QR code
-            qr_data = decode_base64_qr(base64_qr) if base64_qr else ""
-            qr_image = generate_qr_code(qr_data) if qr_data else None
+            # Generate QR code from base64_qr (already contains JSON)
+            qr_json = decode_base64_qr(base64_qr) if base64_qr else qr_data
+            qr_image = generate_qr_code(qr_json) if qr_json else None
+            
+            # Construct deep links manually (SDK doesn't provide them)
+            import urllib.parse
+            app_name = urllib.parse.quote("Telegram Verification Bot")
+            app_domain = urllib.parse.quote("https://telegram.mercle.ai")
+            
+            # iOS deep link
+            ios_link = f"mercle://verify?session_id={session_id}&app_name={app_name}&app_domain={app_domain}&base64_qr={base64_qr}"
+            
+            # Android deep link with Play Store fallback
+            android_link = f"intent://verify?session_id={session_id}&app_name={app_name}&app_domain={app_domain}&base64_qr={base64_qr}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end"
             
             # Build inline keyboard with buttons
             keyboard = []
             
-            # Add deep link button if available
-            if deep_link:
-                keyboard.append([
-                    InlineKeyboardButton(
-                        text="📱 Open Mercle App",
-                        url=deep_link
-                    )
-                ])
-            
-            # Add download button
+            # Add deep link buttons for mobile users
             keyboard.append([
                 InlineKeyboardButton(
-                    text="📥 Download Mercle App",
-                    url="https://mercle.ai/download"
+                    text="📱 Open Mercle App (iOS)",
+                    url=ios_link
+                )
+            ])
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="📱 Open Mercle App (Android)",
+                    url=android_link
+                )
+            ])
+            
+            # Add download buttons (direct store links)
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="📥 Download (iOS)",
+                    url="https://apps.apple.com/ng/app/mercle/id6751991316"
+                )
+            ])
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="📥 Download (Android)",
+                    url="https://play.google.com/store/apps/details?id=com.mercle.app"
                 )
             ])
             

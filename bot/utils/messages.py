@@ -12,16 +12,17 @@ I'm a verification bot that uses Mercle's biometric authentication.
 Type /verify to get started!"""
 
 
-def verification_prompt_message(timeout_seconds: int = 30) -> str:
+def verification_prompt_message(timeout_seconds: int = 120) -> str:
     """Generate verification prompt message."""
+    minutes = timeout_seconds // 60
     return f"""🔐 **Verification Required**
 
 Please verify you're human with Mercle face verification.
 
-📱 **On Mobile:** Tap the button below to open Mercle app
-💻 **On Desktop:** Scan the QR code with your phone
+📱 **On Mobile:** Tap the button below to open Mercle app directly
+💻 **On Desktop:** Open Mercle app on your phone → Tap QR Scanner → Scan the code below
 
-⏰ You have **{timeout_seconds} seconds** to verify."""
+⏰ You have **{minutes} minutes** to verify."""
 
 
 def verification_success_message(mercle_user_id: str) -> str:
