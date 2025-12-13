@@ -18,6 +18,10 @@
             text-align: center;
             padding: 20px;
         }
+        .container {
+            max-width: 500px;
+            width: 100%;
+        }
         .loader {
             width: 50px;
             height: 50px;
@@ -25,185 +29,260 @@
             border-top-color: white;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin: 20px;
+            margin: 20px auto;
         }
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
         h1 { margin: 0 0 10px 0; font-size: 24px; }
-        p { margin: 5px 0; opacity: 0.9; }
-        .buttons {
-            margin-top: 30px;
+        p { margin: 10px 0; opacity: 0.9; }
+        .button-group {
+            margin: 20px 0;
             display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            justify-content: center;
+            flex-direction: column;
+            gap: 15px;
         }
-        button, a {
-            padding: 12px 24px;
+        button, a.button {
+            padding: 15px 30px;
             background: white;
             color: #667eea;
             border: none;
             border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
+            font-size: 18px;
+            font-weight: 700;
             text-decoration: none;
             cursor: pointer;
             transition: transform 0.2s;
+            display: inline-block;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
-        button:hover, a:hover {
+        button:hover, a.button:hover {
             transform: scale(1.05);
+        }
+        .small-button {
+            font-size: 14px;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+        .debug {
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            font-size: 12px;
+            text-align: left;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .debug pre {
+            margin: 5px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .fallback {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .fallback a {
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.3);
+            color: white;
+            border-radius: 6px;
+            font-size: 14px;
+            text-decoration: none;
         }
     </style>
 </head>
 <body>
-    <div class="loader"></div>
-    <h1>Opening Mercle App...</h1>
-    <p id="status">Please wait...</p>
-    
-    <div class="buttons" id="fallback" style="display: none;">
-        <a href="https://play.google.com/store/apps/details?id=com.mercle.app" id="androidLink">Get on Android</a>
-        <a href="https://apps.apple.com/ng/app/mercle/id6751991316" id="iosLink">Get on iOS</a>
+    <div class="container">
+        <div class="loader" id="loader"></div>
+        <h1 id="title">Opening Mercle App...</h1>
+        <p id="status">Preparing...</p>
+        
+        <div class="button-group" id="buttons" style="display: none;"></div>
+        
+        <div class="fallback" id="fallback" style="display: none;">
+            <a href="https://play.google.com/store/apps/details?id=com.mercle.app">📥 Get on Android</a>
+            <a href="https://apps.apple.com/ng/app/mercle/id6751991316">📥 Get on iOS</a>
+        </div>
+        
+        <div class="debug" id="debug">
+            <strong>Debug Log:</strong>
+            <div id="debugLog"></div>
+        </div>
     </div>
 
     <script>
-        console.log('🚀 Mercle Verify Page Loaded');
-        console.log('📍 Full URL:', window.location.href);
-        
-        // Prevent multiple executions
-        if (window.sessionStorage.getItem('deeplink_attempted')) {
-            console.log('⚠️ Already attempted - showing message');
-            document.getElementById('status').textContent = 'Already attempted. Please check your Mercle app.';
-            document.getElementById('fallback').style.display = 'flex';
-            document.querySelector('.loader').style.display = 'none';
-            return;
+        // ================================================================
+        // DEBUG LOGGING
+        // ================================================================
+        const debugLog = [];
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}`;
+            debugLog.push(logMessage);
+            console.log(logMessage);
+            document.getElementById('debugLog').innerHTML = debugLog.map(l => `<pre>${l}</pre>`).join('');
         }
-        
-        console.log('✅ First attempt - proceeding...');
-        window.sessionStorage.setItem('deeplink_attempted', 'true');
-        
-        // Get parameters from URL
+
+        log('🚀 Page loaded');
+        log('📍 URL: ' + window.location.href);
+
+        // ================================================================
+        // EXTRACT PARAMETERS
+        // ================================================================
         const params = new URLSearchParams(window.location.search);
         const sessionId = params.get('session_id');
         const appName = params.get('app_name') || 'Telegram Verification Bot';
         const appDomain = params.get('app_domain') || 'telegram.mercle.ai';
-        const base64Qr = params.get('base64_qr') || '';
 
-        console.log('📊 Extracted Parameters:');
-        console.log('  session_id:', sessionId);
-        console.log('  app_name:', appName);
-        console.log('  app_domain:', appDomain);
-        console.log('  base64_qr:', base64Qr ? base64Qr.substring(0, 50) + '...' : '(empty)');
+        log('📊 Session ID: ' + sessionId);
+        log('📊 App Name: ' + appName);
+        log('📊 App Domain: ' + appDomain);
 
-        // Construct deep link with separate parameters
-        // ✅ USE verify (NOT scan-authenticate) as per Mercle documentation
+        // ================================================================
+        // BUILD DEEP LINKS
+        // ================================================================
         const deepLinkParams = new URLSearchParams({
             session_id: sessionId,
             app_name: appName,
             app_domain: appDomain
         });
-        const deepLink = `mercle://verify?${deepLinkParams.toString()}`;
         
-        console.log('🔗 Constructed Deep Link:');
-        console.log('  Full:', deepLink);
-        console.log('  Length:', deepLink.length);
-        
-        // Detect platform
+        const directLink = `mercle://verify?${deepLinkParams.toString()}`;
+        const intentUrl = `intent://verify?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end`;
+
+        log('🔗 Direct Link: ' + directLink);
+        log('🔗 Intent URL: ' + intentUrl);
+
+        // ================================================================
+        // DETECT PLATFORM
+        // ================================================================
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         const isAndroid = /Android/.test(navigator.userAgent);
         const isMobile = isIOS || isAndroid;
 
-        console.log('📱 Platform Detection:');
-        console.log('  iOS:', isIOS);
-        console.log('  Android:', isAndroid);
-        console.log('  isMobile:', isMobile);
-        console.log('  User Agent:', navigator.userAgent);
+        log('📱 iOS: ' + isIOS);
+        log('📱 Android: ' + isAndroid);
+        log('📱 Mobile: ' + isMobile);
+        log('📱 User Agent: ' + navigator.userAgent);
 
-        if (isMobile) {
-            console.log('📱 Mobile device detected - showing manual launch option');
+        // ================================================================
+        // ATTEMPT COUNTER (NO SESSION STORAGE - ISSUE #1 FIXED!)
+        // ================================================================
+        let attemptCount = 0;
+
+        // ================================================================
+        // TRY TO OPEN APP - MULTIPLE METHODS (ISSUE #3 FIXED!)
+        // ================================================================
+        function tryOpenApp(method) {
+            attemptCount++;
+            log(`🚀 Attempt #${attemptCount} - Method: ${method}`);
             
-            document.querySelector('.loader').style.display = 'none';
+            if (method === 'intent' && isAndroid) {
+                log('📤 Opening Intent URL...');
+                window.location.href = intentUrl;
+            } else if (method === 'direct') {
+                log('📤 Opening Direct Link...');
+                window.location.href = directLink;
+            }
             
-            // For Android, use Intent URL format with Play Store fallback
+            // Check if app opened after 3 seconds
+            setTimeout(() => {
+                if (!document.hidden) {
+                    log('⚠️ App did not open (still on page)');
+                    showRetryButtons();
+                } else {
+                    log('✅ App likely opened (page hidden)');
+                }
+            }, 3000);
+        }
+
+        // ================================================================
+        // SHOW RETRY BUTTONS (ISSUE #4 FIXED!)
+        // ================================================================
+        function showRetryButtons() {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('title').textContent = 'App Didn\'t Open?';
+            document.getElementById('status').textContent = 'Try the buttons below:';
+            
+            const buttonsDiv = document.getElementById('buttons');
+            buttonsDiv.style.display = 'block';
+            
             if (isAndroid) {
-                console.log('🤖 Android detected - using Intent URL with fallback');
-                
-                // Android Intent URL format with fallback to Play Store
-                const intentUrl = `intent://verify?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end`;
-                console.log('🚀 Intent URL:', intentUrl);
-                
-                // Show clickable button instead of auto-redirect
-                document.getElementById('status').innerHTML = `
-                    <p style="font-size: 18px; margin-bottom: 20px;">Tap the button below to open Mercle app:</p>
-                    <a href="${intentUrl}" style="
-                        display: inline-block;
-                        padding: 15px 30px;
-                        background: white;
-                        color: #667eea;
-                        text-decoration: none;
-                        border-radius: 8px;
-                        font-weight: bold;
-                        font-size: 16px;
-                        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-                    ">🚀 Open Mercle App</a>
-                    <p style="font-size: 14px; margin-top: 20px; opacity: 0.8;">If nothing happens, download the app below</p>
+                buttonsDiv.innerHTML = `
+                    <a href="${intentUrl}" class="button" onclick="log('🔄 Retry: Intent URL'); return true;">
+                        🚀 Try Method 1 (Intent URL)
+                    </a>
+                    <a href="${directLink}" class="button" onclick="log('🔄 Retry: Direct Link'); return true;">
+                        🔗 Try Method 2 (Direct Link)
+                    </a>
+                    <button class="button small-button" onclick="location.reload()">🔄 Refresh Page</button>
                 `;
-                document.getElementById('fallback').style.display = 'flex';
             } else if (isIOS) {
-                console.log('🍎 iOS detected - using direct deep link');
-                
-                // iOS - direct deep link works
-                console.log('🚀 Deep Link:', deepLink);
-                
-                // Show clickable button for iOS
-                document.getElementById('status').innerHTML = `
-                    <p style="font-size: 18px; margin-bottom: 20px;">Tap the button below to open Mercle app:</p>
-                    <a href="${deepLink}" style="
-                        display: inline-block;
-                        padding: 15px 30px;
-                        background: white;
-                        color: #667eea;
-                        text-decoration: none;
-                        border-radius: 8px;
-                        font-weight: bold;
-                        font-size: 16px;
-                        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-                    ">🚀 Open Mercle App</a>
-                    <p style="font-size: 14px; margin-top: 20px; opacity: 0.8;">If nothing happens, download the app below</p>
+                buttonsDiv.innerHTML = `
+                    <a href="${directLink}" class="button" onclick="log('🔄 Retry: Direct Link'); return true;">
+                        🚀 Open Mercle App
+                    </a>
+                    <button class="button small-button" onclick="location.reload()">🔄 Refresh Page</button>
                 `;
-                document.getElementById('fallback').style.display = 'flex';
             } else {
-                // Fallback
-                document.getElementById('status').textContent = 'Please use a mobile device';
-                document.getElementById('fallback').style.display = 'flex';
+                buttonsDiv.innerHTML = `
+                    <p>Please use a mobile device</p>
+                `;
+            }
+            
+            document.getElementById('fallback').style.display = 'flex';
+        }
+
+        // ================================================================
+        // VISIBILITY CHANGE DETECTION
+        // ================================================================
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                log('👋 Page hidden - app likely opened!');
+            } else {
+                log('🔙 Page visible again - user returned');
+            }
+        });
+
+        // ================================================================
+        // AUTO-START (ISSUE #2 FIXED - TRY BOTH METHODS!)
+        // ================================================================
+        if (isMobile) {
+            document.getElementById('status').textContent = 'Launching Mercle app...';
+            
+            // Try Intent URL first for Android
+            if (isAndroid) {
+                tryOpenApp('intent');
+                
+                // If that fails, try direct link after 5 seconds
+                setTimeout(() => {
+                    if (!document.hidden && attemptCount === 1) {
+                        log('⚠️ Intent URL failed, trying direct link...');
+                        tryOpenApp('direct');
+                    }
+                }, 5000);
+            } else if (isIOS) {
+                // iOS: Try direct link
+                tryOpenApp('direct');
             }
         } else {
-            console.log('💻 Desktop detected - showing instructions');
-            
-            // Desktop - show QR code message
-            document.querySelector('.loader').style.display = 'none';
+            // Desktop
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('title').textContent = 'Use Your Mobile Device';
             document.getElementById('status').innerHTML = `
-                <p>Please use your mobile device to verify.</p>
-                <p style="font-size: 14px; margin-top: 20px;">
-                    Open this link on your phone or scan the QR code in Telegram.
-                </p>
+                <p>Please open this link on your phone</p>
+                <p style="font-size: 14px;">or scan the QR code in Telegram</p>
             `;
             document.getElementById('fallback').style.display = 'flex';
         }
 
-        // Detect if user returns (app didn't open)
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                // User left page - app probably opened!
-                console.log('👋 Page hidden - app likely opened!');
-            } else {
-                // User came back - app didn't open
-                console.log('🔙 User came back - app did not open or verification complete');
-            }
-        });
-        
-        console.log('✅ Script execution complete');
+        log('✅ Script loaded successfully');
     </script>
 </body>
 </html>
-
