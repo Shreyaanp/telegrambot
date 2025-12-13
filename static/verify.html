@@ -67,14 +67,19 @@
     </div>
 
     <script>
+        console.log('🚀 Mercle Verify Page Loaded');
+        console.log('📍 Full URL:', window.location.href);
+        
         // Prevent multiple executions
         if (window.sessionStorage.getItem('deeplink_attempted')) {
+            console.log('⚠️ Already attempted - showing message');
             document.getElementById('status').textContent = 'Already attempted. Please check your Mercle app.';
             document.getElementById('fallback').style.display = 'flex';
             document.querySelector('.loader').style.display = 'none';
             return;
         }
         
+        console.log('✅ First attempt - proceeding...');
         window.sessionStorage.setItem('deeplink_attempted', 'true');
         
         // Get parameters from URL
@@ -83,6 +88,12 @@
         const appName = params.get('app_name') || 'Telegram Verification Bot';
         const appDomain = params.get('app_domain') || 'telegram.mercle.ai';
         const base64Qr = params.get('base64_qr') || '';
+
+        console.log('📊 Extracted Parameters:');
+        console.log('  session_id:', sessionId);
+        console.log('  app_name:', appName);
+        console.log('  app_domain:', appDomain);
+        console.log('  base64_qr:', base64Qr ? base64Qr.substring(0, 50) + '...' : '(empty)');
 
         // Construct CORRECT deep link with separate parameters
         // The Mercle app expects: session_id, app_name, app_domain, base64_qr
@@ -95,23 +106,35 @@
         });
         const deepLink = `mercle://scan-authenticate?${deepLinkParams.toString()}`;
         
+        console.log('🔗 Constructed Deep Link:');
+        console.log('  Full:', deepLink);
+        console.log('  Length:', deepLink.length);
+        
         // Detect platform
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         const isAndroid = /Android/.test(navigator.userAgent);
         const isMobile = isIOS || isAndroid;
 
-        console.log('Platform:', { isIOS, isAndroid, isMobile });
-        console.log('Deep link:', deepLink);
+        console.log('📱 Platform Detection:');
+        console.log('  iOS:', isIOS);
+        console.log('  Android:', isAndroid);
+        console.log('  isMobile:', isMobile);
+        console.log('  User Agent:', navigator.userAgent);
 
         if (isMobile) {
+            console.log('📱 Mobile device detected - attempting deep link...');
+            
             // Try to open the app
             document.getElementById('status').textContent = 'Launching Mercle app...';
             
             // Attempt to open deep link ONCE
+            console.log('🚀 Opening deep link:', deepLink);
             window.location.href = deepLink;
+            console.log('✅ window.location.href set');
             
             // Show fallback after 2 seconds (but DON'T auto-redirect)
             setTimeout(() => {
+                console.log('⏰ 2 seconds passed - showing fallback');
                 document.getElementById('status').textContent = 'App didn\'t open? Tap below to download:';
                 document.getElementById('fallback').style.display = 'flex';
                 document.querySelector('.loader').style.display = 'none';
@@ -119,6 +142,8 @@
                 // NO automatic redirect to store - let user decide
             }, 2000);
         } else {
+            console.log('💻 Desktop detected - showing instructions');
+            
             // Desktop - show QR code message
             document.querySelector('.loader').style.display = 'none';
             document.getElementById('status').innerHTML = `
@@ -134,12 +159,14 @@
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 // User left page - app probably opened!
-                console.log('App likely opened');
+                console.log('👋 Page hidden - app likely opened!');
             } else {
                 // User came back - app didn't open
-                console.log('App did not open');
+                console.log('🔙 User came back - app did not open or verification complete');
             }
         });
+        
+        console.log('✅ Script execution complete');
     </script>
 </body>
 </html>
