@@ -107,9 +107,10 @@ class VerificationService:
             # Send verification message with QR code
             message_text = verification_prompt_message(self.config.verification_timeout)
             
+            sent_message = None
             if qr_image:
                 qr_file = BufferedInputFile(qr_image.read(), filename="qr_code.png")
-                await bot.send_photo(
+                sent_message = await bot.send_photo(
                     chat_id=chat_id,
                     photo=qr_file,
                     caption=message_text,
@@ -117,12 +118,16 @@ class VerificationService:
                     parse_mode="Markdown"
                 )
             else:
-                await bot.send_message(
+                sent_message = await bot.send_message(
                     chat_id=chat_id,
                     text=message_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
+            
+            # Store message ID to delete later
+            if sent_message:
+                await self.user_manager.store_message_ids(session_id, [sent_message.message_id])
             
             # Start polling task
             task = asyncio.create_task(
@@ -190,9 +195,18 @@ class VerificationService:
     ):
         """Handle successful verification."""
         try:
-            # Get session to find username
+            # Get session to find username and message IDs
             session_obj = await self.user_manager.get_session(session_id)
             username = session_obj.telegram_username if session_obj else None
+            
+            # Delete old verification messages
+            if session_obj and session_obj.message_ids:
+                message_ids = [int(mid) for mid in session_obj.message_ids.split(",") if mid.strip()]
+                for msg_id in message_ids:
+                    try:
+                        await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    except Exception as e:
+                        logger.warning(f"Could not delete message {msg_id}: {e}")
             
             # Create/update user in database
             await self.user_manager.create_user(
@@ -204,9 +218,32 @@ class VerificationService:
             # Update session status
             await self.user_manager.update_session_status(session_id, "approved")
             
-            # Send success message
+            # Send success message with app promotion
             success_msg = verification_success_message(mercle_user_id)
-            await bot.send_message(chat_id=chat_id, text=success_msg, parse_mode="Markdown")
+            
+            # Add Mercle app promotion buttons
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        text="📥 Download Mercle (iOS)",
+                        url="https://apps.apple.com/ng/app/mercle/id6751991316"
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="📥 Download Mercle (Android)",
+                        url="https://play.google.com/store/apps/details?id=com.mercle.app"
+                    )
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+            
+            await bot.send_message(
+                chat_id=chat_id,
+                text=success_msg,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
             
             logger.info(f"Verification successful for user {telegram_id}")
             
@@ -215,21 +252,51 @@ class VerificationService:
     
     async def _handle_verification_failure(self, bot: Bot, session_id: str, chat_id: int):
         """Handle failed verification."""
-        await self.user_manager.update_session_status(session_id, "rejected")
-        await bot.send_message(
-            chat_id=chat_id,
-            text=verification_failed_message(),
-            parse_mode="Markdown"
-        )
-        logger.info(f"Verification failed for session {session_id}")
+        try:
+            # Get session to find message IDs
+            session_obj = await self.user_manager.get_session(session_id)
+            
+            # Delete old verification messages
+            if session_obj and session_obj.message_ids:
+                message_ids = [int(mid) for mid in session_obj.message_ids.split(",") if mid.strip()]
+                for msg_id in message_ids:
+                    try:
+                        await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    except Exception as e:
+                        logger.warning(f"Could not delete message {msg_id}: {e}")
+            
+            await self.user_manager.update_session_status(session_id, "rejected")
+            await bot.send_message(
+                chat_id=chat_id,
+                text=verification_failed_message(),
+                parse_mode="Markdown"
+            )
+            logger.info(f"Verification failed for session {session_id}")
+        except Exception as e:
+            logger.error(f"Error handling verification failure: {e}", exc_info=True)
     
     async def _handle_verification_timeout(self, bot: Bot, session_id: str, chat_id: int):
         """Handle verification timeout."""
-        await self.user_manager.update_session_status(session_id, "expired")
-        await bot.send_message(
-            chat_id=chat_id,
-            text=verification_timeout_message(),
-            parse_mode="Markdown"
-        )
-        logger.info(f"Verification timeout for session {session_id}")
+        try:
+            # Get session to find message IDs
+            session_obj = await self.user_manager.get_session(session_id)
+            
+            # Delete old verification messages
+            if session_obj and session_obj.message_ids:
+                message_ids = [int(mid) for mid in session_obj.message_ids.split(",") if mid.strip()]
+                for msg_id in message_ids:
+                    try:
+                        await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    except Exception as e:
+                        logger.warning(f"Could not delete message {msg_id}: {e}")
+            
+            await self.user_manager.update_session_status(session_id, "expired")
+            await bot.send_message(
+                chat_id=chat_id,
+                text=verification_timeout_message(),
+                parse_mode="Markdown"
+            )
+            logger.info(f"Verification timeout for session {session_id}")
+        except Exception as e:
+            logger.error(f"Error handling verification timeout: {e}", exc_info=True)
 

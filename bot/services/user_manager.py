@@ -164,4 +164,19 @@ class UserManager:
                 .limit(1)
             )
             return result.scalar_one_or_none()
+    
+    async def store_message_ids(self, session_id: str, message_ids: list):
+        """Store message IDs to delete later."""
+        async with db.session() as session:
+            result = await session.execute(
+                select(VerificationSession).where(
+                    VerificationSession.session_id == session_id
+                )
+            )
+            ver_session = result.scalar_one_or_none()
+            
+            if ver_session:
+                ver_session.message_ids = ",".join(str(mid) for mid in message_ids)
+                await session.commit()
+                logger.info(f"Stored message IDs for session {session_id}")
 

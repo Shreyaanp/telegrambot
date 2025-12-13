@@ -35,6 +35,7 @@ class VerificationSession(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
     status = Column(String, default="pending")  # pending, approved, rejected, expired
+    message_ids = Column(String, nullable=True)  # Comma-separated message IDs to delete later
     
     # Relationship to user
     user = relationship("User", back_populates="sessions")

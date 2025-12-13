@@ -29,11 +29,13 @@ def verification_success_message(mercle_user_id: str) -> str:
     """Generate success message after verification."""
     return f"""✅ **Verified Successfully!**
 
-Welcome! You're now authenticated.
+Welcome! You're now authenticated with Mercle.
 
 Your unique Mercle ID: `{mercle_user_id[:16]}...`
 
-You can now participate in the group!"""
+🎉 **You verified using Mercle** - Secure face verification made easy!
+
+Get the Mercle app to verify anywhere:"""
 
 
 def verification_timeout_message() -> str:
