@@ -120,10 +120,9 @@
         console.log('  User Agent:', navigator.userAgent);
 
         if (isMobile) {
-            console.log('📱 Mobile device detected - attempting deep link...');
+            console.log('📱 Mobile device detected - showing manual launch option');
             
-            // Try to open the app
-            document.getElementById('status').textContent = 'Launching Mercle app...';
+            document.querySelector('.loader').style.display = 'none';
             
             // For Android, use Intent URL format with Play Store fallback
             if (isAndroid) {
@@ -131,31 +130,53 @@
                 
                 // Android Intent URL format with fallback to Play Store
                 const intentUrl = `intent://verify?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end`;
-                console.log('🚀 Opening Android Intent:', intentUrl);
-                window.location.href = intentUrl;
+                console.log('🚀 Intent URL:', intentUrl);
+                
+                // Show clickable button instead of auto-redirect
+                document.getElementById('status').innerHTML = `
+                    <p style="font-size: 18px; margin-bottom: 20px;">Tap the button below to open Mercle app:</p>
+                    <a href="${intentUrl}" style="
+                        display: inline-block;
+                        padding: 15px 30px;
+                        background: white;
+                        color: #667eea;
+                        text-decoration: none;
+                        border-radius: 8px;
+                        font-weight: bold;
+                        font-size: 16px;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+                    ">🚀 Open Mercle App</a>
+                    <p style="font-size: 14px; margin-top: 20px; opacity: 0.8;">If nothing happens, download the app below</p>
+                `;
+                document.getElementById('fallback').style.display = 'flex';
             } else if (isIOS) {
                 console.log('🍎 iOS detected - using direct deep link');
                 
                 // iOS - direct deep link works
-                console.log('🚀 Opening iOS deep link:', deepLink);
-                window.location.href = deepLink;
-            } else {
-                // Fallback to regular deep link
-                console.log('🚀 Opening deep link:', deepLink);
-                window.location.href = deepLink;
-            }
-            
-            console.log('✅ window.location.href set');
-            
-            // Show fallback after 2 seconds (but DON'T auto-redirect)
-            setTimeout(() => {
-                console.log('⏰ 2 seconds passed - showing fallback');
-                document.getElementById('status').textContent = 'App didn\'t open? Tap below to download:';
-                document.getElementById('fallback').style.display = 'flex';
-                document.querySelector('.loader').style.display = 'none';
+                console.log('🚀 Deep Link:', deepLink);
                 
-                // NO automatic redirect to store - let user decide
-            }, 2000);
+                // Show clickable button for iOS
+                document.getElementById('status').innerHTML = `
+                    <p style="font-size: 18px; margin-bottom: 20px;">Tap the button below to open Mercle app:</p>
+                    <a href="${deepLink}" style="
+                        display: inline-block;
+                        padding: 15px 30px;
+                        background: white;
+                        color: #667eea;
+                        text-decoration: none;
+                        border-radius: 8px;
+                        font-weight: bold;
+                        font-size: 16px;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+                    ">🚀 Open Mercle App</a>
+                    <p style="font-size: 14px; margin-top: 20px; opacity: 0.8;">If nothing happens, download the app below</p>
+                `;
+                document.getElementById('fallback').style.display = 'flex';
+            } else {
+                // Fallback
+                document.getElementById('status').textContent = 'Please use a mobile device';
+                document.getElementById('fallback').style.display = 'flex';
+            }
         } else {
             console.log('💻 Desktop detected - showing instructions');
             
