@@ -95,16 +95,14 @@
         console.log('  app_domain:', appDomain);
         console.log('  base64_qr:', base64Qr ? base64Qr.substring(0, 50) + '...' : '(empty)');
 
-        // Construct CORRECT deep link with separate parameters
-        // The Mercle app expects: session_id, app_name, app_domain, base64_qr
-        // ✅ USE scan-authenticate instead of verify to avoid wallet handler
+        // Construct deep link with separate parameters
+        // ✅ USE verify (NOT scan-authenticate) as per Mercle documentation
         const deepLinkParams = new URLSearchParams({
             session_id: sessionId,
             app_name: appName,
-            app_domain: appDomain,
-            base64_qr: base64Qr
+            app_domain: appDomain
         });
-        const deepLink = `mercle://scan-authenticate?${deepLinkParams.toString()}`;
+        const deepLink = `mercle://verify?${deepLinkParams.toString()}`;
         
         console.log('🔗 Constructed Deep Link:');
         console.log('  Full:', deepLink);
@@ -127,12 +125,12 @@
             // Try to open the app
             document.getElementById('status').textContent = 'Launching Mercle app...';
             
-            // For Android, use Intent URL format which works better from browsers
+            // For Android, use Intent URL format with Play Store fallback
             if (isAndroid) {
-                console.log('🤖 Android detected - using Intent URL');
+                console.log('🤖 Android detected - using Intent URL with fallback');
                 
-                // Android Intent URL format
-                const intentUrl = `intent://scan-authenticate?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;end`;
+                // Android Intent URL format with fallback to Play Store
+                const intentUrl = `intent://verify?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end`;
                 console.log('🚀 Opening Android Intent:', intentUrl);
                 window.location.href = intentUrl;
             } else if (isIOS) {
