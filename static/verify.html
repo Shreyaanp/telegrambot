@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opening Mercle...</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            padding: 20px;
+        }
+        .loader {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        h1 { margin: 0 0 10px 0; font-size: 24px; }
+        p { margin: 5px 0; opacity: 0.9; }
+        .buttons {
+            margin-top: 30px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        button, a {
+            padding: 12px 24px;
+            background: white;
+            color: #667eea;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover, a:hover {
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+    <div class="loader"></div>
+    <h1>Opening Mercle App...</h1>
+    <p id="status">Please wait...</p>
+    
+    <div class="buttons" id="fallback" style="display: none;">
+        <a href="https://play.google.com/store/apps/details?id=com.mercle.app" id="androidLink">Get on Android</a>
+        <a href="https://apps.apple.com/ng/app/mercle/id6751991316" id="iosLink">Get on iOS</a>
+    </div>
+
+    <script>
+        // Get parameters from URL
+        const params = new URLSearchParams(window.location.search);
+        const sessionId = params.get('session_id');
+        const appName = params.get('app_name') || 'Telegram Bot';
+        const appDomain = params.get('app_domain') || 'telegram.mercle.ai';
+        const base64Qr = params.get('base64_qr') || '';
+
+        // Construct deep link
+        const deepLink = `mercle://verify?session_id=${sessionId}&app_name=${encodeURIComponent(appName)}&app_domain=${encodeURIComponent(appDomain)}&base64_qr=${base64Qr}`;
+        
+        // Detect platform
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const isAndroid = /Android/.test(navigator.userAgent);
+        const isMobile = isIOS || isAndroid;
+
+        console.log('Platform:', { isIOS, isAndroid, isMobile });
+        console.log('Deep link:', deepLink);
+
+        if (isMobile) {
+            // Try to open the app
+            document.getElementById('status').textContent = 'Launching Mercle app...';
+            
+            // Attempt to open deep link
+            window.location.href = deepLink;
+            
+            // Show fallback after 2 seconds
+            setTimeout(() => {
+                document.getElementById('status').textContent = 'App didn\'t open? Download it below:';
+                document.getElementById('fallback').style.display = 'flex';
+                
+                // Redirect to appropriate store after 3 more seconds
+                setTimeout(() => {
+                    if (isAndroid) {
+                        document.getElementById('status').textContent = 'Redirecting to Play Store...';
+                        window.location.href = 'https://play.google.com/store/apps/details?id=com.mercle.app';
+                    } else if (isIOS) {
+                        document.getElementById('status').textContent = 'Redirecting to App Store...';
+                        window.location.href = 'https://apps.apple.com/ng/app/mercle/id6751991316';
+                    }
+                }, 3000);
+            }, 2000);
+        } else {
+            // Desktop - show QR code message
+            document.querySelector('.loader').style.display = 'none';
+            document.getElementById('status').innerHTML = `
+                <p>Please use your mobile device to verify.</p>
+                <p style="font-size: 14px; margin-top: 20px;">
+                    Open this link on your phone or scan the QR code in Telegram.
+                </p>
+            `;
+            document.getElementById('fallback').style.display = 'flex';
+        }
+
+        // Detect if user returns (app didn't open)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                // User left page - app probably opened!
+                console.log('App likely opened');
+            } else {
+                // User came back - app didn't open
+                console.log('App did not open');
+            }
+        });
+    </script>
+</body>
+</html>
+

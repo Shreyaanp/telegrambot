@@ -73,11 +73,22 @@ class VerificationService:
             qr_json = decode_base64_qr(base64_qr) if base64_qr else qr_data
             qr_image = generate_qr_code(qr_json) if qr_json else None
             
+            # Create universal link that redirects to deep link
+            import urllib.parse
+            universal_link = f"https://telegram.mercle.ai/verify?session_id={session_id}&app_name={urllib.parse.quote('Telegram Verification Bot')}&app_domain={urllib.parse.quote('https://telegram.mercle.ai')}&base64_qr={base64_qr}"
+            
             # Build inline keyboard with buttons
             keyboard = []
             
-            # Add download/open buttons (Telegram doesn't support mercle:// in inline buttons)
-            # Users will need to scan QR code with Mercle app
+            # Add button that opens via web redirect (works on mobile!)
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="📱 Open Mercle App",
+                    url=universal_link
+                )
+            ])
+            
+            # Add download buttons as fallback
             keyboard.append([
                 InlineKeyboardButton(
                     text="📥 Get Mercle App (iOS)",

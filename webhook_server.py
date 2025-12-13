@@ -6,6 +6,8 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from aiogram import Bot, Dispatcher
 from aiogram.types import Update
 from aiogram.enums import ParseMode
@@ -113,6 +115,36 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan, title="Telegram Verification Bot")
+
+# Serve static files for redirect page
+import os
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+
+@app.get("/verify")
+async def verify_redirect(
+    session_id: str,
+    app_name: str = "Telegram Bot",
+    app_domain: str = "telegram.mercle.ai",
+    base64_qr: str = ""
+):
+    """Redirect page that opens Mercle app via deep link."""
+    html_file = os.path.join(os.path.dirname(__file__), "static", "verify.html")
+    
+    if os.path.exists(html_file):
+        with open(html_file, 'r') as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    else:
+        # Fallback if file doesn't exist
+        return HTMLResponse(content=f"""
+        <html>
+            <head><meta http-equiv="refresh" content="0;url=mercle://verify?session_id={session_id}&app_name={app_name}&app_domain={app_domain}&base64_qr={base64_qr}"></head>
+            <body>Opening Mercle app...</body>
+        </html>
+        """)
 
 
 @app.get("/")

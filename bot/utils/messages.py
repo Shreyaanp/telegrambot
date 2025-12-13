@@ -19,10 +19,8 @@ def verification_prompt_message(timeout_seconds: int = 120) -> str:
 
 Please verify with Mercle face verification:
 
-**Steps:**
-1️⃣ Open Mercle app (download if needed using buttons below)
-2️⃣ Tap the **QR Scanner** icon
-3️⃣ Scan this QR code
+📱 **On Mobile:** Tap "Open Mercle App" button below
+💻 **On Desktop:** Scan QR code with Mercle app
 
 ⏰ You have **{minutes} minutes** to verify."""
 
