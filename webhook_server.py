@@ -135,20 +135,21 @@ async def health():
     }
 
 
-@app.post(f"{{webhook_path}}")
-async def telegram_webhook(request: Request, webhook_path: str) -> Response:
+@app.post("/webhook/{secret_path}")
+async def telegram_webhook(request: Request, secret_path: str) -> Response:
     """
     Handle incoming webhook updates from Telegram.
     Path is dynamic and comes from WEBHOOK_PATH env var.
     """
-    global bot_instance, dispatcher
+    global bot_instance, dispatcher, config
     
     if not bot_instance or not dispatcher:
         raise HTTPException(status_code=503, detail="Bot not initialized")
     
-    # Verify the webhook path matches
-    if webhook_path != config.webhook_path.lstrip("/"):
-        logger.warning(f"Invalid webhook path attempted: {webhook_path}")
+    # Verify the webhook path matches (strip leading slash for comparison)
+    expected_path = config.webhook_path.lstrip("/").replace("webhook/", "")
+    if secret_path != expected_path:
+        logger.warning(f"Invalid webhook path attempted: {secret_path}, expected: {expected_path}")
         raise HTTPException(status_code=404, detail="Not found")
     
     try:
