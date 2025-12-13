@@ -127,9 +127,26 @@
             // Try to open the app
             document.getElementById('status').textContent = 'Launching Mercle app...';
             
-            // Attempt to open deep link ONCE
-            console.log('🚀 Opening deep link:', deepLink);
-            window.location.href = deepLink;
+            // For Android, use Intent URL format which works better from browsers
+            if (isAndroid) {
+                console.log('🤖 Android detected - using Intent URL');
+                
+                // Android Intent URL format
+                const intentUrl = `intent://scan-authenticate?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;end`;
+                console.log('🚀 Opening Android Intent:', intentUrl);
+                window.location.href = intentUrl;
+            } else if (isIOS) {
+                console.log('🍎 iOS detected - using direct deep link');
+                
+                // iOS - direct deep link works
+                console.log('🚀 Opening iOS deep link:', deepLink);
+                window.location.href = deepLink;
+            } else {
+                // Fallback to regular deep link
+                console.log('🚀 Opening deep link:', deepLink);
+                window.location.href = deepLink;
+            }
+            
             console.log('✅ window.location.href set');
             
             // Show fallback after 2 seconds (but DON'T auto-redirect)
