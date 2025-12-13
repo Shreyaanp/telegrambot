@@ -55,6 +55,15 @@ async def cmd_verify(
         await message.answer(already_verified_message(), parse_mode="Markdown")
         return
     
+    # Check if there's already an active verification session
+    active_session = await user_manager.get_active_session(user_id)
+    if active_session:
+        await message.answer(
+            "⏳ You already have an active verification session. Please complete it or wait for it to expire.",
+            parse_mode="Markdown"
+        )
+        return
+    
     # Start verification
     success = await verification_service.start_verification(
         bot=message.bot,

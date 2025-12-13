@@ -1,8 +1,8 @@
 """User management service."""
 import logging
 from datetime import datetime
-from typing import Optional
-from sqlalchemy import select
+from typing import Optional, List
+from sqlalchemy import select, update, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import User, VerificationSession
@@ -37,20 +37,36 @@ class UserManager:
         mercle_user_id: str,
         username: Optional[str] = None
     ) -> User:
-        """Create a new verified user."""
+        """Create or update a verified user."""
         async with db.session() as session:
-            user = User(
-                telegram_id=telegram_id,
-                username=username,
-                mercle_user_id=mercle_user_id,
-                verified_at=datetime.utcnow()
+            # Check if user already exists
+            result = await session.execute(
+                select(User).where(User.telegram_id == telegram_id)
             )
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
+            existing_user = result.scalar_one_or_none()
             
-            logger.info(f"Created verified user: {telegram_id} ({username})")
-            return user
+            if existing_user:
+                # Update existing user
+                existing_user.mercle_user_id = mercle_user_id
+                existing_user.username = username
+                existing_user.verified_at = datetime.utcnow()
+                await session.commit()
+                await session.refresh(existing_user)
+                logger.info(f"Updated verified user: {telegram_id} ({username})")
+                return existing_user
+            else:
+                # Create new user
+                user = User(
+                    telegram_id=telegram_id,
+                    username=username,
+                    mercle_user_id=mercle_user_id,
+                    verified_at=datetime.utcnow()
+                )
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+                logger.info(f"Created verified user: {telegram_id} ({username})")
+                return user
     
     async def create_session(
         self,
@@ -102,4 +118,50 @@ class UserManager:
                 ver_session.status = status
                 await session.commit()
                 logger.info(f"Updated session {session_id} status to: {status}")
+    
+    async def cleanup_expired_sessions(self) -> int:
+        """Mark expired pending sessions as expired."""
+        async with db.session() as session:
+            result = await session.execute(
+                update(VerificationSession)
+                .where(
+                    and_(
+                        VerificationSession.status == "pending",
+                        VerificationSession.expires_at < datetime.utcnow()
+                    )
+                )
+                .values(status="expired")
+            )
+            await session.commit()
+            count = result.rowcount
+            if count > 0:
+                logger.info(f"Cleaned up {count} expired sessions")
+            return count
+    
+    async def get_user_sessions(self, telegram_id: int) -> List[VerificationSession]:
+        """Get all sessions for a user."""
+        async with db.session() as session:
+            result = await session.execute(
+                select(VerificationSession)
+                .where(VerificationSession.telegram_id == telegram_id)
+                .order_by(VerificationSession.created_at.desc())
+            )
+            return list(result.scalars().all())
+    
+    async def get_active_session(self, telegram_id: int) -> Optional[VerificationSession]:
+        """Get active pending session for a user."""
+        async with db.session() as session:
+            result = await session.execute(
+                select(VerificationSession)
+                .where(
+                    and_(
+                        VerificationSession.telegram_id == telegram_id,
+                        VerificationSession.status == "pending",
+                        VerificationSession.expires_at > datetime.utcnow()
+                    )
+                )
+                .order_by(VerificationSession.created_at.desc())
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
 

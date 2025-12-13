@@ -94,6 +94,9 @@ async def lifespan(app: FastAPI):
     
     logger.info("✅ Handlers registered")
     
+    # Start background cleanup task
+    cleanup_task = asyncio.create_task(periodic_cleanup(user_manager))
+    
     # Set webhook
     webhook_url = f"{config.webhook_url}{config.webhook_path}"
     await bot_instance.set_webhook(
@@ -108,10 +111,29 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("🛑 Shutting down webhook server...")
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
     await bot_instance.delete_webhook()
     await bot_instance.session.close()
     await db.close()
     logger.info("✅ Cleanup complete")
+
+
+async def periodic_cleanup(user_manager: UserManager):
+    """Periodically cleanup expired sessions."""
+    while True:
+        try:
+            await asyncio.sleep(300)  # Run every 5 minutes
+            count = await user_manager.cleanup_expired_sessions()
+            if count > 0:
+                logger.info(f"🧹 Cleaned up {count} expired sessions")
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in periodic cleanup: {e}")
 
 
 app = FastAPI(lifespan=lifespan, title="Telegram Verification Bot")
