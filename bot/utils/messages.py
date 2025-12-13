@@ -17,10 +17,12 @@ def verification_prompt_message(timeout_seconds: int = 120) -> str:
     minutes = timeout_seconds // 60
     return f"""🔐 **Verification Required**
 
-Please verify you're human with Mercle face verification.
+Please verify with Mercle face verification:
 
-📱 **On Mobile:** Tap the button below to open Mercle app directly
-💻 **On Desktop:** Open Mercle app on your phone → Tap QR Scanner → Scan the code below
+**Steps:**
+1️⃣ Open Mercle app (download if needed using buttons below)
+2️⃣ Tap the **QR Scanner** icon
+3️⃣ Scan this QR code
 
 ⏰ You have **{minutes} minutes** to verify."""
 
