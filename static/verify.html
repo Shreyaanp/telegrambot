@@ -67,6 +67,16 @@
     </div>
 
     <script>
+        // Prevent multiple executions
+        if (window.sessionStorage.getItem('deeplink_attempted')) {
+            document.getElementById('status').textContent = 'Already attempted. Please check your Mercle app.';
+            document.getElementById('fallback').style.display = 'flex';
+            document.querySelector('.loader').style.display = 'none';
+            return;
+        }
+        
+        window.sessionStorage.setItem('deeplink_attempted', 'true');
+        
         // Get parameters from URL
         const params = new URLSearchParams(window.location.search);
         const sessionId = params.get('session_id');
@@ -96,24 +106,16 @@
             // Try to open the app
             document.getElementById('status').textContent = 'Launching Mercle app...';
             
-            // Attempt to open deep link
+            // Attempt to open deep link ONCE
             window.location.href = deepLink;
             
-            // Show fallback after 2 seconds
+            // Show fallback after 2 seconds (but DON'T auto-redirect)
             setTimeout(() => {
-                document.getElementById('status').textContent = 'App didn\'t open? Download it below:';
+                document.getElementById('status').textContent = 'App didn\'t open? Tap below to download:';
                 document.getElementById('fallback').style.display = 'flex';
+                document.querySelector('.loader').style.display = 'none';
                 
-                // Redirect to appropriate store after 3 more seconds
-                setTimeout(() => {
-                    if (isAndroid) {
-                        document.getElementById('status').textContent = 'Redirecting to Play Store...';
-                        window.location.href = 'https://play.google.com/store/apps/details?id=com.mercle.app';
-                    } else if (isIOS) {
-                        document.getElementById('status').textContent = 'Redirecting to App Store...';
-                        window.location.href = 'https://apps.apple.com/ng/app/mercle/id6751991316';
-                    }
-                }, 3000);
+                // NO automatic redirect to store - let user decide
             }, 2000);
         } else {
             // Desktop - show QR code message
