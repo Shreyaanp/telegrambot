@@ -77,21 +77,27 @@ class VerificationService:
             import urllib.parse
             universal_link = f"https://telegram.mercle.ai/verify?session_id={session_id}&app_name={urllib.parse.quote('Telegram Verification Bot')}&app_domain={urllib.parse.quote('https://telegram.mercle.ai')}&base64_qr={base64_qr}"
             
-            # Build inline keyboard with download buttons only
-            # Note: Direct deep link buttons don't work from Telegram on Android browsers
-            # QR scanning is the primary verification method
+            # Build inline keyboard with buttons
             keyboard = []
             
-            # Add download buttons for users who don't have the app
+            # Add button that opens via web redirect (works on mobile!)
             keyboard.append([
                 InlineKeyboardButton(
-                    text="📥 Download Mercle (iOS)",
+                    text="📱 Open Mercle App",
+                    url=universal_link
+                )
+            ])
+            
+            # Add download buttons as fallback
+            keyboard.append([
+                InlineKeyboardButton(
+                    text="📥 Get Mercle App (iOS)",
                     url="https://apps.apple.com/ng/app/mercle/id6751991316"
                 )
             ])
             keyboard.append([
                 InlineKeyboardButton(
-                    text="📥 Download Mercle (Android)",
+                    text="📥 Get Mercle App (Android)",
                     url="https://play.google.com/store/apps/details?id=com.mercle.app"
                 )
             ])
