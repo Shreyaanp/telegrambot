@@ -153,8 +153,8 @@
             app_domain: appDomain
         });
         
-        const directLink = `mercle://verify?${deepLinkParams.toString()}`;
-        const intentUrl = `intent://verify?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end`;
+        const directLink = `mercle://scan-authenticate?${deepLinkParams.toString()}`;
+        const intentUrl = `intent://scan-authenticate?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end`;
 
         log('🔗 Direct Link: ' + directLink);
         log('🔗 Intent URL: ' + intentUrl);
