@@ -86,13 +86,14 @@
 
         // Construct CORRECT deep link with separate parameters
         // The Mercle app expects: session_id, app_name, app_domain, base64_qr
+        // ✅ USE scan-authenticate instead of verify to avoid wallet handler
         const deepLinkParams = new URLSearchParams({
             session_id: sessionId,
             app_name: appName,
             app_domain: appDomain,
             base64_qr: base64Qr
         });
-        const deepLink = `mercle://verify?${deepLinkParams.toString()}`;
+        const deepLink = `mercle://scan-authenticate?${deepLinkParams.toString()}`;
         
         // Detect platform
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
