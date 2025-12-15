@@ -8,7 +8,6 @@ from aiogram.filters import Command
 from bot.plugins.base import BasePlugin
 from bot.services.group_service import GroupService
 from bot.services.permission_service import PermissionService
-from database.db import get_session
 from database.models import Base
 from sqlalchemy import Column, Integer, String, Text, DateTime
 from datetime import datetime
