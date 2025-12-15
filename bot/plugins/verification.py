@@ -311,7 +311,7 @@ class VerificationPlugin(BasePlugin):
             qr_image = generate_qr_code(qr_json) if qr_json else None
             
             # Create universal link for deep link
-            universal_link = f" https://telegram.mercle.ai/verify?session_id={session_id}&app_name={urllib.parse.quote('Telegram Verification Bot')}&app_domain={urllib.parse.quote('telegram.mercle.ai')}"
+            universal_link = f"https://telegram.mercle.ai/verify?session_id={session_id}&app_name={urllib.parse.quote('Telegram Verification Bot')}&app_domain={urllib.parse.quote('telegram.mercle.ai')}"
             
             # Build inline keyboard
             keyboard = [

@@ -21,7 +21,7 @@ class User(Base):
     global_reputation = Column(Integer, default=0)  # For future federation features
     
     # Relationships
-    sessions = relationship("VerificationSession", back_populates="user")
+    # sessions removed - verification happens before user exists
     memberships = relationship("GroupMember", back_populates="user")
     warnings = relationship("Warning", back_populates="user")
     whitelist_entries = relationship("Whitelist", back_populates="user")
@@ -91,7 +91,7 @@ class VerificationSession(Base):
     __tablename__ = "verification_sessions"
     
     session_id = Column(String, primary_key=True)
-    telegram_id = Column(Integer, ForeignKey("users.telegram_id"), nullable=False)
+    telegram_id = Column(Integer, nullable=False)  # Removed ForeignKey - user doesn't exist yet during verification
     group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=True)
     chat_id = Column(Integer, nullable=False)  # Where verification message was sent
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -100,8 +100,8 @@ class VerificationSession(Base):
     message_ids = Column(Text, nullable=True)  # JSON array of message IDs to delete
     trigger_type = Column(String, default="manual")  # auto_join or manual_command
     
-    # Relationships
-    user = relationship("User", back_populates="sessions")
+    # Relationships removed - user might not exist yet
+    # user = relationship("User", back_populates="sessions")
     group = relationship("Group", back_populates="sessions")
     
     # Index for fast status lookups
