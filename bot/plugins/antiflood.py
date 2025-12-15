@@ -50,6 +50,16 @@ class AntiFloodPlugin(BasePlugin):
         user_id = message.from_user.id
         
         try:
+            # Import here to avoid circular imports
+            from bot.services.group_service import GroupService
+            
+            # Ensure group exists in database first
+            group_service = GroupService(self.db)
+            await group_service.get_or_create_group(
+                group_id=group_id,
+                group_name=message.chat.title or "Unknown Group"
+            )
+            
             async with self.db.session() as session:
                 # Get or create flood tracker
                 result = await session.execute(
