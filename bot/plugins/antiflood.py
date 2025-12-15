@@ -55,7 +55,7 @@ class AntiFloodPlugin(BasePlugin):
             
             # Ensure group exists in database first
             group_service = GroupService(self.db)
-            await group_service.get_or_create_group(
+            await group_service.create_group(
                 group_id=group_id,
                 group_name=message.chat.title or "Unknown Group"
             )

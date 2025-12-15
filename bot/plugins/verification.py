@@ -66,6 +66,7 @@ class VerificationPlugin(BasePlugin):
         self.router.message.register(self.cmd_start, Command("start"))
         self.router.message.register(self.cmd_verify, Command("verify"))
         self.router.message.register(self.cmd_status, Command("status"))
+        self.router.message.register(self.cmd_help, Command("help"))
         
         # Register chat member update handler (for group joins)
         self.router.chat_member.register(
@@ -80,6 +81,7 @@ class VerificationPlugin(BasePlugin):
             {"command": "/start", "description": "Start the bot"},
             {"command": "/verify", "description": "Verify your identity"},
             {"command": "/status", "description": "Check verification status"},
+            {"command": "/help", "description": "Show help message"},
         ]
     
     # Command Handlers
@@ -133,6 +135,11 @@ class VerificationPlugin(BasePlugin):
             await message.answer(status_message(True, user_obj.mercle_user_id))
         else:
             await message.answer(status_message(False))
+    
+    async def cmd_help(self, message: Message):
+        """Handle /help command."""
+        from bot.utils.messages import help_message
+        await message.answer(help_message(), parse_mode="Markdown")
     
     # Group Join Handler
     
