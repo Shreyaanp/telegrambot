@@ -1,6 +1,29 @@
-"""Init file for database package."""
-from database.db import db, Database
-from database.models import User, VerificationSession, GroupSettings
+"""Database package - models and connection management."""
+from database.db import Database, get_database, init_database, close_database
+from database.models import (
+    Base,
+    User,
+    Group,
+    GroupMember,
+    VerificationSession,
+    Warning,
+    Whitelist,
+    Permission,
+    FloodTracker,
+)
 
-__all__ = ["db", "Database", "User", "VerificationSession", "GroupSettings"]
-
+__all__ = [
+    "Database",
+    "get_database",
+    "init_database",
+    "close_database",
+    "Base",
+    "User",
+    "Group",
+    "GroupMember",
+    "VerificationSession",
+    "Warning",
+    "Whitelist",
+    "Permission",
+    "FloodTracker",
+]

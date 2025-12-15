@@ -1,179 +1,163 @@
-# Telegram Verification Bot with Mercle SDK
+# 🤖 Rose-Style Telegram Verification Bot
 
-A Telegram bot that verifies new group members using Mercle's biometric face verification.
+A production-ready Telegram bot with Rose bot-inspired architecture, featuring biometric verification via Mercle SDK, plugin system, and comprehensive group management tools.
 
-## Features
+## ✨ Features
 
-- ✅ **Auto-verify new members** when they join Telegram groups
-- 📱 **Mobile support** - Deep links open Mercle app directly
-- 💻 **Desktop support** - QR codes for scanning
-- ⏰ **30-second verification timeout**
-- 🔐 **Biometric authentication** via Mercle SDK
-- 🤖 **Group moderation** - Auto-mute unverified users
+### 🔐 Verification System
+- **Auto-verification on group join** - New members are automatically muted and prompted to verify
+- **Manual `/verify` command** - Users can verify in private messages
+- **Global verification** - Once verified, users are recognized across all groups
+- **Whitelist support** - Bypass verification for trusted users
+- **Message cleanup** - All verification messages are deleted to keep chat clean
+- **Per-group settings** - Each group can customize timeout, welcome message, etc.
 
-## Project Structure
+### 👮 Admin Commands
+- `/vkick @user` - Kick user from group
+- `/vban @user [reason]` - Ban user from group
+- `/settings` - View/update group settings
+- `/vverify @user` - Manually verify user (bypass Mercle)
 
+### ⚠️ Warning System
+- `/warn @user [reason]` - Warn user
+- `/warnings @user` - Show user's warnings
+- `/resetwarns @user` - Clear warnings
+- **Auto-kick at 3 warnings**
+
+### 📋 Whitelist Management
+- `/whitelist list` - Show whitelisted users
+- `/whitelist add @user [reason]` - Add to whitelist
+- `/whitelist remove @user` - Remove from whitelist
+
+### 📜 Rules & Stats
+- `/rules` - Display group rules
+- `/setrules <text>` - Set group rules (admin only)
+- `/stats` - Show verification statistics
+
+### 🚫 Anti-Flood Protection
+- Automatic message rate limiting
+- Auto-mute users sending too many messages
+- Configurable thresholds
+
+## 🏗️ Architecture
+
+### Plugin System
 ```
-telegrambot/
-├── bot/
-│   ├── config.py              # Configuration loader
-│   ├── main.py                # Bot entry point (polling mode)
-│   ├── handlers/              # Command & event handlers
-│   │   ├── commands.py        # /start, /verify, /status, /help
-│   │   ├── member_events.py   # New member joins
-│   │   └── callbacks.py       # Button callbacks
-│   ├── services/              # Business logic
-│   │   ├── mercle_sdk.py      # Mercle API client
-│   │   ├── verification.py    # Verification flow
-│   │   └── user_manager.py    # User database operations
-│   └── utils/                 # Utilities
-│       ├── qr_generator.py    # QR code generation
-│       └── messages.py        # Message templates
-├── database/
-│   ├── models.py              # SQLAlchemy models
-│   └── db.py                  # Database connection
-├── webhook_app.py             # FastAPI webhook (for production)
-├── requirements.txt           # Python dependencies
-└── .env                       # Configuration (not in git)
+Bot Core
+├── Plugin Manager (dynamic loading/unloading)
+├── Verification Plugin (auto-join + /verify)
+├── Admin Plugin (/vkick, /vban, /settings)
+├── Warnings Plugin (/warn, /warnings)
+├── Whitelist Plugin (/whitelist)
+├── Rules Plugin (/rules, /setrules)
+├── Stats Plugin (/stats)
+└── Anti-Flood Plugin (rate limiting)
 ```
 
-## Setup
+### Service Layer
+```
+Services
+├── UserService (user CRUD)
+├── GroupService (group settings & membership)
+├── SessionService (verification sessions)
+├── PermissionService (roles, whitelist, warnings)
+├── MessageCleanerService (batch deletion)
+└── MercleSDK (face verification API)
+```
 
-### 1. Install Dependencies
+### Database Schema (SQLite with WAL mode)
+```
+Tables:
+├── users (global verified users)
+├── groups (group settings)
+├── group_members (membership tracking)
+├── verification_sessions (active verifications)
+├── warnings (warning system)
+├── whitelist (bypass verification)
+├── permissions (custom admin roles)
+└── flood_tracker (anti-flood)
+```
 
+## 🚀 Quick Start
+
+### Prerequisites
+- Python 3.11+
+- Telegram Bot Token (from @BotFather)
+- Mercle SDK API Key
+- Domain with SSL certificate (for production)
+
+### Installation
+
+1. **Clone and setup:**
 ```bash
+cd /home/ichiro/telegrambot
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment
-
-The `.env` file is already configured with:
-
-```env
-BOT_TOKEN=8015740704:AAEvhfS5UwXOk_dbICe_fC8hmNbm_0RNF-I
+2. **Configure environment:**
+```bash
+# Edit .env file
+BOT_TOKEN=your_bot_token_here
 MERCLE_API_URL=https://newapi.mercle.ai/api/mercle-sdk
-MERCLE_API_KEY=815bb028-825a-414b-96da-fb751ec3c97a
-VERIFICATION_TIMEOUT=30
+MERCLE_API_KEY=your_mercle_api_key_here
+VERIFICATION_TIMEOUT=120
+WEBHOOK_URL=https://telegram.mercle.ai
+WEBHOOK_PATH=/webhook/secure-random-path
 ```
 
-### 3. Run Bot (Polling Mode - Development)
-
+3. **Test locally (polling mode):**
 ```bash
-python bot/main.py
+# Create a simple test script
+python3 << 'EOF'
+import asyncio
+from bot.core.bot import TelegramBot
+from bot.config import Config
+from bot.services.mercle_sdk import MercleSDK
+from bot.plugins.verification import VerificationPlugin
+
+async def main():
+    config = Config()
+    bot = TelegramBot(config)
+    
+    await bot.initialize()
+    
+    # Register Mercle SDK
+    mercle_sdk = MercleSDK(config.mercle_api_url, config.mercle_api_key)
+    bot.get_plugin_manager().register_service("mercle_sdk", mercle_sdk)
+    
+    # Load verification plugin
+    await bot.load_plugins([VerificationPlugin])
+    
+    # Run in polling mode
+    await bot.run_polling()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+EOF
 ```
 
-### 4. Test Commands
-
-Open Telegram and message `@mercleMerci_bot`:
-
-- `/start` - Start the bot
-- `/verify` - Start verification flow
-- `/status` - Check verification status
-- `/help` - Show help message
-
-## How It Works
-
-### User Verification Flow
-
-1. User types `/verify` in bot DM
-2. Bot creates Mercle SDK session
-3. Bot sends message with:
-   - 📱 Button to open Mercle app (mobile)
-   - 📥 Button to download app
-   - 💻 QR code (desktop)
-4. User verifies via Mercle app (face scan)
-5. Bot polls Mercle API for status (every 3 seconds)
-6. When verified:
-   - User saved to database
-   - Success message sent
-   - User can access groups
-
-### Group Member Verification Flow
-
-1. New user joins Telegram group
-2. Bot **immediately restricts** the user (mutes them)
-3. Bot sends group message: "Please verify in DM"
-4. Bot sends **DM** with verification instructions
-5. User verifies (same flow as above)
-6. Bot **unrestricts** user in group
-7. User can now participate
-
-If user doesn't verify within 30 seconds:
-- User stays muted
-- Can type `/verify` later to try again
-
-## Database Schema
-
-### Users Table
-```sql
-telegram_id (PK) | username | mercle_user_id | verified_at
-```
-
-### Verification Sessions Table
-```sql
-session_id (PK) | telegram_id | group_id | created_at | expires_at | status
-```
-
-### Group Settings Table
-```sql
-group_id (PK) | group_name | verification_required | timeout_seconds
-```
-
-## API Integration
-
-### Mercle SDK Endpoints
-
-**Create Session:**
-```
-POST https://newapi.mercle.ai/api/mercle-sdk/session/create
-Header: X-API-Key: 815bb028-825a-414b-96da-fb751ec3c97a
-Body: { "metadata": {...} }
-
-Response:
-{
-  "session_id": "abc123",
-  "qr_data": "{...}",
-  "base64_qr": "eyJ...",
-  "deep_link": "mercle://verify?session_id=abc123"
-}
-```
-
-**Check Status:**
-```
-GET https://newapi.mercle.ai/api/mercle-sdk/session/status?session_id=abc123
-Header: X-API-Key: 815bb028-825a-414b-96da-fb751ec3c97a
-
-Response:
-{
-  "status": "approved",
-  "localized_user_id": "mercle_user_123"
-}
-```
-
-## Deployment to EC2
-
-### 1. Copy to EC2
-
+4. **Deploy to production (webhook mode):**
 ```bash
-scp -r telegrambot/ telegrambot:~/
-```
+# On EC2 instance
+cd /home/ubuntu/telegrambot
 
-### 2. Install on EC2
+# Update code
+git pull
 
-```bash
-ssh telegrambot
-cd telegrambot
-python3 -m venv venv
+# Install dependencies
 source venv/bin/activate
 pip install -r requirements.txt
+
+# Start with systemd
+sudo systemctl restart telegrambot
+sudo systemctl status telegrambot
 ```
 
-### 3. Run with systemd
+## 📦 Deployment
 
-Create `/etc/systemd/system/telegrambot.service`:
-
+### Systemd Service
 ```ini
 [Unit]
 Description=Telegram Verification Bot
@@ -184,8 +168,7 @@ Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/telegrambot
 Environment="PATH=/home/ubuntu/telegrambot/venv/bin"
-EnvironmentFile=/home/ubuntu/telegrambot/.env
-ExecStart=/home/ubuntu/telegrambot/venv/bin/python bot/main.py
+ExecStart=/home/ubuntu/telegrambot/venv/bin/uvicorn webhook_server:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=10
 
@@ -193,70 +176,264 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Start the service:
+### Nginx Configuration
+```nginx
+server {
+    listen 80;
+    server_name telegram.mercle.ai;
+    return 301 https://$server_name$request_uri;
+}
 
-```bash
-sudo systemctl enable telegrambot
-sudo systemctl start telegrambot
-sudo systemctl status telegrambot
+server {
+    listen 443 ssl;
+    server_name telegram.mercle.ai;
+    
+    ssl_certificate /etc/letsencrypt/live/telegram.mercle.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/telegram.mercle.ai/privkey.pem;
+    
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
 ```
 
-## Testing
+## 🔧 Configuration
 
-### Test in Bot DM
+### Group Settings
+Each group can be configured independently:
 
-1. Open Telegram
-2. Search for `@mercleMerci_bot`
-3. Click "Start"
-4. Type `/verify`
-5. Scan QR code or tap button
-6. Verify your face in Mercle app
+```bash
+/settings                    # View current settings
+/settings timeout 300        # Set 5-minute timeout
+/settings autoverify on      # Enable auto-verification
+/settings welcome Hello!     # Set custom welcome message
+```
 
-### Test in Group
+### Permission System
+Hybrid system: Telegram admins + custom permissions
 
-1. Create a test Telegram group
-2. Add `@mercleMerci_bot` to the group
-3. Make bot an **admin** with these permissions:
-   - ✅ Delete messages
-   - ✅ Ban users
-   - ✅ Invite users via link
-   - ✅ Restrict members
-4. Have someone join the group
-5. Bot should mute them and send DM
-6. After verification, bot unmutes them
+```python
+# Telegram admins: Full access to everything
+# Custom permissions: Fine-grained control
 
-## Bot Commands
+await permission_service.grant_permission(
+    group_id=group_id,
+    telegram_id=user_id,
+    role="moderator",
+    granted_by=admin_id,
+    can_verify=True,
+    can_kick=False,
+    can_ban=False,
+    can_warn=True,
+    can_settings=False
+)
+```
 
-- `/start` - Welcome message
-- `/verify` - Start verification flow
-- `/status` - Check verification status
-- `/help` - Show help message
+## 📊 Monitoring
 
-## Troubleshooting
+### Health Check
+```bash
+curl https://telegram.mercle.ai/health
+```
 
-### Bot doesn't respond in group
+### Status & Metrics
+```bash
+curl https://telegram.mercle.ai/status
+```
 
-- Make sure bot is **admin** in the group
-- Check bot has permission to **restrict members**
+### Logs
+```bash
+# Systemd logs
+sudo journalctl -u telegrambot -f
 
-### Verification times out
+# Or application logs
+tail -f /var/log/telegrambot/bot.log
+```
 
-- Check Mercle API is accessible
-- Verify API key is correct
-- Check user has Mercle app installed
+## 🧪 Testing
 
-### QR code doesn't work
+### Create Test Group
+1. Create a new Telegram group
+2. Add the bot to the group
+3. Make bot an admin with permissions:
+   - Delete messages
+   - Ban users
+   - Restrict members
 
-- Make sure base64_qr is being decoded correctly
-- Check QR code image is being sent properly
+### Test Scenarios
 
-## Support
+**Auto-Verification Flow:**
+1. Join the group with a test account
+2. Bot should mute you immediately
+3. Bot sends verification message in group
+4. Tap "Open Mercle App" or scan QR
+5. Complete face verification
+6. Bot unmutes you and deletes verification messages
 
-- Mercle SDK Docs: https://newapi.mercle.ai/docs
-- Telegram Bot API: https://core.telegram.org/bots/api
-- Bot: @mercleMerci_bot
+**Manual Verification:**
+1. Send `/verify` to bot in private message
+2. Complete verification
+3. Bot confirms success
 
-## License
+**Admin Commands:**
+```bash
+/vkick @testuser          # Kick user
+/vban @testuser spam      # Ban user
+/warn @testuser rule5     # Warn user
+/whitelist add @testuser  # Add to whitelist
+/settings timeout 180     # Change timeout
+/rules                    # Show rules
+/stats                    # Show statistics
+```
 
-MIT
+## 📁 Project Structure
 
+```
+telegrambot/
+├── bot/
+│   ├── core/
+│   │   ├── bot.py                 # Main bot class
+│   │   ├── plugin_manager.py      # Plugin system
+│   │   └── __init__.py
+│   ├── plugins/
+│   │   ├── base.py                # Base plugin interface
+│   │   ├── verification.py        # Verification plugin
+│   │   ├── admin.py               # Admin commands
+│   │   ├── warnings.py            # Warning system
+│   │   ├── whitelist.py           # Whitelist management
+│   │   ├── rules.py               # Rules system
+│   │   ├── stats.py               # Statistics
+│   │   ├── antiflood.py           # Anti-flood
+│   │   └── __init__.py
+│   ├── services/
+│   │   ├── user_service.py        # User operations
+│   │   ├── group_service.py       # Group operations
+│   │   ├── session_service.py     # Session management
+│   │   ├── permission_service.py  # Permissions
+│   │   ├── message_cleaner.py     # Message deletion
+│   │   ├── mercle_sdk.py          # Mercle API client
+│   │   └── __init__.py
+│   ├── utils/
+│   │   ├── qr_generator.py        # QR code generation
+│   │   ├── messages.py            # Message templates
+│   │   ├── decorators.py          # Permission decorators
+│   │   └── __init__.py
+│   ├── config.py                  # Configuration
+│   └── __init__.py
+├── database/
+│   ├── models.py                  # SQLAlchemy models
+│   ├── db.py                      # Database connection
+│   └── __init__.py
+├── static/
+│   └── verify.html                # Deep link redirect
+├── webhook_server.py              # FastAPI webhook server
+├── requirements.txt               # Dependencies
+├── .env                           # Environment variables
+├── .gitignore
+├── README.md                      # This file
+└── IMPLEMENTATION_PROGRESS.md     # Development progress
+```
+
+## 🔑 Environment Variables
+
+```bash
+# Telegram Bot
+BOT_TOKEN=your_bot_token_from_botfather
+
+# Mercle SDK
+MERCLE_API_URL=https://newapi.mercle.ai/api/mercle-sdk
+MERCLE_API_KEY=your_api_key
+MERCLE_API_SECRET=your_api_secret
+MERCLE_APP_ID=your_app_id
+
+# Verification Settings
+VERIFICATION_TIMEOUT=120  # seconds (2 minutes)
+
+# Webhook Configuration
+WEBHOOK_URL=https://telegram.mercle.ai
+WEBHOOK_PATH=/webhook/secure-random-path-here
+```
+
+## 🛠️ Development
+
+### Adding a New Plugin
+
+```python
+from bot.plugins.base import BasePlugin
+from aiogram.filters import Command
+from aiogram.types import Message
+
+class MyPlugin(BasePlugin):
+    @property
+    def name(self) -> str:
+        return "myplugin"
+    
+    @property
+    def description(self) -> str:
+        return "My custom plugin"
+    
+    async def on_load(self):
+        await super().on_load()
+        self.router.message.register(self.cmd_mycommand, Command("mycommand"))
+    
+    def get_commands(self):
+        return [{"command": "/mycommand", "description": "My command"}]
+    
+    async def cmd_mycommand(self, message: Message):
+        await message.answer("Hello from my plugin!")
+```
+
+### Database Migrations
+
+```python
+# Add migration script in database/migrations/
+# Run manually or via CLI tool
+
+async def migrate_add_column():
+    async with db.session() as session:
+        await session.execute(text("ALTER TABLE users ADD COLUMN new_field TEXT"))
+        await session.commit()
+```
+
+## 📚 API Documentation
+
+### FastAPI Endpoints
+
+- `POST /webhook/secure-path` - Telegram webhook
+- `GET /verify?session_id=...` - Deep link redirect
+- `GET /health` - Health check
+- `GET /status` - Status & metrics
+- `GET /` - API information
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- **Rose Bot** - Inspiration for architecture and features
+- **Mercle SDK** - Biometric verification system
+- **aiogram** - Telegram Bot API framework
+- **FastAPI** - Modern web framework
+
+## 📞 Support
+
+- **Issues**: Create an issue on GitHub
+- **Documentation**: See `/help` in the bot
+- **Email**: support@mercle.ai
+
+---
+
+**Built with ❤️ using Python, aiogram, FastAPI, and Mercle SDK**
