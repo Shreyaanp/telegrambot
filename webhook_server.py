@@ -80,6 +80,33 @@ async def lifespan(app: FastAPI):
         # Start bot
         await telegram_bot.start()
         
+        # Register all commands in Telegram UI
+        from aiogram.types import BotCommand
+        commands = [
+            BotCommand(command="start", description="Start the bot"),
+            BotCommand(command="help", description="Show all commands and features"),
+            BotCommand(command="verify", description="Verify your identity with biometrics"),
+            BotCommand(command="status", description="Check your verification status"),
+            BotCommand(command="settings", description="View/change group settings (admin)"),
+            BotCommand(command="vverify", description="Manually verify a user (admin)"),
+            BotCommand(command="vunverify", description="Remove user's verification (admin)"),
+            BotCommand(command="kick", description="Kick a user from the group (admin)"),
+            BotCommand(command="ban", description="Ban a user from the group (admin)"),
+            BotCommand(command="unban", description="Unban a user (admin)"),
+            BotCommand(command="mute", description="Mute a user (admin)"),
+            BotCommand(command="unmute", description="Unmute a user (admin)"),
+            BotCommand(command="warn", description="Warn a user (admin)"),
+            BotCommand(command="warns", description="Check user's warnings"),
+            BotCommand(command="resetwarns", description="Reset user's warnings (admin)"),
+            BotCommand(command="whitelist", description="Add user to whitelist (admin)"),
+            BotCommand(command="unwhitelist", description="Remove from whitelist (admin)"),
+            BotCommand(command="rules", description="Show group rules"),
+            BotCommand(command="setrules", description="Set group rules (admin)"),
+            BotCommand(command="stats", description="Show verification statistics"),
+        ]
+        await telegram_bot.get_bot().set_my_commands(commands)
+        logger.info(f"✅ Registered {len(commands)} commands in Telegram UI")
+        
         # Set webhook
         webhook_url = f"{config.webhook_url}{config.webhook_path}"
         await telegram_bot.get_bot().set_webhook(
