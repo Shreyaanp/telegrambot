@@ -26,25 +26,27 @@ class AdminLog(Base):
 class AdminLogsPlugin(BasePlugin):
     """Plugin for tracking and viewing admin actions."""
     
-    def __init__(self):
-        super().__init__()
-        self.logger = logging.getLogger(__name__)
-        self.permission_service = PermissionService()
+    @property
+    def name(self) -> str:
+        return "adminlogs"
     
-    def get_name(self) -> str:
-        return "Admin Logs"
-    
-    def get_description(self) -> str:
+    @property
+    def description(self) -> str:
         return "Track and view admin actions"
+    
+    def __init__(self, bot, db, config, services):
+        super().__init__(bot, db, config, services)
+        self.permission_service = PermissionService(db)
+    
+    async def on_load(self):
+        """Register all handlers for this plugin."""
+        await super().on_load()
+        self.router.message.register(self.cmd_adminlog, Command("adminlog"))
     
     def get_commands(self) -> list:
         return [
-            ("adminlog", "View admin action logs"),
+            {"command": "/adminlog", "description": "View admin action logs"},
         ]
-    
-    def register_handlers(self, router: Router):
-        """Register all handlers for this plugin."""
-        router.message.register(self.cmd_adminlog, Command("adminlog"))
     
     # Commands
     

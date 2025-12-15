@@ -29,31 +29,33 @@ class MessageFilter(Base):
 class FiltersPlugin(BasePlugin):
     """Plugin for message filters and auto-responses."""
     
-    def __init__(self):
-        super().__init__()
-        self.logger = logging.getLogger(__name__)
-        self.group_service = GroupService()
-        self.permission_service = PermissionService()
+    @property
+    def name(self) -> str:
+        return "filters"
     
-    def get_name(self) -> str:
-        return "Filters"
-    
-    def get_description(self) -> str:
+    @property
+    def description(self) -> str:
         return "Auto-respond to keywords with custom messages"
+    
+    def __init__(self, bot, db, config, services):
+        super().__init__(bot, db, config, services)
+        self.group_service = GroupService(db)
+        self.permission_service = PermissionService(db)
+    
+    async def on_load(self):
+        """Register all handlers for this plugin."""
+        await super().on_load()
+        self.router.message.register(self.cmd_filter, Command("filter"))
+        self.router.message.register(self.cmd_filters, Command("filters"))
+        self.router.message.register(self.cmd_stop, Command("stop"))
+        self.router.message.register(self.on_message, F.text)
     
     def get_commands(self) -> list:
         return [
-            ("filter", "Add a filter"),
-            ("filters", "List all filters"),
-            ("stop", "Remove a filter"),
+            {"command": "/filter", "description": "Add a filter"},
+            {"command": "/filters", "description": "List all filters"},
+            {"command": "/stop", "description": "Remove a filter"},
         ]
-    
-    def register_handlers(self, router: Router):
-        """Register all handlers for this plugin."""
-        router.message.register(self.cmd_filter, Command("filter"))
-        router.message.register(self.cmd_filters, Command("filters"))
-        router.message.register(self.cmd_stop, Command("stop"))
-        router.message.register(self.on_message, F.text)
     
     # Commands
     

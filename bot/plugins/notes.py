@@ -31,33 +31,35 @@ class Note(Base):
 class NotesPlugin(BasePlugin):
     """Plugin for saving and retrieving notes."""
     
-    def __init__(self):
-        super().__init__()
-        self.logger = logging.getLogger(__name__)
-        self.group_service = GroupService()
-        self.permission_service = PermissionService()
+    @property
+    def name(self) -> str:
+        return "notes"
     
-    def get_name(self) -> str:
-        return "Notes"
-    
-    def get_description(self) -> str:
+    @property
+    def description(self) -> str:
         return "Save and retrieve group notes/tags"
+    
+    def __init__(self, bot, db, config, services):
+        super().__init__(bot, db, config, services)
+        self.group_service = GroupService(db)
+        self.permission_service = PermissionService(db)
+    
+    async def on_load(self):
+        """Register all handlers for this plugin."""
+        await super().on_load()
+        self.router.message.register(self.cmd_save, Command("save"))
+        self.router.message.register(self.cmd_get, Command("get"))
+        self.router.message.register(self.cmd_notes, Command("notes"))
+        self.router.message.register(self.cmd_clear, Command("clear"))
+        self.router.message.register(self.on_hashtag, F.text.regexp(r'#\w+'))
     
     def get_commands(self) -> list:
         return [
-            ("save", "Save a note"),
-            ("get", "Get a note"),
-            ("notes", "List all notes"),
-            ("clear", "Delete a note"),
+            {"command": "/save", "description": "Save a note"},
+            {"command": "/get", "description": "Get a note"},
+            {"command": "/notes", "description": "List all notes"},
+            {"command": "/clear", "description": "Delete a note"},
         ]
-    
-    def register_handlers(self, router: Router):
-        """Register all handlers for this plugin."""
-        router.message.register(self.cmd_save, Command("save"))
-        router.message.register(self.cmd_get, Command("get"))
-        router.message.register(self.cmd_notes, Command("notes"))
-        router.message.register(self.cmd_clear, Command("clear"))
-        router.message.register(self.on_hashtag, F.text.regexp(r'#\w+'))
     
     # Commands
     

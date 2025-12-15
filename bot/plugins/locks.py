@@ -25,31 +25,33 @@ class MessageLock(Base):
 class LocksPlugin(BasePlugin):
     """Plugin for locking message types."""
     
-    def __init__(self):
-        super().__init__()
-        self.logger = logging.getLogger(__name__)
-        self.group_service = GroupService()
-        self.permission_service = PermissionService()
+    @property
+    def name(self) -> str:
+        return "locks"
     
-    def get_name(self) -> str:
-        return "Locks"
-    
-    def get_description(self) -> str:
+    @property
+    def description(self) -> str:
         return "Lock specific message types (links, media, stickers, forwards)"
+    
+    def __init__(self, bot, db, config, services):
+        super().__init__(bot, db, config, services)
+        self.group_service = GroupService(db)
+        self.permission_service = PermissionService(db)
+    
+    async def on_load(self):
+        """Register all handlers for this plugin."""
+        await super().on_load()
+        self.router.message.register(self.cmd_lock, Command("lock"))
+        self.router.message.register(self.cmd_unlock, Command("unlock"))
+        self.router.message.register(self.cmd_locks, Command("locks"))
+        self.router.message.register(self.on_message, F.text | F.photo | F.video | F.document | F.sticker)
     
     def get_commands(self) -> list:
         return [
-            ("lock", "Lock a message type"),
-            ("unlock", "Unlock a message type"),
-            ("locks", "Show current locks"),
+            {"command": "/lock", "description": "Lock a message type"},
+            {"command": "/unlock", "description": "Unlock a message type"},
+            {"command": "/locks", "description": "Show current locks"},
         ]
-    
-    def register_handlers(self, router: Router):
-        """Register all handlers for this plugin."""
-        router.message.register(self.cmd_lock, Command("lock"))
-        router.message.register(self.cmd_unlock, Command("unlock"))
-        router.message.register(self.cmd_locks, Command("locks"))
-        router.message.register(self.on_message, F.text | F.photo | F.video | F.document | F.sticker)
     
     # Commands
     

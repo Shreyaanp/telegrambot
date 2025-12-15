@@ -13,33 +13,35 @@ from bot.services.permission_service import PermissionService
 class GreetingsPlugin(BasePlugin):
     """Plugin for handling welcome and goodbye messages with buttons."""
     
-    def __init__(self):
-        super().__init__()
-        self.logger = logging.getLogger(__name__)
-        self.group_service = GroupService()
-        self.permission_service = PermissionService()
+    @property
+    def name(self) -> str:
+        return "greetings"
     
-    def get_name(self) -> str:
-        return "Greetings"
-    
-    def get_description(self) -> str:
+    @property
+    def description(self) -> str:
         return "Welcome and goodbye messages with inline buttons"
+    
+    def __init__(self, bot, db, config, services):
+        super().__init__(bot, db, config, services)
+        self.group_service = GroupService(db)
+        self.permission_service = PermissionService(db)
+    
+    async def on_load(self):
+        """Register all handlers for this plugin."""
+        await super().on_load()
+        self.router.message.register(self.cmd_setwelcome, Command("setwelcome"))
+        self.router.message.register(self.cmd_setgoodbye, Command("setgoodbye"))
+        self.router.message.register(self.cmd_welcome, Command("welcome"))
+        self.router.message.register(self.cmd_goodbye, Command("goodbye"))
+        self.router.chat_member.register(self.on_member_left, F.new_chat_member.status == "left")
     
     def get_commands(self) -> list:
         return [
-            ("setwelcome", "Set welcome message with buttons"),
-            ("setgoodbye", "Set goodbye message"),
-            ("welcome", "Test welcome message"),
-            ("goodbye", "Enable/disable goodbye messages"),
+            {"command": "/setwelcome", "description": "Set welcome message with buttons"},
+            {"command": "/setgoodbye", "description": "Set goodbye message"},
+            {"command": "/welcome", "description": "Test welcome message"},
+            {"command": "/goodbye", "description": "Enable/disable goodbye messages"},
         ]
-    
-    def register_handlers(self, router: Router):
-        """Register all handlers for this plugin."""
-        router.message.register(self.cmd_setwelcome, Command("setwelcome"))
-        router.message.register(self.cmd_setgoodbye, Command("setgoodbye"))
-        router.message.register(self.cmd_welcome, Command("welcome"))
-        router.message.register(self.cmd_goodbye, Command("goodbye"))
-        router.chat_member.register(self.on_member_left, F.new_chat_member.status == "left")
     
     # Commands
     
