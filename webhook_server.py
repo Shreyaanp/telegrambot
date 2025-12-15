@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Global bot instance
 telegram_bot: TelegramBot = None
-config = Config()
+config = Config.from_env()
 
 
 @asynccontextmanager
