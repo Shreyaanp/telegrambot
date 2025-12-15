@@ -21,12 +21,8 @@ class User(Base):
     global_reputation = Column(Integer, default=0)  # For future federation features
     
     # Relationships
-    # sessions removed - verification happens before user exists
+    # sessions, warnings, whitelist, permissions, flood_records removed - these can exist before user verification
     memberships = relationship("GroupMember", back_populates="user")
-    warnings = relationship("Warning", back_populates="user")
-    whitelist_entries = relationship("Whitelist", back_populates="user")
-    permissions = relationship("Permission", back_populates="user")
-    flood_records = relationship("FloodTracker", back_populates="user")
     
     def __repr__(self):
         return f"<User(telegram_id={self.telegram_id}, username={self.username})>"
@@ -124,14 +120,14 @@ class Warning(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False)
-    telegram_id = Column(Integer, ForeignKey("users.telegram_id"), nullable=False)
+    telegram_id = Column(Integer, nullable=False)  # No FK - user might not exist yet
     warned_by = Column(Integer, nullable=False)  # Admin telegram_id
     reason = Column(Text, nullable=True)
     warned_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="warnings")
-    user = relationship("User", back_populates="warnings")
+    # user relationship removed - user might not exist yet
     
     # Index for fast warning count lookups
     __table_args__ = (
@@ -148,14 +144,14 @@ class Whitelist(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False)
-    telegram_id = Column(Integer, ForeignKey("users.telegram_id"), nullable=False)
+    telegram_id = Column(Integer, nullable=False)  # No FK - user might not exist yet
     added_by = Column(Integer, nullable=False)  # Admin telegram_id
     reason = Column(Text, nullable=True)
     added_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="whitelist_entries")
-    user = relationship("User", back_populates="whitelist_entries")
+    # user relationship removed - user might not exist yet
     
     # Index for fast whitelist checks
     __table_args__ = (
@@ -172,7 +168,7 @@ class Permission(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False)
-    telegram_id = Column(Integer, ForeignKey("users.telegram_id"), nullable=False)
+    telegram_id = Column(Integer, nullable=False)  # No FK - user might not exist yet
     role = Column(String, default="moderator")  # owner, admin, moderator
     can_verify = Column(Boolean, default=False)
     can_kick = Column(Boolean, default=False)
@@ -184,7 +180,7 @@ class Permission(Base):
     
     # Relationships
     group = relationship("Group", back_populates="permissions")
-    user = relationship("User", back_populates="permissions")
+    # user relationship removed - user might not exist yet
     
     def __repr__(self):
         return f"<Permission(group_id={self.group_id}, telegram_id={self.telegram_id}, role={self.role})>"
@@ -196,13 +192,13 @@ class FloodTracker(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False)
-    telegram_id = Column(Integer, ForeignKey("users.telegram_id"), nullable=False)
+    telegram_id = Column(Integer, nullable=False)  # No FK - user might not exist yet
     message_count = Column(Integer, default=0)
     window_start = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="flood_records")
-    user = relationship("User", back_populates="flood_records")
+    # user relationship removed - user might not exist yet
     
     def __repr__(self):
         return f"<FloodTracker(group_id={self.group_id}, telegram_id={self.telegram_id}, count={self.message_count})>"

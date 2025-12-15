@@ -93,7 +93,7 @@ class FiltersPlugin(BasePlugin):
         buttons = self._parse_buttons(response)
         
         # Save to database
-        async with get_session() as session:
+        async with self.db.session() as session:
             # Check if filter already exists
             from sqlalchemy import select
             stmt = select(MessageFilter).where(
@@ -137,7 +137,7 @@ class FiltersPlugin(BasePlugin):
             return
         
         # Get all filters for this group
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             stmt = select(MessageFilter).where(
                 MessageFilter.group_id == message.chat.id
@@ -192,7 +192,7 @@ class FiltersPlugin(BasePlugin):
         keyword = args[1].lower()
         
         # Delete from database
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select, delete
             stmt = delete(MessageFilter).where(
                 MessageFilter.group_id == message.chat.id,
@@ -222,7 +222,7 @@ class FiltersPlugin(BasePlugin):
         # Check for matching filters
         text = message.text.lower() if message.text else ""
         
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             stmt = select(MessageFilter).where(
                 MessageFilter.group_id == message.chat.id

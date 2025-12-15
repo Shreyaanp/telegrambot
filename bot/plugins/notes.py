@@ -111,7 +111,7 @@ class NotesPlugin(BasePlugin):
                 media_file_id = message.reply_to_message.document.file_id
         
         # Save to database
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             stmt = select(Note).where(
                 Note.group_id == message.chat.id,
@@ -183,7 +183,7 @@ class NotesPlugin(BasePlugin):
             return
         
         # Get all notes for this group
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             stmt = select(Note).where(
                 Note.group_id == message.chat.id
@@ -244,7 +244,7 @@ class NotesPlugin(BasePlugin):
         note_name = args[1].lower()
         
         # Delete from database
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import delete
             stmt = delete(Note).where(
                 Note.group_id == message.chat.id,
@@ -284,7 +284,7 @@ class NotesPlugin(BasePlugin):
     async def _send_note(self, group_id: int, note_name: str, message: Message):
         """Send a note to the chat."""
         # Get from database
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             stmt = select(Note).where(
                 Note.group_id == group_id,

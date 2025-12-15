@@ -78,7 +78,7 @@ class AdminLogsPlugin(BasePlugin):
                 target_user_id = int(arg)
         
         # Get logs from database
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             
             stmt = select(AdminLog).where(
@@ -142,7 +142,7 @@ class AdminLogsPlugin(BasePlugin):
         reason: str = None
     ):
         """Log an admin action to the database."""
-        async with get_session() as session:
+        async with self.db.session() as session:
             log_entry = AdminLog(
                 group_id=group_id,
                 admin_id=admin_id,

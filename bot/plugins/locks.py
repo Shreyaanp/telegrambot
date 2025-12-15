@@ -96,7 +96,7 @@ class LocksPlugin(BasePlugin):
             return
         
         # Save to database
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             stmt = select(MessageLock).where(
                 MessageLock.group_id == message.chat.id,
@@ -158,7 +158,7 @@ class LocksPlugin(BasePlugin):
         lock_type = args[1].lower()
         
         # Update database
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             stmt = select(MessageLock).where(
                 MessageLock.group_id == message.chat.id,
@@ -184,7 +184,7 @@ class LocksPlugin(BasePlugin):
             return
         
         # Get all locks for this group
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             stmt = select(MessageLock).where(
                 MessageLock.group_id == message.chat.id,
@@ -234,7 +234,7 @@ class LocksPlugin(BasePlugin):
             return
         
         # Get locks for this group
-        async with get_session() as session:
+        async with self.db.session() as session:
             from sqlalchemy import select
             stmt = select(MessageLock).where(
                 MessageLock.group_id == message.chat.id,
