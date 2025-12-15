@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Setup Guide for Mercle Verification Bot - Step-by-step instructions to add and configure the bot in your Telegram group.">
+    <title>Setup Guide - Mercle Verification Bot</title>
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+    
+    <link rel="stylesheet" href="/docs/css/main.css">
+    <link rel="stylesheet" href="/docs/css/sidebar.css">
+    <link rel="stylesheet" href="/docs/css/syntax.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div style="font-size: 2.5rem;">🔐</div>
+            <h3>Mercle Bot</h3>
+        </div>
+        
+        <div class="search-box">
+            <input type="text" placeholder="Search docs... (Ctrl+K)">
+        </div>
+        
+        <ul class="nav-menu">
+            <li><a href="/docs/">Home</a></li>
+            
+            <li class="nav-section">Getting Started</li>
+            <li><a href="#quick-start">Quick Start</a></li>
+            <li><a href="#add-bot">Add Bot to Group</a></li>
+            <li><a href="#permissions">Set Permissions</a></li>
+            <li><a href="#configuration">Configuration</a></li>
+            <li><a href="#first-verification">First Verification</a></li>
+            <li><a href="#troubleshooting">Troubleshooting</a></li>
+            
+            <li class="nav-section">Features</li>
+            <li><a href="/docs/features.html">All Features</a></li>
+            
+            <li class="nav-section">Reference</li>
+            <li><a href="/docs/commands.html">Commands</a></li>
+            <li><a href="/docs/api.html">API Documentation</a></li>
+        </ul>
+    </nav>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+        <header class="page-header">
+            <div class="header-left">
+                <button class="mobile-menu-toggle">☰</button>
+                <div class="breadcrumbs"></div>
+            </div>
+            <div class="header-right">
+                <button class="theme-toggle">🌙 Dark Mode</button>
+            </div>
+        </header>
+        
+        <div class="content-wrapper">
+            <h1>Setup Guide</h1>
+            <p class="text-secondary">Complete guide to setting up Mercle Verification Bot in your Telegram group.</p>
+            
+            <!-- Quick Start -->
+            <section id="quick-start">
+                <h2>⚡ Quick Start</h2>
+                <p>Get your bot up and running in 5 minutes:</p>
+                
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <h4>Add Bot</h4>
+                        <p>Click the button below to add the bot to your group</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <h4>Make Admin</h4>
+                        <p>Grant admin permissions to the bot</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <h4>Configure</h4>
+                        <p>Use /settings to customize bot behavior</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">4</div>
+                        <h4>Test</h4>
+                        <p>Join with a test account to verify it works</p>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin: 2rem 0;">
+                    <a href="https://t.me/YOUR_BOT_USERNAME?startgroup=true" class="btn btn-telegram btn-lg" target="_blank">
+                        <i class="fab fa-telegram"></i> Add Bot to Group
+                    </a>
+                </div>
+            </section>
+            
+            <!-- Detailed Setup -->
+            <section id="add-bot">
+                <h2>1️⃣ Add Bot to Your Group</h2>
+                
+                <h3>Method 1: Direct Link (Recommended)</h3>
+                <ol>
+                    <li>Click the "Add Bot to Group" button above</li>
+                    <li>Select the group you want to add the bot to</li>
+                    <li>Click "Add" to confirm</li>
+                </ol>
+                
+                <h3>Method 2: Manual Add</h3>
+                <ol>
+                    <li>Open your Telegram group</li>
+                    <li>Tap the group name at the top</li>
+                    <li>Tap "Add Members"</li>
+                    <li>Search for <code>@YOUR_BOT_USERNAME</code></li>
+                    <li>Select the bot and tap "Add"</li>
+                </ol>
+                
+                <div style="background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin: 1rem 0;">
+                    <strong>💡 Tip:</strong> The bot will send a welcome message once added to confirm it's working.
+                </div>
+            </section>
+            
+            <!-- Permissions -->
+            <section id="permissions">
+                <h2>2️⃣ Set Bot Permissions</h2>
+                <p>The bot needs admin permissions to function properly. Here's what permissions are required and why:</p>
+                
+                <h3>Required Permissions</h3>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <strong>Delete Messages</strong>
+                        <span class="badge admin">Required</span>
+                    </div>
+                    <p class="command-description">
+                        Needed to clean up verification messages and delete locked message types.
+                    </p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <strong>Ban Users</strong>
+                        <span class="badge admin">Required</span>
+                    </div>
+                    <p class="command-description">
+                        Needed for /vban command and to kick users who fail verification.
+                    </p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <strong>Restrict Members</strong>
+                        <span class="badge admin">Required</span>
+                    </div>
+                    <p class="command-description">
+                        Needed to mute unverified users and manage member permissions.
+                    </p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <strong>Pin Messages</strong>
+                        <span class="badge" style="background: var(--text-tertiary);">Optional</span>
+                    </div>
+                    <p class="command-description">
+                        Optional, but useful for pinning important messages like rules.
+                    </p>
+                </div>
+                
+                <h3>How to Grant Permissions</h3>
+                <ol>
+                    <li>Open your group in Telegram</li>
+                    <li>Tap the group name at the top</li>
+                    <li>Tap "Administrators"</li>
+                    <li>Find the bot in the list</li>
+                    <li>Tap "Edit" next to the bot</li>
+                    <li>Enable the required permissions listed above</li>
+                    <li>Tap "Save" or the checkmark</li>
+                </ol>
+                
+                <div style="background: var(--error-red); color: white; padding: 1.5rem; border-radius: 8px; margin: 1rem 0;">
+                    <strong>⚠️ Important:</strong> Without proper permissions, the bot cannot mute/unmute users or perform moderation actions.
+                </div>
+            </section>
+            
+            <!-- Configuration -->
+            <section id="configuration">
+                <h2>3️⃣ Configure Bot Settings</h2>
+                <p>Customize the bot's behavior for your group:</p>
+                
+                <h3>View Current Settings</h3>
+                <pre><code>/settings</code></pre>
+                <p>This will show all current settings for your group.</p>
+                
+                <h3>Common Configuration Options</h3>
+                
+                <h4>Set Verification Timeout</h4>
+                <p>How long users have to complete verification (in seconds):</p>
+                <pre><code>/settings timeout 120      # 2 minutes (default)
+/settings timeout 180      # 3 minutes
+/settings timeout 300      # 5 minutes</code></pre>
+                
+                <h4>Set Verification Location</h4>
+                <p>Where verification messages are sent:</p>
+                <pre><code>/settings location group   # In group chat (default)
+/settings location dm      # In private message
+/settings location both    # In both locations</code></pre>
+                
+                <div style="background: var(--bg-secondary); padding: 1.5rem; border-radius: 8px; margin: 1rem 0;">
+                    <strong>💡 Tip:</strong> Use <code>dm</code> location to keep your group chat clean. The bot will send a small notice in the group and the full verification in DM.
+                </div>
+                
+                <h4>Toggle Auto-Verification</h4>
+                <p>Whether to automatically verify new members:</p>
+                <pre><code>/settings autoverify on    # Enable (default)
+/settings autoverify off   # Disable</code></pre>
+                
+                <h3>Set Welcome Message</h3>
+                <p>Create a custom welcome message for new members:</p>
+                <pre><code>/setwelcome Welcome {mention} to {group}! Please read our [Rules](https://example.com/rules) and verify your identity.</code></pre>
+                
+                <h3>Set Group Rules</h3>
+                <p>Set rules that users can view with /rules:</p>
+                <pre><code>/setrules 1. Be respectful to all members
+2. No spam or advertising
+3. Stay on topic
+4. No hate speech or harassment</code></pre>
+            </section>
+            
+            <!-- First Verification -->
+            <section id="first-verification">
+                <h2>4️⃣ Test First Verification</h2>
+                <p>Before going live, test the verification flow:</p>
+                
+                <h3>Testing Steps</h3>
+                <ol>
+                    <li><strong>Create a test account</strong> (or use a friend's account)</li>
+                    <li><strong>Add the test account</strong> to your group</li>
+                    <li><strong>Observe the bot's behavior:</strong>
+                        <ul>
+                            <li>Bot should mute the new member</li>
+                            <li>Bot should send verification prompt (QR code + button)</li>
+                            <li>Location depends on your settings (group/DM)</li>
+                        </ul>
+                    </li>
+                    <li><strong>Complete verification:</strong>
+                        <ul>
+                            <li>Scan QR code with Mercle app</li>
+                            <li>Or tap the "Open Mercle App" button</li>
+                            <li>Complete face verification</li>
+                        </ul>
+                    </li>
+                    <li><strong>Verify success:</strong>
+                        <ul>
+                            <li>User should be unmuted</li>
+                            <li>Bot should send success message</li>
+                            <li>User can now send messages</li>
+                        </ul>
+                    </li>
+                </ol>
+                
+                <h3>Manual Verification (For Testing)</h3>
+                <p>If you want to bypass verification for testing:</p>
+                <pre><code>/vverify @testuser</code></pre>
+                
+                <h3>Check Verification Status</h3>
+                <p>Users can check their status with:</p>
+                <pre><code>/status</code></pre>
+            </section>
+            
+            <!-- Troubleshooting -->
+            <section id="troubleshooting">
+                <h2>🔧 Troubleshooting</h2>
+                
+                <h3>Bot Not Responding</h3>
+                <div class="command-block">
+                    <div class="command-header">
+                        <strong>Problem:</strong> Bot doesn't respond to commands
+                    </div>
+                    <div class="command-params">
+                        <strong>Solutions:</strong>
+                        <ul>
+                            <li>Check if bot is still in the group</li>
+                            <li>Verify bot has admin permissions</li>
+                            <li>Try removing and re-adding the bot</li>
+                            <li>Make sure you're using commands in the group (not DM)</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <h3>Bot Can't Mute Users</h3>
+                <div class="command-block">
+                    <div class="command-header">
+                        <strong>Problem:</strong> New members aren't being muted
+                    </div>
+                    <div class="command-params">
+                        <strong>Solutions:</strong>
+                        <ul>
+                            <li>Verify bot has "Restrict Members" permission</li>
+                            <li>Check that auto-verification is enabled: <code>/settings autoverify on</code></li>
+                            <li>Make sure the bot is an admin</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <h3>Verification Messages Not Appearing</h3>
+                <div class="command-block">
+                    <div class="command-header">
+                        <strong>Problem:</strong> No verification prompt when users join
+                    </div>
+                    <div class="command-params">
+                        <strong>Solutions:</strong>
+                        <ul>
+                            <li>Check verification location setting: <code>/settings</code></li>
+                            <li>If set to "dm", check user's DM with the bot</li>
+                            <li>Verify bot has permission to send messages</li>
+                            <li>Try manually triggering: <code>/verify</code></li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <h3>Users Can't Complete Verification</h3>
+                <div class="command-block">
+                    <div class="command-header">
+                        <strong>Problem:</strong> Users stuck at verification step
+                    </div>
+                    <div class="command-params">
+                        <strong>Solutions:</strong>
+                        <ul>
+                            <li>Ensure users have the Mercle app installed</li>
+                            <li>Check if QR code is displaying correctly</li>
+                            <li>Try increasing timeout: <code>/settings timeout 300</code></li>
+                            <li>Use manual verification as fallback: <code>/vverify @user</code></li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <h3>Bot Deleting Wrong Messages</h3>
+                <div class="command-block">
+                    <div class="command-header">
+                        <strong>Problem:</strong> Bot deleting messages it shouldn't
+                    </div>
+                    <div class="command-params">
+                        <strong>Solutions:</strong>
+                        <ul>
+                            <li>Check active locks: <code>/locks</code></li>
+                            <li>Unlock unwanted locks: <code>/unlock &lt;type&gt;</code></li>
+                            <li>Review message filters: <code>/filters</code></li>
+                            <li>Admins are exempt from locks</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <h3>Still Having Issues?</h3>
+                <p>If you're still experiencing problems:</p>
+                <ul>
+                    <li>Check the <a href="/docs/commands.html">Commands Reference</a> for correct syntax</li>
+                    <li>Review <a href="/docs/features.html">Features Documentation</a> for detailed explanations</li>
+                    <li>Contact support: <a href="https://mercle.ai/support" target="_blank">mercle.ai/support</a></li>
+                    <li>Report bugs: <a href="https://github.com/Shreyaanp/telegrambot/issues" target="_blank">GitHub Issues</a></li>
+                </ul>
+            </section>
+            
+            <!-- Next Steps -->
+            <section class="cta-section">
+                <h2>🎉 You're All Set!</h2>
+                <p>Your bot is now configured and ready to protect your group. Explore more features and commands.</p>
+                <div class="hero-buttons">
+                    <a href="/docs/features.html" class="btn btn-primary btn-lg">
+                        <i class="fas fa-star"></i> Explore Features
+                    </a>
+                    <a href="/docs/commands.html" class="btn btn-outline btn-lg" style="background: white; color: var(--primary-color);">
+                        <i class="fas fa-book"></i> View All Commands
+                    </a>
+                </div>
+            </section>
+        </div>
+    </div>
+    
+    <script src="/docs/js/main.js"></script>
+    <script src="/docs/js/sidebar.js"></script>
+    <script src="/docs/js/search.js"></script>
+</body>
+</html>
+

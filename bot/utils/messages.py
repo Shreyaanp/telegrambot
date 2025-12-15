@@ -163,6 +163,7 @@ def help_message() -> str:
 /vkick @user - Kick user from group
 /vban @user [reason] - Ban user from group
 /vverify @user - Manually verify user
+/vunverify @user - Remove user's verification
 /warn @user [reason] - Warn user
 /warnings @user - Show user warnings
 /resetwarns @user - Clear user warnings

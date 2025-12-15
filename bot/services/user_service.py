@@ -154,6 +154,37 @@ class UserService:
             self.logger.error(f"Error updating username for {telegram_id}: {e}", exc_info=True)
             return False
     
+    async def delete_verification(self, telegram_id: int) -> bool:
+        """
+        Delete a user's verification record (unverify them).
+        
+        This removes the user from the verified users table, forcing them
+        to verify again if they want to participate in groups.
+        
+        Args:
+            telegram_id: Telegram user ID
+        
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        try:
+            async with self.db.session() as session:
+                result = await session.execute(
+                    delete(User).where(User.telegram_id == telegram_id)
+                )
+                await session.commit()
+                
+                if result.rowcount > 0:
+                    self.logger.info(f"Deleted verification for user {telegram_id}")
+                    return True
+                else:
+                    self.logger.warning(f"No verification found for user {telegram_id}")
+                    return False
+                    
+        except Exception as e:
+            self.logger.error(f"Error deleting verification for {telegram_id}: {e}", exc_info=True)
+            return False
+    
     async def update_reputation(self, telegram_id: int, reputation: int) -> bool:
         """
         Update user's global reputation score.

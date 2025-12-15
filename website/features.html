@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Mercle Verification Bot Features - Comprehensive documentation of all features including biometric verification, admin tools, filters, and more.">
+    <title>Features - Mercle Verification Bot</title>
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+    
+    <link rel="stylesheet" href="/docs/css/main.css">
+    <link rel="stylesheet" href="/docs/css/sidebar.css">
+    <link rel="stylesheet" href="/docs/css/syntax.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div style="font-size: 2.5rem;">🔐</div>
+            <h3>Mercle Bot</h3>
+        </div>
+        
+        <div class="search-box">
+            <input type="text" placeholder="Search docs... (Ctrl+K)">
+        </div>
+        
+        <ul class="nav-menu">
+            <li><a href="/docs/">Home</a></li>
+            
+            <li class="nav-section">Getting Started</li>
+            <li><a href="/docs/setup.html">Setup Guide</a></li>
+            
+            <li class="nav-section">Features</li>
+            <li><a href="#verification">Biometric Verification</a></li>
+            <li><a href="#admin">Admin Tools</a></li>
+            <li><a href="#greetings">Welcome/Goodbye</a></li>
+            <li><a href="#filters">Message Filters</a></li>
+            <li><a href="#locks">Message Locks</a></li>
+            <li><a href="#notes">Notes System</a></li>
+            <li><a href="#logs">Admin Logs</a></li>
+            <li><a href="#antiflood">Anti-Flood</a></li>
+            
+            <li class="nav-section">Reference</li>
+            <li><a href="/docs/commands.html">Commands</a></li>
+            <li><a href="/docs/api.html">API Documentation</a></li>
+        </ul>
+    </nav>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+        <header class="page-header">
+            <div class="header-left">
+                <button class="mobile-menu-toggle">☰</button>
+                <div class="breadcrumbs"></div>
+            </div>
+            <div class="header-right">
+                <button class="theme-toggle">🌙 Dark Mode</button>
+            </div>
+        </header>
+        
+        <div class="content-wrapper">
+            <h1>Features</h1>
+            <p class="text-secondary">Comprehensive documentation of all Mercle Bot features and capabilities.</p>
+            
+            <!-- Table of Contents -->
+            <div class="toc">
+                <h4>On This Page</h4>
+                <ul>
+                    <li><a href="#verification">Biometric Verification</a></li>
+                    <li><a href="#admin">Admin Tools</a></li>
+                    <li><a href="#greetings">Welcome/Goodbye System</a></li>
+                    <li><a href="#filters">Message Filters</a></li>
+                    <li><a href="#locks">Message Locks</a></li>
+                    <li><a href="#notes">Notes & Tags</a></li>
+                    <li><a href="#logs">Admin Logs</a></li>
+                    <li><a href="#antiflood">Anti-Flood Protection</a></li>
+                </ul>
+            </div>
+            
+            <!-- Feature 1: Biometric Verification -->
+            <section id="verification">
+                <h2><i class="fas fa-shield-alt" style="color: var(--primary-color);"></i> Biometric Verification</h2>
+                <p>Secure face verification powered by Mercle SDK. Prevent bots, fake accounts, and spam with advanced biometric authentication.</p>
+                
+                <h3>Key Features</h3>
+                <ul>
+                    <li><strong>Face Recognition:</strong> 99.9% accuracy using AWS Face Liveness technology</li>
+                    <li><strong>Auto-Mute:</strong> New members are automatically muted until verified</li>
+                    <li><strong>Flexible Location:</strong> Choose where verification happens (group, DM, or both)</li>
+                    <li><strong>Configurable Timeout:</strong> Set custom verification timeout (default: 2 minutes)</li>
+                    <li><strong>Global Verification:</strong> Once verified, users are verified across all groups</li>
+                </ul>
+                
+                <h3>How It Works</h3>
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <h4>New Member Joins</h4>
+                        <p>Bot automatically mutes the user and sends verification prompt</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <h4>User Verifies</h4>
+                        <p>User scans QR code or taps button to open Mercle app</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <h4>Face Scan</h4>
+                        <p>Mercle app performs liveness check and face verification</p>
+                    </div>
+                    <div class="step-item">
+                        <div class="step-number">4</div>
+                        <h4>Instant Access</h4>
+                        <p>User is unmuted and can participate in the group</p>
+                    </div>
+                </div>
+                
+                <h3>Configuration</h3>
+                <pre><code>/settings location &lt;group/dm/both&gt;  # Set verification location
+/settings timeout &lt;seconds&gt;         # Set verification timeout
+/settings autoverify &lt;on/off&gt;      # Toggle auto-verification</code></pre>
+                
+                <h3>Admin Commands</h3>
+                <ul>
+                    <li><code>/vverify @user</code> - Manually verify a user</li>
+                    <li><code>/settings</code> - View and configure verification settings</li>
+                </ul>
+            </section>
+            
+            <!-- Feature 2: Admin Tools -->
+            <section id="admin">
+                <h2><i class="fas fa-user-shield" style="color: var(--primary-color);"></i> Admin Tools</h2>
+                <p>Comprehensive moderation commands for managing your Telegram group effectively.</p>
+                
+                <h3>Moderation Commands</h3>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/vkick @user</code>
+                        <span class="badge admin">Admin Only</span>
+                    </div>
+                    <p class="command-description">Kick a user from the group. They can rejoin if they have the invite link.</p>
+                    <div class="command-example">
+                        <strong>Example:</strong>
+                        <pre><code>/vkick @spammer</code></pre>
+                    </div>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/vban @user [reason]</code>
+                        <span class="badge admin">Admin Only</span>
+                    </div>
+                    <p class="command-description">Permanently ban a user from the group. They cannot rejoin.</p>
+                    <div class="command-example">
+                        <strong>Example:</strong>
+                        <pre><code>/vban @spammer Repeated spam violations</code></pre>
+                    </div>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/warn @user [reason]</code>
+                        <span class="badge admin">Admin Only</span>
+                    </div>
+                    <p class="command-description">Warn a user. After 3 warnings, user is automatically kicked.</p>
+                    <div class="command-example">
+                        <strong>Example:</strong>
+                        <pre><code>/warn @user Please follow group rules</code></pre>
+                    </div>
+                </div>
+                
+                <h3>Whitelist Management</h3>
+                <p>Bypass verification for trusted members:</p>
+                <pre><code>/whitelist add @user       # Add user to whitelist
+/whitelist remove @user    # Remove from whitelist
+/whitelist list            # Show all whitelisted users</code></pre>
+                
+                <h3>Settings Management</h3>
+                <p>Configure group-specific settings:</p>
+                <pre><code>/settings                  # View current settings
+/settings timeout 120      # Set 2-minute timeout
+/settings location dm      # Verify in DM
+/settings autoverify on    # Enable auto-verification</code></pre>
+            </section>
+            
+            <!-- Feature 3: Welcome/Goodbye System -->
+            <section id="greetings">
+                <h2><i class="fas fa-hand-wave" style="color: var(--primary-color);"></i> Welcome/Goodbye System</h2>
+                <p>Greet new members and say goodbye to leaving members with customizable messages and interactive buttons.</p>
+                
+                <h3>Welcome Messages</h3>
+                <p>Create custom welcome messages with support for variables and inline buttons.</p>
+                
+                <h4>Variables</h4>
+                <ul>
+                    <li><code>{name}</code> - User's first name</li>
+                    <li><code>{mention}</code> - Mention the user</li>
+                    <li><code>{group}</code> - Group name</li>
+                </ul>
+                
+                <h4>Button Format</h4>
+                <p>Add inline buttons using markdown-style syntax:</p>
+                <pre><code>[Button Text](https://example.com/url)</code></pre>
+                
+                <h4>Example</h4>
+                <pre><code>/setwelcome Welcome {mention} to {group}! Please read our [Rules](https://example.com/rules) and [Verify](https://t.me/yourbot?start=verify) your identity.</code></pre>
+                
+                <h3>Goodbye Messages</h3>
+                <p>Send farewell messages when users leave:</p>
+                <pre><code>/setgoodbye Goodbye {name}, hope to see you again!
+/goodbye on                # Enable goodbye messages
+/goodbye off               # Disable goodbye messages</code></pre>
+                
+                <h3>Testing</h3>
+                <p>Test your welcome message before going live:</p>
+                <pre><code>/welcome                   # Show welcome message preview</code></pre>
+            </section>
+            
+            <!-- Feature 4: Message Filters -->
+            <section id="filters">
+                <h2><i class="fas fa-robot" style="color: var(--primary-color);"></i> Message Filters</h2>
+                <p>Auto-respond to specific keywords with custom messages. Perfect for FAQs and common questions.</p>
+                
+                <h3>Creating Filters</h3>
+                <pre><code>/filter &lt;keyword&gt; &lt;response&gt;</code></pre>
+                
+                <h4>Examples</h4>
+                <pre><code>/filter hello Hello! Welcome to our group!
+/filter rules Check our rules [Rules](https://example.com/rules)
+/filter support Need help? [Contact Support](https://example.com/support)</code></pre>
+                
+                <h3>Managing Filters</h3>
+                <pre><code>/filters                   # List all active filters
+/stop &lt;keyword&gt;            # Remove a filter</code></pre>
+                
+                <h3>Use Cases</h3>
+                <ul>
+                    <li><strong>FAQ Automation:</strong> Auto-respond to common questions</li>
+                    <li><strong>Welcome Messages:</strong> Greet users who say "hello"</li>
+                    <li><strong>Resource Links:</strong> Provide quick access to documentation</li>
+                    <li><strong>Support Routing:</strong> Direct users to support channels</li>
+                </ul>
+                
+                <h3>Features</h3>
+                <ul>
+                    <li>✓ Unlimited filters per group</li>
+                    <li>✓ Support for inline buttons</li>
+                    <li>✓ Case-insensitive matching</li>
+                    <li>✓ Substring matching (keyword anywhere in message)</li>
+                </ul>
+            </section>
+            
+            <!-- Feature 5: Message Locks -->
+            <section id="locks">
+                <h2><i class="fas fa-lock" style="color: var(--primary-color);"></i> Message Locks</h2>
+                <p>Restrict specific message types to keep your group clean and focused. Locked messages are automatically deleted.</p>
+                
+                <h3>Available Lock Types</h3>
+                <ul>
+                    <li><strong>links</strong> - Block all URLs and links</li>
+                    <li><strong>media</strong> - Block photos, videos, and files</li>
+                    <li><strong>stickers</strong> - Block stickers and GIFs</li>
+                    <li><strong>forwards</strong> - Block forwarded messages</li>
+                </ul>
+                
+                <h3>Commands</h3>
+                <pre><code>/lock &lt;type&gt;               # Lock a message type
+/unlock &lt;type&gt;             # Unlock a message type
+/locks                     # Show current locks</code></pre>
+                
+                <h4>Examples</h4>
+                <pre><code>/lock links                # Block all links
+/lock media                # Block all media
+/unlock stickers           # Allow stickers again
+/locks                     # View active locks</code></pre>
+                
+                <h3>Use Cases</h3>
+                <ul>
+                    <li><strong>Prevent Spam:</strong> Lock links to prevent spam</li>
+                    <li><strong>Text-Only Discussions:</strong> Lock media for focused conversations</li>
+                    <li><strong>Professional Groups:</strong> Lock stickers for serious discussions</li>
+                    <li><strong>Anti-Promotion:</strong> Lock forwards to prevent channel promotion</li>
+                </ul>
+                
+                <h3>Admin Exceptions</h3>
+                <p>⚠️ <strong>Note:</strong> Admins are exempt from all locks. Locks only apply to regular members.</p>
+            </section>
+            
+            <!-- Feature 6: Notes System -->
+            <section id="notes">
+                <h2><i class="fas fa-note-sticky" style="color: var(--primary-color);"></i> Notes & Tags System</h2>
+                <p>Save and retrieve group notes with hashtag support. Perfect for storing rules, FAQs, and important information.</p>
+                
+                <h3>Saving Notes</h3>
+                <pre><code>/save &lt;notename&gt; &lt;content&gt;</code></pre>
+                
+                <h4>Examples</h4>
+                <pre><code>/save rules Please read our rules at example.com/rules
+/save faq Check our FAQ [FAQ Page](https://example.com/faq)
+/save welcome Welcome to our community!</code></pre>
+                
+                <h3>Retrieving Notes</h3>
+                <p>Two ways to retrieve notes:</p>
+                <pre><code>/get &lt;notename&gt;            # Using command
+#notename                  # Using hashtag</code></pre>
+                
+                <h4>Examples</h4>
+                <pre><code>/get rules                 # Get rules note
+#rules                     # Same as above
+#faq                       # Get FAQ note</code></pre>
+                
+                <h3>Managing Notes</h3>
+                <pre><code>/notes                     # List all saved notes
+/clear &lt;notename&gt;          # Delete a note</code></pre>
+                
+                <h3>Advanced Features</h3>
+                <ul>
+                    <li><strong>Media Support:</strong> Save notes with images or files</li>
+                    <li><strong>Button Support:</strong> Add inline buttons to notes</li>
+                    <li><strong>Hashtag Retrieval:</strong> Quick access with #notename</li>
+                    <li><strong>Per-Group Storage:</strong> Each group has its own notes</li>
+                </ul>
+                
+                <h3>Use Cases</h3>
+                <ul>
+                    <li>Store group rules and guidelines</li>
+                    <li>Save frequently asked questions</li>
+                    <li>Quick access to important links</li>
+                    <li>Store welcome messages and templates</li>
+                </ul>
+            </section>
+            
+            <!-- Feature 7: Admin Logs -->
+            <section id="logs">
+                <h2><i class="fas fa-clipboard-list" style="color: var(--primary-color);"></i> Admin Logs</h2>
+                <p>Track all admin actions with detailed logging. Perfect for accountability and audit trails.</p>
+                
+                <h3>What Gets Logged</h3>
+                <ul>
+                    <li>User kicks and bans</li>
+                    <li>Warnings issued</li>
+                    <li>Manual verifications</li>
+                    <li>Whitelist additions/removals</li>
+                    <li>Settings changes</li>
+                </ul>
+                
+                <h3>Viewing Logs</h3>
+                <pre><code>/adminlog                  # View recent admin actions
+/adminlog @user            # View actions for specific user
+/adminlog &lt;user_id&gt;        # View actions by user ID</code></pre>
+                
+                <h3>Log Format</h3>
+                <p>Each log entry includes:</p>
+                <ul>
+                    <li>Action type (kick, ban, warn, etc.)</li>
+                    <li>Admin who performed the action</li>
+                    <li>Target user</li>
+                    <li>Reason (if provided)</li>
+                    <li>Timestamp</li>
+                </ul>
+                
+                <h4>Example Output</h4>
+                <pre><code>📋 Admin Action Log (Last 20)
+
+🚪 Kick → user 123456
+   By: 789012 • 5m ago
+   Reason: Spam
+
+⚠️ Warn → user 234567
+   By: 789012 • 10m ago
+   Reason: Off-topic discussion</code></pre>
+                
+                <h3>Benefits</h3>
+                <ul>
+                    <li><strong>Accountability:</strong> Track who did what and when</li>
+                    <li><strong>Transparency:</strong> Review moderation decisions</li>
+                    <li><strong>Audit Trail:</strong> Maintain records of all actions</li>
+                    <li><strong>Dispute Resolution:</strong> Reference past actions</li>
+                </ul>
+            </section>
+            
+            <!-- Feature 8: Anti-Flood Protection -->
+            <section id="antiflood">
+                <h2><i class="fas fa-shield-virus" style="color: var(--primary-color);"></i> Anti-Flood Protection</h2>
+                <p>Prevent spam and flooding with intelligent rate limiting and auto-moderation.</p>
+                
+                <h3>How It Works</h3>
+                <p>The bot tracks message frequency and automatically takes action when users exceed configured thresholds.</p>
+                
+                <h3>Default Thresholds</h3>
+                <ul>
+                    <li><strong>Message Rate:</strong> 10 messages per 10 seconds</li>
+                    <li><strong>Action:</strong> Auto-mute for 5 minutes</li>
+                    <li><strong>Repeat Offenders:</strong> Automatic kick after 3 violations</li>
+                </ul>
+                
+                <h3>Features</h3>
+                <ul>
+                    <li>✓ Automatic detection of rapid messaging</li>
+                    <li>✓ Configurable thresholds per group</li>
+                    <li>✓ Escalating penalties for repeat offenders</li>
+                    <li>✓ Admin exemption (admins not affected)</li>
+                    <li>✓ Automatic unmute after timeout</li>
+                </ul>
+                
+                <h3>Configuration</h3>
+                <p>Anti-flood is enabled by default. Contact support for custom threshold configuration.</p>
+                
+                <h3>Use Cases</h3>
+                <ul>
+                    <li>Prevent message spam attacks</li>
+                    <li>Stop bot flooding</li>
+                    <li>Limit rapid-fire messaging</li>
+                    <li>Protect group from raids</li>
+                </ul>
+            </section>
+            
+            <!-- Call to Action -->
+            <section class="cta-section">
+                <h2>Ready to Use These Features?</h2>
+                <p>Add Mercle Verification Bot to your Telegram group and start using all these powerful features today.</p>
+                <div class="hero-buttons">
+                    <a href="https://t.me/YOUR_BOT_USERNAME" class="btn btn-telegram btn-lg" target="_blank">
+                        <i class="fab fa-telegram"></i> Add to Telegram
+                    </a>
+                    <a href="/docs/setup.html" class="btn btn-outline btn-lg" style="background: white; color: var(--primary-color);">
+                        <i class="fas fa-rocket"></i> Setup Guide
+                    </a>
+                </div>
+            </section>
+        </div>
+    </div>
+    
+    <script src="/docs/js/main.js"></script>
+    <script src="/docs/js/sidebar.js"></script>
+    <script src="/docs/js/search.js"></script>
+</body>
+</html>
+

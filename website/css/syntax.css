@@ -1,0 +1,194 @@
+/* Code Syntax Highlighting */
+
+.code-block {
+  position: relative;
+  margin: 1.5rem 0;
+}
+
+.code-block pre {
+  margin: 0;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+}
+
+/* Language Label */
+.code-language {
+  position: absolute;
+  top: 0.5rem;
+  left: 1rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Copy Button */
+.copy-button {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.code-block:hover .copy-button {
+  opacity: 1;
+}
+
+.copy-button:hover {
+  background: var(--telegram-blue);
+}
+
+.copy-button.copied {
+  background: var(--success-green);
+}
+
+/* Inline Code */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--bg-tertiary);
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  color: var(--primary-color);
+}
+
+/* Block Code */
+pre code {
+  display: block;
+  padding: 0;
+  background: none;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+/* Syntax Highlighting Colors */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #6c757d;
+  font-style: italic;
+}
+
+.token.punctuation {
+  color: var(--text-secondary);
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol,
+.token.deleted {
+  color: #e83e8c;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: #28a745;
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+  color: #17a2b8;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: #007bff;
+}
+
+.token.function,
+.token.class-name {
+  color: #6f42c1;
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: #fd7e14;
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+/* Dark Mode Adjustments */
+[data-theme="dark"] .token.comment,
+[data-theme="dark"] .token.prolog,
+[data-theme="dark"] .token.doctype,
+[data-theme="dark"] .token.cdata {
+  color: #8b949e;
+}
+
+[data-theme="dark"] .token.property,
+[data-theme="dark"] .token.tag,
+[data-theme="dark"] .token.boolean,
+[data-theme="dark"] .token.number,
+[data-theme="dark"] .token.constant,
+[data-theme="dark"] .token.symbol,
+[data-theme="dark"] .token.deleted {
+  color: #ff7b72;
+}
+
+[data-theme="dark"] .token.selector,
+[data-theme="dark"] .token.attr-name,
+[data-theme="dark"] .token.string,
+[data-theme="dark"] .token.char,
+[data-theme="dark"] .token.builtin,
+[data-theme="dark"] .token.inserted {
+  color: #7ee787;
+}
+
+[data-theme="dark"] .token.operator,
+[data-theme="dark"] .token.entity,
+[data-theme="dark"] .token.url,
+[data-theme="dark"] .language-css .token.string,
+[data-theme="dark"] .style .token.string {
+  color: #79c0ff;
+}
+
+[data-theme="dark"] .token.atrule,
+[data-theme="dark"] .token.attr-value,
+[data-theme="dark"] .token.keyword {
+  color: #79c0ff;
+}
+
+[data-theme="dark"] .token.function,
+[data-theme="dark"] .token.class-name {
+  color: #d2a8ff;
+}
+
+[data-theme="dark"] .token.regex,
+[data-theme="dark"] .token.important,
+[data-theme="dark"] .token.variable {
+  color: #ffa657;
+}
+

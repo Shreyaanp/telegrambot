@@ -54,6 +54,7 @@ class AdminPlugin(BasePlugin):
         self.router.message.register(self.cmd_vban, Command("vban"))
         self.router.message.register(self.cmd_settings, Command("settings"))
         self.router.message.register(self.cmd_manual_verify, Command("vverify"))
+        self.router.message.register(self.cmd_unverify, Command("vunverify"))
         
         self.logger.info("Admin plugin loaded successfully")
     
@@ -63,6 +64,7 @@ class AdminPlugin(BasePlugin):
             {"command": "/vban", "description": "Ban a user from the group"},
             {"command": "/settings", "description": "View/update group settings"},
             {"command": "/vverify", "description": "Manually verify a user"},
+            {"command": "/vunverify", "description": "Remove user's verification (unverify)"},
         ]
     
     # Helper Methods
@@ -393,4 +395,116 @@ class AdminPlugin(BasePlugin):
         except TelegramBadRequest as e:
             await message.answer(f"❌ Failed to unmute user: {e}")
             self.logger.error(f"Failed to unmute user {target_user_id}: {e}")
+    
+    async def cmd_unverify(self, message: Message):
+        """
+        Remove a user's verification (unverify them).
+        
+        Usage:
+            /vunverify @username
+            /vunverify <user_id>
+            Reply to a message with /vunverify
+        """
+        # Check admin permission
+        if not await self._check_admin_permission(message, "can_restrict_members"):
+            return
+        
+        group_id = message.chat.id
+        
+        # Extract target user ID
+        target_user_id = self._extract_user_id(message)
+        
+        if not target_user_id:
+            await message.answer(
+                "❌ **Invalid Usage**\n\n"
+                "Please specify a user:\n"
+                "• Reply to their message with `/vunverify`\n"
+                "• Use `/vunverify @username`\n"
+                "• Use `/vunverify <user_id>`"
+            )
+            return
+        
+        # Check if user is verified
+        is_verified = await self.user_service.is_verified(target_user_id)
+        
+        if not is_verified:
+            await message.answer(
+                f"⚠️ User `{target_user_id}` is not verified.\n\n"
+                "They don't have a verification record to remove."
+            )
+            return
+        
+        # Get user info for better messaging
+        try:
+            target_user = await self.bot.get_chat_member(group_id, target_user_id)
+            user_mention = target_user.user.mention_html()
+            user_name = target_user.user.first_name or str(target_user_id)
+        except:
+            user_mention = f"`{target_user_id}`"
+            user_name = str(target_user_id)
+        
+        # Delete verification
+        success = await self.user_service.delete_verification(target_user_id)
+        
+        if success:
+            # Also update group member verification status
+            await self.group_service.update_member_verification(group_id, target_user_id, False)
+            
+            # Mute the user since they're no longer verified
+            try:
+                await self.bot.restrict_chat_member(
+                    chat_id=group_id,
+                    user_id=target_user_id,
+                    permissions={
+                        "can_send_messages": False,
+                        "can_send_media_messages": False,
+                        "can_send_polls": False,
+                        "can_send_other_messages": False,
+                        "can_add_web_page_previews": False,
+                        "can_invite_users": False,
+                    }
+                )
+                mute_status = "and has been muted"
+            except TelegramBadRequest as e:
+                self.logger.error(f"Failed to mute user {target_user_id}: {e}")
+                mute_status = "but could not be muted (check bot permissions)"
+            
+            await message.answer(
+                f"✅ **Verification Removed**\n\n"
+                f"User {user_mention} has been unverified {mute_status}.\n\n"
+                f"**What this means:**\n"
+                f"• Their verification record has been deleted\n"
+                f"• They must verify again to participate\n"
+                f"• They can use `/verify` to start verification\n\n"
+                f"**Reason to use this:**\n"
+                f"• Give users a second chance\n"
+                f"• Reset suspicious accounts\n"
+                f"• Testing purposes",
+                parse_mode="HTML"
+            )
+            
+            # Log the action
+            if ADMIN_LOGS_AVAILABLE:
+                try:
+                    from bot.services.admin_log_service import AdminLogService
+                    admin_log_service = AdminLogService(self.db)
+                    await admin_log_service.log_action(
+                        group_id=group_id,
+                        admin_id=message.from_user.id,
+                        action="unverify",
+                        target_user_id=target_user_id,
+                        details=f"Removed verification for {user_name}"
+                    )
+                except Exception as e:
+                    self.logger.error(f"Failed to log unverify action: {e}")
+            
+            self.logger.info(
+                f"Admin {message.from_user.id} unverified user {target_user_id} in group {group_id}"
+            )
+        else:
+            await message.answer(
+                f"❌ **Failed to Remove Verification**\n\n"
+                f"Could not delete verification for user `{target_user_id}`.\n"
+                f"This might be a database error. Please try again."
+            )
 

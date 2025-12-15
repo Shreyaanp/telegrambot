@@ -1,0 +1,212 @@
+/* Sidebar Navigation Styles */
+
+.sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: var(--sidebar-width);
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto;
+  z-index: 1000;
+  transition: transform var(--transition-normal);
+}
+
+.sidebar-header {
+  padding: 2rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.sidebar-header img {
+  width: 50px;
+  height: 50px;
+  border-radius: 12px;
+}
+
+.sidebar-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--text-primary);
+}
+
+/* Search Box */
+.search-box {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.search-box input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  transition: all var(--transition-fast);
+}
+
+.search-box input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.search-box input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* Navigation Menu */
+.nav-menu {
+  list-style: none;
+  padding: 1rem 0;
+}
+
+.nav-menu li {
+  margin: 0;
+}
+
+.nav-menu a {
+  display: block;
+  padding: 0.75rem 1.5rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+  border-left: 3px solid transparent;
+}
+
+.nav-menu a:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-left-color: var(--primary-color);
+  text-decoration: none;
+}
+
+.nav-menu a.active {
+  background: var(--bg-tertiary);
+  color: var(--primary-color);
+  border-left-color: var(--primary-color);
+  font-weight: 500;
+}
+
+/* Section Headers */
+.nav-section {
+  padding: 1rem 1.5rem 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+}
+
+/* Submenu */
+.nav-submenu {
+  list-style: none;
+  padding-left: 0;
+}
+
+.nav-submenu a {
+  padding-left: 3rem;
+  font-size: 0.9rem;
+}
+
+/* Sidebar Footer */
+.sidebar-footer {
+  padding: 1.5rem;
+  border-top: 1px solid var(--border-color);
+  margin-top: auto;
+}
+
+.sidebar-footer a {
+  display: block;
+  padding: 0.5rem 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+/* Mobile Sidebar */
+@media (max-width: 768px) {
+  .sidebar {
+    transform: translateX(-100%);
+  }
+  
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  
+  .sidebar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    display: none;
+  }
+  
+  .sidebar-overlay.active {
+    display: block;
+  }
+}
+
+/* Scrollbar Styling */
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* Table of Contents (for long pages) */
+.toc {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin: 2rem 0;
+}
+
+.toc h4 {
+  margin-bottom: 1rem;
+  color: var(--text-primary);
+}
+
+.toc ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.toc ul li {
+  margin: 0.5rem 0;
+}
+
+.toc ul li a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.toc ul li a:hover {
+  color: var(--primary-color);
+}
+
+.toc ul ul {
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+}
+

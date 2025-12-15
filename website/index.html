@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Mercle Verification Bot - Secure biometric verification for Telegram groups powered by face recognition technology.">
+    <meta name="keywords" content="telegram bot, verification, biometric, face recognition, group moderation, mercle">
+    <title>Mercle Verification Bot - Secure Telegram Group Verification</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+    
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="/docs/css/main.css">
+    <link rel="stylesheet" href="/docs/css/sidebar.css">
+    <link rel="stylesheet" href="/docs/css/syntax.css">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div style="font-size: 2.5rem;">🔐</div>
+            <h3>Mercle Bot</h3>
+        </div>
+        
+        <div class="search-box">
+            <input type="text" placeholder="Search docs... (Ctrl+K)">
+        </div>
+        
+        <ul class="nav-menu">
+            <li><a href="/docs/" class="active">Home</a></li>
+            
+            <li class="nav-section">Getting Started</li>
+            <li><a href="/docs/setup.html">Setup Guide</a></li>
+            
+            <li class="nav-section">Features</li>
+            <li><a href="/docs/features.html#verification">Biometric Verification</a></li>
+            <li><a href="/docs/features.html#admin">Admin Tools</a></li>
+            <li><a href="/docs/features.html#greetings">Welcome/Goodbye</a></li>
+            <li><a href="/docs/features.html#filters">Message Filters</a></li>
+            <li><a href="/docs/features.html#locks">Message Locks</a></li>
+            <li><a href="/docs/features.html#notes">Notes System</a></li>
+            <li><a href="/docs/features.html#logs">Admin Logs</a></li>
+            <li><a href="/docs/features.html#antiflood">Anti-Flood</a></li>
+            
+            <li class="nav-section">Reference</li>
+            <li><a href="/docs/commands.html">Commands</a></li>
+            <li><a href="/docs/api.html">API Documentation</a></li>
+        </ul>
+        
+        <div class="sidebar-footer">
+            <a href="https://mercle.ai" target="_blank">Powered by Mercle</a>
+            <a href="https://github.com/Shreyaanp/telegrambot" target="_blank">View on GitHub</a>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Header -->
+        <header class="page-header">
+            <div class="header-left">
+                <button class="mobile-menu-toggle">☰</button>
+            </div>
+            <div class="header-right">
+                <button class="theme-toggle">🌙 Dark Mode</button>
+            </div>
+        </header>
+        
+        <div class="content-wrapper">
+            <!-- Hero Section -->
+            <section class="hero">
+                <div class="hero-content">
+                    <h1>🔐 Mercle Verification Bot</h1>
+                    <p>Secure biometric verification for Telegram groups. Prevent bots, fake accounts, and spam with advanced face recognition technology.</p>
+                    <div class="hero-buttons">
+                        <a href="https://t.me/YOUR_BOT_USERNAME" class="btn btn-telegram btn-lg" target="_blank">
+                            <i class="fab fa-telegram"></i> Add to Telegram
+                        </a>
+                        <a href="/docs/setup.html" class="btn btn-outline btn-lg">
+                            <i class="fas fa-book"></i> View Documentation
+                        </a>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Features Grid -->
+            <section id="features">
+                <h2 class="text-center mb-3">Powerful Features</h2>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <h3>Biometric Verification</h3>
+                        <p>Secure face verification powered by Mercle SDK. Prevent bots and fake accounts with 99.9% accuracy.</p>
+                        <ul class="feature-benefits">
+                            <li>2-minute verification timeout</li>
+                            <li>Auto-mute unverified users</li>
+                            <li>Choose verification location (group/DM)</li>
+                        </ul>
+                        <a href="/docs/features.html#verification" class="learn-more">Learn more →</a>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-user-shield"></i>
+                        </div>
+                        <h3>Admin Moderation Tools</h3>
+                        <p>Comprehensive admin commands for group management and moderation.</p>
+                        <ul class="feature-benefits">
+                            <li>Kick, ban, and warn users</li>
+                            <li>Manual verification override</li>
+                            <li>Whitelist trusted members</li>
+                        </ul>
+                        <a href="/docs/features.html#admin" class="learn-more">Learn more →</a>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <h3>Automation & Filters</h3>
+                        <p>Auto-respond to keywords and restrict unwanted message types.</p>
+                        <ul class="feature-benefits">
+                            <li>Custom keyword filters</li>
+                            <li>Lock links, media, stickers</li>
+                            <li>Auto-delete restricted content</li>
+                        </ul>
+                        <a href="/docs/features.html#filters" class="learn-more">Learn more →</a>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-hand-wave"></i>
+                        </div>
+                        <h3>Welcome System</h3>
+                        <p>Greet new members with customizable messages and interactive buttons.</p>
+                        <ul class="feature-benefits">
+                            <li>Custom welcome messages</li>
+                            <li>Inline button support</li>
+                            <li>Variables: {name}, {mention}, {group}</li>
+                        </ul>
+                        <a href="/docs/features.html#greetings" class="learn-more">Learn more →</a>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-lock"></i>
+                        </div>
+                        <h3>Message Locks</h3>
+                        <p>Restrict specific message types to keep your group clean and focused.</p>
+                        <ul class="feature-benefits">
+                            <li>Lock links, media, forwards</li>
+                            <li>Auto-delete violations</li>
+                            <li>Per-group configuration</li>
+                        </ul>
+                        <a href="/docs/features.html#locks" class="learn-more">Learn more →</a>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-note-sticky"></i>
+                        </div>
+                        <h3>Notes & Tags</h3>
+                        <p>Save and retrieve group notes with hashtag support.</p>
+                        <ul class="feature-benefits">
+                            <li>Save notes with /save</li>
+                            <li>Retrieve with #notename</li>
+                            <li>Support for text, images, files</li>
+                        </ul>
+                        <a href="/docs/features.html#notes" class="learn-more">Learn more →</a>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-clipboard-list"></i>
+                        </div>
+                        <h3>Admin Logs</h3>
+                        <p>Track all admin actions with detailed logging and history.</p>
+                        <ul class="feature-benefits">
+                            <li>Log kicks, bans, warns</li>
+                            <li>View action history</li>
+                            <li>Filter by user or admin</li>
+                        </ul>
+                        <a href="/docs/features.html#logs" class="learn-more">Learn more →</a>
+                    </div>
+                    
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-shield-virus"></i>
+                        </div>
+                        <h3>Anti-Flood Protection</h3>
+                        <p>Prevent spam with intelligent rate limiting and auto-moderation.</p>
+                        <ul class="feature-benefits">
+                            <li>Message rate limiting</li>
+                            <li>Auto-mute spammers</li>
+                            <li>Configurable thresholds</li>
+                        </ul>
+                        <a href="/docs/features.html#antiflood" class="learn-more">Learn more →</a>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- How It Works -->
+            <section class="how-it-works">
+                <h2 class="text-center mb-3">How It Works</h2>
+                <div class="steps-container">
+                    <div class="step-item">
+                        <div class="step-number">1</div>
+                        <h3>Add Bot to Group</h3>
+                        <p>Add the bot to your Telegram group and make it an admin with necessary permissions.</p>
+                    </div>
+                    
+                    <div class="step-item">
+                        <div class="step-number">2</div>
+                        <h3>New Member Joins</h3>
+                        <p>When a new member joins, they're automatically muted and prompted to verify.</p>
+                    </div>
+                    
+                    <div class="step-item">
+                        <div class="step-number">3</div>
+                        <h3>Face Verification</h3>
+                        <p>User scans QR code or taps button, completes face verification in Mercle app.</p>
+                    </div>
+                    
+                    <div class="step-item">
+                        <div class="step-number">4</div>
+                        <h3>Instant Access</h3>
+                        <p>Upon successful verification, user is unmuted and can participate in the group.</p>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Statistics -->
+            <section class="stats-section">
+                <h2 class="text-center mb-3">Built for Scale</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-number">12</div>
+                        <div class="stat-label">Plugins</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">40+</div>
+                        <div class="stat-label">Commands</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">8</div>
+                        <div class="stat-label">Major Features</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">99.9%</div>
+                        <div class="stat-label">Accuracy</div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Call to Action -->
+            <section class="cta-section">
+                <h2>Ready to Secure Your Group?</h2>
+                <p>Add Mercle Verification Bot to your Telegram group today and start protecting your community.</p>
+                <div class="hero-buttons">
+                    <a href="https://t.me/YOUR_BOT_USERNAME" class="btn btn-telegram btn-lg" target="_blank">
+                        <i class="fab fa-telegram"></i> Add to Telegram
+                    </a>
+                    <a href="/docs/setup.html" class="btn btn-outline btn-lg" style="background: white; color: var(--primary-color);">
+                        <i class="fas fa-rocket"></i> Get Started
+                    </a>
+                </div>
+            </section>
+        </div>
+    </div>
+    
+    <!-- JavaScript -->
+    <script src="/docs/js/main.js"></script>
+    <script src="/docs/js/sidebar.js"></script>
+    <script src="/docs/js/search.js"></script>
+</body>
+</html>
+

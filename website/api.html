@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="API Documentation for Mercle Verification Bot - Technical details about Mercle SDK integration and webhook implementation.">
+    <title>API Documentation - Mercle Verification Bot</title>
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+    
+    <link rel="stylesheet" href="/docs/css/main.css">
+    <link rel="stylesheet" href="/docs/css/sidebar.css">
+    <link rel="stylesheet" href="/docs/css/syntax.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Sidebar Navigation -->
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <div style="font-size: 2.5rem;">🔐</div>
+            <h3>Mercle Bot</h3>
+        </div>
+        
+        <div class="search-box">
+            <input type="text" placeholder="Search docs... (Ctrl+K)">
+        </div>
+        
+        <ul class="nav-menu">
+            <li><a href="/docs/">Home</a></li>
+            
+            <li class="nav-section">Getting Started</li>
+            <li><a href="/docs/setup.html">Setup Guide</a></li>
+            
+            <li class="nav-section">API Documentation</li>
+            <li><a href="#overview">Overview</a></li>
+            <li><a href="#architecture">Architecture</a></li>
+            <li><a href="#mercle-sdk">Mercle SDK</a></li>
+            <li><a href="#webhook">Webhook</a></li>
+            <li><a href="#deep-links">Deep Links</a></li>
+            <li><a href="#database">Database</a></li>
+            
+            <li class="nav-section">Features</li>
+            <li><a href="/docs/features.html">All Features</a></li>
+            
+            <li class="nav-section">Reference</li>
+            <li><a href="/docs/commands.html">Commands</a></li>
+        </ul>
+    </nav>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+        <header class="page-header">
+            <div class="header-left">
+                <button class="mobile-menu-toggle">☰</button>
+                <div class="breadcrumbs"></div>
+            </div>
+            <div class="header-right">
+                <button class="theme-toggle">🌙 Dark Mode</button>
+            </div>
+        </header>
+        
+        <div class="content-wrapper">
+            <h1>API Documentation</h1>
+            <p class="text-secondary">Technical documentation for developers interested in the bot's architecture and Mercle SDK integration.</p>
+            
+            <!-- Overview -->
+            <section id="overview">
+                <h2>📋 Overview</h2>
+                <p>Mercle Verification Bot is built using:</p>
+                <ul>
+                    <li><strong>Python 3.11+</strong> - Core programming language</li>
+                    <li><strong>aiogram 3.6.0</strong> - Telegram Bot API framework</li>
+                    <li><strong>FastAPI 0.111.0</strong> - Webhook server</li>
+                    <li><strong>SQLAlchemy 2.0.25</strong> - Database ORM</li>
+                    <li><strong>SQLite</strong> - Database with WAL mode</li>
+                    <li><strong>Mercle SDK</strong> - Biometric verification API</li>
+                </ul>
+                
+                <h3>Key Features</h3>
+                <ul>
+                    <li>Plugin-based architecture for modularity</li>
+                    <li>Webhook mode for production deployment</li>
+                    <li>Async/await throughout for performance</li>
+                    <li>Service layer for business logic separation</li>
+                    <li>WAL mode SQLite for concurrent access</li>
+                </ul>
+            </section>
+            
+            <!-- Architecture -->
+            <section id="architecture">
+                <h2>🏗️ Architecture</h2>
+                
+                <h3>System Components</h3>
+                <pre><code>┌─────────────────────────────────────────────────────────────┐
+│                        Telegram API                         │
+└────────────────────────┬────────────────────────────────────┘
+                         │ Webhook
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    FastAPI Webhook Server                   │
+│                  (webhook_server.py)                        │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      Bot Core                               │
+│                  (bot/core/bot.py)                          │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Plugin Manager                            │
+│              (bot/core/plugin_manager.py)                   │
+└────────┬────────────────────────────────────────────────────┘
+         │
+         ├─► Verification Plugin
+         ├─► Admin Plugin
+         ├─► Warnings Plugin
+         ├─► Whitelist Plugin
+         ├─► Rules Plugin
+         ├─► Stats Plugin
+         ├─► Anti-Flood Plugin
+         ├─► Greetings Plugin
+         ├─► Filters Plugin
+         ├─► Locks Plugin
+         ├─► Notes Plugin
+         └─► Admin Logs Plugin
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Service Layer                            │
+│  UserService | GroupService | SessionService | etc.        │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  SQLite Database (WAL)                      │
+│  users | groups | sessions | filters | locks | notes       │
+└─────────────────────────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Mercle SDK API                           │
+│            https://newapi.mercle.ai                         │
+└─────────────────────────────────────────────────────────────┘</code></pre>
+                
+                <h3>Plugin Architecture</h3>
+                <p>The bot uses a plugin-based architecture where each feature is a separate plugin:</p>
+                <pre><code>class BasePlugin:
+    def get_name(self) -> str
+    def get_description(self) -> str
+    def get_commands(self) -> list
+    def register_handlers(self, router: Router)
+    async def on_load()
+    async def on_unload()</code></pre>
+                
+                <h3>Service Layer</h3>
+                <p>Business logic is separated into services:</p>
+                <ul>
+                    <li><code>UserService</code> - User management and verification status</li>
+                    <li><code>GroupService</code> - Group settings and configuration</li>
+                    <li><code>SessionService</code> - Verification session management</li>
+                    <li><code>PermissionService</code> - Role-based access control</li>
+                    <li><code>MercleSDK</code> - Mercle API client</li>
+                </ul>
+            </section>
+            
+            <!-- Mercle SDK -->
+            <section id="mercle-sdk">
+                <h2>🔐 Mercle SDK Integration</h2>
+                
+                <h3>API Endpoints</h3>
+                
+                <h4>Create Verification Session</h4>
+                <pre><code>POST https://newapi.mercle.ai/api/mercle-sdk/session/create
+
+Headers:
+  X-API-Key: YOUR_API_KEY
+  Content-Type: application/json
+
+Body:
+{
+  "metadata": {
+    "telegram_user_id": 123456789,
+    "telegram_username": "user123",
+    "timestamp": "2024-01-15T10:30:00Z"
+  }
+}
+
+Response:
+{
+  "success": true,
+  "session_id": "sess_abc123xyz",
+  "qr_data": "{...}",
+  "base64_qr": "eyJ..."
+}</code></pre>
+                
+                <h4>Check Session Status</h4>
+                <pre><code>GET https://newapi.mercle.ai/api/mercle-sdk/session/status
+
+Headers:
+  X-API-Key: YOUR_API_KEY
+
+Query Parameters:
+  session_id: sess_abc123xyz
+
+Response:
+{
+  "success": true,
+  "status": "approved",  // or "pending", "rejected", "expired"
+  "localized_user_id": "user_xyz789abc"
+}</code></pre>
+                
+                <h3>Verification Flow</h3>
+                <ol>
+                    <li><strong>Create Session:</strong> Bot calls Mercle SDK to create verification session</li>
+                    <li><strong>Display QR/Button:</strong> Bot sends QR code and deep link button to user</li>
+                    <li><strong>User Verifies:</strong> User scans QR or taps button, opens Mercle app, completes face scan</li>
+                    <li><strong>Poll Status:</strong> Bot polls SDK every 3 seconds to check session status</li>
+                    <li><strong>Update Database:</strong> On success, bot stores <code>localized_user_id</code> and unmutes user</li>
+                </ol>
+                
+                <h3>Implementation Example</h3>
+                <pre><code>class MercleSDK:
+    async def create_session(self, metadata: dict):
+        response = await httpx.post(
+            f"{self.api_url}/session/create",
+            headers={"X-API-Key": self.api_key},
+            json={"metadata": metadata}
+        )
+        return response.json()
+    
+    async def check_status(self, session_id: str):
+        response = await httpx.get(
+            f"{self.api_url}/session/status",
+            headers={"X-API-Key": self.api_key},
+            params={"session_id": session_id}
+        )
+        return response.json()</code></pre>
+            </section>
+            
+            <!-- Webhook -->
+            <section id="webhook">
+                <h2>🔔 Webhook Implementation</h2>
+                
+                <h3>Webhook Server</h3>
+                <p>The bot runs in webhook mode using FastAPI:</p>
+                <pre><code>from fastapi import FastAPI, Request
+from aiogram import Bot, Dispatcher
+
+app = FastAPI()
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+
+@app.post("/webhook/secure-{random_path}")
+async def telegram_webhook(request: Request):
+    update = Update(**await request.json())
+    await dp.feed_update(bot, update)
+    return {"ok": True}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+@app.get("/status")
+async def status():
+    return {
+        "plugins_loaded": len(plugin_manager.plugins),
+        "plugins": [p.name for p in plugins]
+    }</code></pre>
+                
+                <h3>Nginx Configuration</h3>
+                <pre><code>server {
+    listen 443 ssl;
+    server_name telegram.mercle.ai;
+    
+    ssl_certificate /etc/letsencrypt/live/telegram.mercle.ai/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/telegram.mercle.ai/privkey.pem;
+    
+    location /webhook {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+    
+    location /docs {
+        alias /home/ubuntu/telegrambot/website;
+        index index.html;
+    }
+}</code></pre>
+                
+                <h3>Setting Webhook</h3>
+                <pre><code>await bot.set_webhook(
+    url="https://telegram.mercle.ai/webhook/secure-abc123",
+    drop_pending_updates=True
+)</code></pre>
+            </section>
+            
+            <!-- Deep Links -->
+            <section id="deep-links">
+                <h2>🔗 Deep Link Implementation</h2>
+                
+                <h3>Deep Link Format</h3>
+                <p>For mobile users, the bot provides a deep link to open the Mercle app:</p>
+                <pre><code>mercle://scan-authenticate?session_id={session_id}&app_name={app_name}&app_domain={domain}</code></pre>
+                
+                <h3>Web Redirect Page</h3>
+                <p>The button URL points to a redirect page that handles platform detection:</p>
+                <pre><code>https://telegram.mercle.ai/verify?session_id={session_id}&app_name=TelegramBot&app_domain=telegram.mercle.ai</code></pre>
+                
+                <h3>Platform Detection</h3>
+                <pre><code>// Detect platform
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+const isAndroid = /Android/.test(navigator.userAgent);
+
+if (isAndroid) {
+    // Use Android Intent URL
+    window.location.href = `intent://scan-authenticate?...#Intent;scheme=mercle;package=com.mercle.app;end`;
+} else if (isIOS) {
+    // Use direct deep link
+    window.location.href = `mercle://scan-authenticate?...`;
+} else {
+    // Desktop: Show QR code
+    showQRCode();
+}</code></pre>
+                
+                <h3>Fallback Handling</h3>
+                <p>If the app is not installed, redirect to app store:</p>
+                <pre><code>setTimeout(() => {
+    if (isIOS) {
+        window.location.href = 'https://apps.apple.com/app/mercle/...';
+    } else if (isAndroid) {
+        window.location.href = 'https://play.google.com/store/apps/details?id=com.mercle.app';
+    }
+}, 2000);</code></pre>
+            </section>
+            
+            <!-- Database -->
+            <section id="database">
+                <h2>💾 Database Schema</h2>
+                
+                <h3>Core Tables</h3>
+                
+                <h4>users</h4>
+                <pre><code>CREATE TABLE users (
+    telegram_id INTEGER PRIMARY KEY,
+    username TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    mercle_user_id TEXT UNIQUE NOT NULL,
+    verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);</code></pre>
+                
+                <h4>groups</h4>
+                <pre><code>CREATE TABLE groups (
+    group_id INTEGER PRIMARY KEY,
+    group_name TEXT,
+    verification_enabled BOOLEAN DEFAULT 1,
+    auto_verify_on_join BOOLEAN DEFAULT 1,
+    verification_timeout INTEGER DEFAULT 120,
+    kick_on_timeout BOOLEAN DEFAULT 1,
+    verification_location TEXT DEFAULT 'group',
+    welcome_message TEXT,
+    welcome_message_buttons TEXT,
+    goodbye_message TEXT,
+    goodbye_enabled BOOLEAN DEFAULT 0,
+    rules_text TEXT,
+    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);</code></pre>
+                
+                <h4>verification_sessions</h4>
+                <pre><code>CREATE TABLE verification_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_user_id INTEGER NOT NULL,
+    session_id TEXT UNIQUE NOT NULL,
+    status TEXT DEFAULT 'pending',
+    group_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    message_ids TEXT
+);</code></pre>
+                
+                <h3>Feature Tables</h3>
+                
+                <h4>filters</h4>
+                <pre><code>CREATE TABLE filters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    keyword TEXT NOT NULL,
+    response TEXT NOT NULL,
+    buttons TEXT,
+    created_by INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);</code></pre>
+                
+                <h4>locks</h4>
+                <pre><code>CREATE TABLE locks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    lock_type TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT 1
+);</code></pre>
+                
+                <h4>notes</h4>
+                <pre><code>CREATE TABLE notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    note_name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    media_type TEXT,
+    media_file_id TEXT,
+    buttons TEXT,
+    created_by INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);</code></pre>
+                
+                <h4>admin_logs</h4>
+                <pre><code>CREATE TABLE admin_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    admin_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    target_user_id INTEGER,
+    reason TEXT,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);</code></pre>
+                
+                <h3>WAL Mode</h3>
+                <p>The database uses Write-Ahead Logging for better concurrency:</p>
+                <pre><code>PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+PRAGMA cache_size=-64000;
+PRAGMA temp_store=MEMORY;
+PRAGMA busy_timeout=5000;</code></pre>
+            </section>
+            
+            <!-- Deployment -->
+            <section id="deployment">
+                <h2>🚀 Deployment</h2>
+                
+                <h3>Production Setup</h3>
+                <ol>
+                    <li><strong>EC2 Instance:</strong> Ubuntu 22.04 LTS</li>
+                    <li><strong>Domain:</strong> telegram.mercle.ai (Route 53)</li>
+                    <li><strong>SSL:</strong> Let's Encrypt (Certbot)</li>
+                    <li><strong>Web Server:</strong> Nginx</li>
+                    <li><strong>Process Manager:</strong> Systemd</li>
+                </ol>
+                
+                <h3>Systemd Service</h3>
+                <pre><code>[Unit]
+Description=Mercle Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/telegrambot
+Environment="PYTHONPATH=/home/ubuntu/telegrambot"
+ExecStart=/usr/bin/python3 webhook_server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+                
+                <h3>Environment Variables</h3>
+                <pre><code>BOT_TOKEN=your_bot_token
+MERCLE_API_URL=https://newapi.mercle.ai/api/mercle-sdk
+MERCLE_API_KEY=your_api_key
+MERCLE_API_SECRET=your_api_secret
+MERCLE_APP_ID=your_app_id
+WEBHOOK_URL=https://telegram.mercle.ai
+WEBHOOK_PATH=/webhook/secure-random
+VERIFICATION_TIMEOUT=120</code></pre>
+            </section>
+            
+            <!-- GitHub -->
+            <section class="cta-section">
+                <h2>💻 Open Source</h2>
+                <p>The bot is open source and available on GitHub. Contributions are welcome!</p>
+                <div class="hero-buttons">
+                    <a href="https://github.com/Shreyaanp/telegrambot" class="btn btn-primary btn-lg" target="_blank">
+                        <i class="fab fa-github"></i> View on GitHub
+                    </a>
+                    <a href="/docs/" class="btn btn-outline btn-lg" style="background: white; color: var(--primary-color);">
+                        <i class="fas fa-home"></i> Back to Home
+                    </a>
+                </div>
+            </section>
+        </div>
+    </div>
+    
+    <script src="/docs/js/main.js"></script>
+    <script src="/docs/js/sidebar.js"></script>
+    <script src="/docs/js/search.js"></script>
+</body>
+</html>
+
