@@ -42,7 +42,11 @@ class Group(Base):
     auto_verify_on_join = Column(Boolean, default=True)
     verification_timeout = Column(Integer, default=120)  # seconds
     kick_on_timeout = Column(Boolean, default=True)
+    verification_location = Column(String, default="group")  # group, dm, or both
     welcome_message = Column(Text, nullable=True)
+    welcome_message_buttons = Column(Text, nullable=True)  # JSON for buttons
+    goodbye_message = Column(Text, nullable=True)
+    goodbye_enabled = Column(Boolean, default=False)
     rules_text = Column(Text, nullable=True)
     added_at = Column(DateTime, default=datetime.utcnow)
     

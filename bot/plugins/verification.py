@@ -215,16 +215,42 @@ class VerificationPlugin(BasePlugin):
             self.logger.error(f"Failed to mute user {user_id} in group {group_id}: {e}")
             return
         
-        # Start verification flow (send verification message IN THE GROUP)
-        await self._start_verification_flow(
-            telegram_id=user_id,
-            username=username,
-            first_name=new_member.first_name,
-            last_name=new_member.last_name,
-            chat_id=group_id,  # Send verification message in group
-            group_id=group_id,
-            trigger_type="auto_join"
-        )
+        # Determine where to send verification based on group settings
+        verification_location = group.verification_location if group else "group"
+        
+        if verification_location == "dm":
+            # Send notice in group, verification in DM
+            try:
+                from bot.utils.messages import verification_dm_notice_message
+                await self.bot.send_message(
+                    chat_id=group_id,
+                    text=verification_dm_notice_message(group_name),
+                    parse_mode="Markdown"
+                )
+            except:
+                pass
+            
+            # Start verification in DM
+            await self._start_verification_flow(
+                telegram_id=user_id,
+                username=username,
+                first_name=new_member.first_name,
+                last_name=new_member.last_name,
+                chat_id=user_id,  # Send to DM
+                group_id=group_id,
+                trigger_type="auto_join"
+            )
+        else:
+            # Send verification in group (default behavior)
+            await self._start_verification_flow(
+                telegram_id=user_id,
+                username=username,
+                first_name=new_member.first_name,
+                last_name=new_member.last_name,
+                chat_id=group_id,  # Send in group
+                group_id=group_id,
+                trigger_type="auto_join"
+            )
     
     # Verification Flow
     

@@ -22,6 +22,11 @@ from bot.plugins.whitelist import WhitelistPlugin
 from bot.plugins.rules import RulesPlugin
 from bot.plugins.stats import StatsPlugin
 from bot.plugins.antiflood import AntiFloodPlugin
+from bot.plugins.greetings import GreetingsPlugin
+from bot.plugins.filters import FiltersPlugin
+from bot.plugins.locks import LocksPlugin
+from bot.plugins.notes import NotesPlugin
+from bot.plugins.admin_logs import AdminLogsPlugin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,6 +69,11 @@ async def lifespan(app: FastAPI):
             RulesPlugin,
             StatsPlugin,
             AntiFloodPlugin,
+            GreetingsPlugin,
+            FiltersPlugin,
+            LocksPlugin,
+            NotesPlugin,
+            AdminLogsPlugin,
         ]
         await telegram_bot.load_plugins(plugin_classes)
         

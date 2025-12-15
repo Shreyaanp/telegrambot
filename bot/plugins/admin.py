@@ -17,6 +17,13 @@ from bot.services import (
 
 logger = logging.getLogger(__name__)
 
+# Import AdminLogsPlugin for logging actions
+try:
+    from bot.plugins.admin_logs import AdminLogsPlugin
+    ADMIN_LOGS_AVAILABLE = True
+except ImportError:
+    ADMIN_LOGS_AVAILABLE = False
+
 
 class AdminPlugin(BasePlugin):
     """Plugin for admin commands and group management."""
@@ -136,6 +143,15 @@ class AdminPlugin(BasePlugin):
             # Update database
             await self.group_service.update_member_verification(group_id, target_user_id, False)
             
+            # Log action
+            if ADMIN_LOGS_AVAILABLE:
+                await AdminLogsPlugin.log_action(
+                    group_id=group_id,
+                    admin_id=message.from_user.id,
+                    action="kick",
+                    target_user_id=target_user_id
+                )
+            
             await message.answer(
                 f"✅ User `{target_user_id}` has been kicked from the group."
             )
@@ -177,6 +193,16 @@ class AdminPlugin(BasePlugin):
             # Ban user
             await self.bot.ban_chat_member(chat_id=group_id, user_id=target_user_id)
             
+            # Log action
+            if ADMIN_LOGS_AVAILABLE:
+                await AdminLogsPlugin.log_action(
+                    group_id=group_id,
+                    admin_id=message.from_user.id,
+                    action="ban",
+                    target_user_id=target_user_id,
+                    reason=reason
+                )
+            
             await message.answer(
                 f"🚫 User `{target_user_id}` has been banned from the group.\n"
                 f"**Reason:** {reason}"
@@ -215,19 +241,22 @@ class AdminPlugin(BasePlugin):
         parts = message.text.split(maxsplit=2)
         
         if len(parts) == 1:
-            # Show current settings
-            await message.answer(
-                f"⚙️ **Group Settings**\n\n"
-                f"**Auto-Verification:** {'✅ Enabled' if group.auto_verify_on_join else '❌ Disabled'}\n"
-                f"**Verification Timeout:** {group.verification_timeout}s ({group.verification_timeout // 60}m)\n"
-                f"**Kick on Timeout:** {'✅ Yes' if group.kick_on_timeout else '❌ No'}\n"
-                f"**Welcome Message:** {'✅ Set' if group.welcome_message else '❌ Not set'}\n"
-                f"**Rules:** {'✅ Set' if group.rules_text else '❌ Not set'}\n\n"
-                f"**Usage:**\n"
-                f"`/settings timeout <seconds>` - Set timeout\n"
-                f"`/settings autoverify on/off` - Toggle auto-verify\n"
-                f"`/settings welcome <message>` - Set welcome message"
+            # Show current settings using improved message format
+            from bot.utils.messages import settings_display
+            
+            settings_msg = settings_display(
+                group_name=message.chat.title or "this group",
+                verification_enabled=group.verification_enabled,
+                auto_verify=group.auto_verify_on_join,
+                timeout=group.verification_timeout,
+                kick_on_timeout=group.kick_on_timeout,
+                verification_location=group.verification_location or "group",
+                welcome_set=bool(group.welcome_message),
+                goodbye_set=bool(getattr(group, 'goodbye_message', None)),
+                rules_set=bool(group.rules_text)
             )
+            
+            await message.answer(settings_msg)
             return
         
         setting = parts[1].lower()
@@ -251,6 +280,21 @@ class AdminPlugin(BasePlugin):
             await self.group_service.set_auto_verify(group_id, enabled)
             await message.answer(f"✅ Auto-verification {'enabled' if enabled else 'disabled'}")
             
+        elif setting == "location":
+            if not value or value.lower() not in ["group", "dm", "both"]:
+                await message.answer("❌ Please specify `group`, `dm`, or `both`.\nExample: `/settings location dm`")
+                return
+            
+            location = value.lower()
+            await self.group_service.update_group_settings(group_id, verification_location=location)
+            
+            location_desc = {
+                "group": "in the group chat",
+                "dm": "in private messages (DM)",
+                "both": "in both group and DM"
+            }
+            await message.answer(f"✅ Verification location set to: **{location.upper()}**\n\nNew members will be verified {location_desc[location]}.")
+            
         elif setting == "welcome":
             if not value:
                 await message.answer("❌ Please provide a welcome message.\nExample: `/settings welcome Welcome to our group!`")
@@ -264,6 +308,7 @@ class AdminPlugin(BasePlugin):
                 "❌ Unknown setting. Available settings:\n"
                 "- `timeout` - Verification timeout\n"
                 "- `autoverify` - Auto-verification on join\n"
+                "- `location` - Verification location (group/dm/both)\n"
                 "- `welcome` - Welcome message"
             )
     
