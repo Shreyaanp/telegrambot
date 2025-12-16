@@ -71,11 +71,35 @@ async def periodic_cleanup():
                 
                 if count > 0:
                     logger.info(f"🧹 Cleaned up {count} expired sessions")
-                    
+
+                # Handle expired join verifications
+                container = telegram_bot.get_container()
+                expired = await container.pending_verification_service.find_expired()
+                if expired:
+                    bot = telegram_bot.get_bot()
+                    bot_info = await bot.get_me()
+                    for pending in expired:
+                        group = await container.group_service.get_or_create_group(int(pending.group_id))
+                        action = "kick" if group.kick_unverified else "mute"
+                        if action == "kick":
+                            try:
+                                await bot.ban_chat_member(chat_id=int(pending.group_id), user_id=int(pending.telegram_id))
+                                await bot.unban_chat_member(chat_id=int(pending.group_id), user_id=int(pending.telegram_id))
+                            except Exception:
+                                pass
+                        # keep muted: do nothing extra
+                        await container.pending_verification_service.decide(int(pending.id), status="timed_out", decided_by=bot_info.id)
+                        await container.pending_verification_service.edit_or_delete_group_prompt(bot, pending, "⏱ Timed out")
+                
         except asyncio.CancelledError:
             break
         except Exception as e:
             logger.error(f"Error in periodic cleanup: {e}")
+            try:
+                if telegram_bot and telegram_bot.get_container():
+                    await telegram_bot.get_container().metrics_service.incr_api_error("periodic_cleanup")
+            except Exception:
+                pass
 
 
 # Create FastAPI app
@@ -111,6 +135,11 @@ async def webhook_handler(request: Request):
         
     except Exception as e:
         logger.error(f"❌ Error processing webhook update: {e}", exc_info=True)
+        try:
+            if telegram_bot and telegram_bot.get_container():
+                await telegram_bot.get_container().metrics_service.incr_api_error("webhook_update")
+        except Exception:
+            pass
         return Response(status_code=500)
 
 
@@ -199,7 +228,7 @@ async def status():
             from database.db import db
             from database.models import User, VerificationSession
             from sqlalchemy import select, func
-            admin_actions, verification_outcomes = await container.metrics_service.snapshot()
+            admin_actions, verification_outcomes, api_errors, last_update_at = await container.metrics_service.snapshot()
             
             async with db.session() as session:
                 # Count verified users
@@ -221,6 +250,8 @@ async def status():
                     "active_verification_sessions": active_sessions,
                     "admin_actions": admin_actions,
                     "verification_outcomes": verification_outcomes,
+                    "api_errors": api_errors,
+                    "last_update_at": last_update_at.isoformat() if last_update_at else None,
                 },
                 "config": {
                     "verification_timeout_minutes": container.config.timeout_minutes,

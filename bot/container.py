@@ -17,7 +17,9 @@ from bot.services.group_service import GroupService
 from bot.services.roles_service import RolesService
 from bot.services.lock_service import LockService
 from bot.services.metrics_service import MetricsService
-from bot.services.metrics_service import MetricsService
+from bot.services.token_service import TokenService
+from bot.services.panel_service import PanelService
+from bot.services.pending_verification_service import PendingVerificationService
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +43,9 @@ class ServiceContainer:
     roles_service: RolesService
     lock_service: LockService
     metrics_service: MetricsService
-    metrics_service: MetricsService
+    token_service: TokenService
+    panel_service: PanelService
+    pending_verification_service: PendingVerificationService
     
     @classmethod
     async def create(cls, config: Config) -> "ServiceContainer":
@@ -59,9 +63,17 @@ class ServiceContainer:
         mercle_sdk = MercleSDK(config.mercle_api_url, config.mercle_api_key)
         user_manager = UserManager()
         group_service = GroupService()
-        
+
         metrics_service = MetricsService()
-        verification_service = VerificationService(config, mercle_sdk, user_manager, group_service, metrics_service)
+        pending_verification_service = PendingVerificationService()
+        verification_service = VerificationService(
+            config,
+            mercle_sdk,
+            user_manager,
+            group_service,
+            metrics_service,
+            pending_verification_service=pending_verification_service,
+        )
         admin_service = AdminService()
         whitelist_service = WhitelistService()
         notes_service = NotesService()
@@ -71,7 +83,8 @@ class ServiceContainer:
         logs_service = LogsService()
         roles_service = RolesService()
         lock_service = LockService()
-        metrics_service = MetricsService()
+        token_service = TokenService()
+        panel_service = PanelService()
         
         logger.info("Service container ready")
         
@@ -91,6 +104,9 @@ class ServiceContainer:
             roles_service=roles_service,
             lock_service=lock_service,
             metrics_service=metrics_service,
+            token_service=token_service,
+            panel_service=panel_service,
+            pending_verification_service=pending_verification_service,
         )
     
     async def cleanup(self):

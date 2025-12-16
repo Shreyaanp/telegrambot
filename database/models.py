@@ -283,3 +283,108 @@ class AdminLog(Base):
     
     def __repr__(self):
         return f"<AdminLog(group_id={self.group_id}, action={self.action}, admin_id={self.admin_id})>"
+
+
+class ConfigLinkToken(Base):
+    """Short-lived, one-time tokens to open a group's settings panel in DM."""
+    __tablename__ = "config_link_tokens"
+
+    token = Column(String, primary_key=True)
+    group_id = Column(BigInteger, nullable=False)
+    admin_id = Column(BigInteger, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_cfg_token_expiry", "expires_at"),
+        Index("idx_cfg_token_group_admin", "group_id", "admin_id"),
+    )
+
+
+class PendingJoinVerification(Base):
+    """Pending verification for a user in a specific group (global verification outcome)."""
+    __tablename__ = "pending_join_verifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    telegram_id = Column(BigInteger, nullable=False)
+    status = Column(String, default="pending")  # pending, approved, rejected, timed_out, cancelled
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    prompt_message_id = Column(BigInteger, nullable=True)
+    dm_message_id = Column(BigInteger, nullable=True)
+    mercle_session_id = Column(String, nullable=True)
+    decided_by = Column(BigInteger, nullable=True)  # admin/user id who decided
+    decided_at = Column(DateTime, nullable=True)
+
+    group = relationship("Group")
+
+    __table_args__ = (
+        Index("idx_pv_group_user", "group_id", "telegram_id"),
+        Index("idx_pv_status_expiry", "status", "expires_at"),
+    )
+
+
+class VerificationLinkToken(Base):
+    """Short-lived tokens to open the DM verification panel for a pending join verification."""
+    __tablename__ = "verification_link_tokens"
+
+    token = Column(String, primary_key=True)
+    pending_id = Column(Integer, ForeignKey("pending_join_verifications.id"), nullable=False)
+    group_id = Column(BigInteger, nullable=False)
+    telegram_id = Column(BigInteger, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    pending = relationship("PendingJoinVerification")
+
+    __table_args__ = (
+        Index("idx_ver_token_expiry", "expires_at"),
+        Index("idx_ver_token_pending", "pending_id"),
+    )
+
+
+class DmPanelState(Base):
+    """Tracks persistent DM panel message IDs (single-message panels)."""
+    __tablename__ = "dm_panel_state"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    telegram_id = Column(BigInteger, nullable=False)
+    panel_type = Column(String, nullable=False)  # home, help, settings
+    group_id = Column(BigInteger, nullable=True)
+    message_id = Column(BigInteger, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_dm_panel_lookup", "telegram_id", "panel_type", "group_id", unique=True),
+    )
+
+
+class GroupWizardState(Base):
+    """Stores one-time setup wizard state for a group."""
+    __tablename__ = "group_wizard_state"
+
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), primary_key=True)
+    wizard_completed = Column(Boolean, default=False)
+    wizard_step = Column(Integer, default=1)  # 1 preset, 2 verification, 3 logs
+    setup_card_message_id = Column(BigInteger, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    group = relationship("Group")
+
+
+class GroupUserState(Base):
+    """Per-group attribution/history (not per-group verification)."""
+    __tablename__ = "group_user_state"
+
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), primary_key=True)
+    telegram_id = Column(BigInteger, primary_key=True)
+    first_seen_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow)
+    join_count = Column(Integer, default=1)
+    first_verified_seen_at = Column(DateTime, nullable=True)
+    last_verification_session_id = Column(String, nullable=True)
+
+    group = relationship("Group")

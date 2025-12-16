@@ -47,19 +47,6 @@ class GroupService:
         async with db.session() as session:
             result = await session.execute(select(Group))
             return list(result.scalars().all())
-
-    async def set_cleanup(self, group_id: int, enabled: bool) -> Group:
-        """Toggle auto-delete verification messages flag stored in group."""
-        async with db.session() as session:
-            result = await session.execute(select(Group).where(Group.group_id == group_id))
-            group = result.scalar_one_or_none()
-            if not group:
-                group = Group(group_id=group_id)
-                session.add(group)
-            group.auto_delete_messages = enabled  # assumes column exists; if not, extend model later
-            await session.commit()
-            await session.refresh(group)
-            return group
     
     async def update_setting(
         self,

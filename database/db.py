@@ -69,6 +69,9 @@ class Database:
         logger.info("Creating database tables...")
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+            # Lightweight SQLite migrations for existing installations (create_all doesn't ALTER tables).
+            if self.database_url.startswith("sqlite"):
+                await conn.run_sync(_sqlite_migrate_schema)
         logger.info("Database tables created successfully")
     
     async def drop_tables(self):
@@ -211,3 +214,42 @@ class DatabaseWrapper:
 
 # Global 'db' instance for backward compatibility
 db = DatabaseWrapper()
+
+
+def _sqlite_migrate_schema(sync_conn):
+    """
+    Minimal SQLite migrations for additive schema changes.
+
+    This keeps production running without a full migration framework.
+    """
+    try:
+        _sqlite_ensure_group_columns(sync_conn)
+    except Exception as e:
+        logger.warning(f"SQLite migration skipped/failed: {e}")
+
+
+def _sqlite_ensure_group_columns(sync_conn):
+    # Map of expected columns for groups table (name -> SQL fragment).
+    expected = {
+        "verification_enabled": "BOOLEAN DEFAULT 1",
+        "verification_timeout": "INTEGER DEFAULT 300",
+        "kick_unverified": "BOOLEAN DEFAULT 1",
+        "welcome_enabled": "BOOLEAN DEFAULT 1",
+        "welcome_message": "TEXT",
+        "goodbye_enabled": "BOOLEAN DEFAULT 0",
+        "goodbye_message": "TEXT",
+        "warn_limit": "INTEGER DEFAULT 3",
+        "antiflood_enabled": "BOOLEAN DEFAULT 1",
+        "antiflood_limit": "INTEGER DEFAULT 10",
+        "lock_links": "BOOLEAN DEFAULT 0",
+        "lock_media": "BOOLEAN DEFAULT 0",
+        "rules_text": "TEXT",
+        "added_at": "DATETIME",
+    }
+
+    cols = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(groups)")).fetchall()}
+    for name, ddl in expected.items():
+        if name in cols:
+            continue
+        logger.info(f"SQLite migrate: adding groups.{name}")
+        sync_conn.execute(text(f"ALTER TABLE groups ADD COLUMN {name} {ddl}"))

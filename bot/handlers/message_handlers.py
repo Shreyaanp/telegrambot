@@ -32,6 +32,10 @@ def create_message_handlers(container: ServiceContainer) -> Router:
         # Skip if from bot or in private chat
         if message.from_user.is_bot or message.chat.type == "private":
             return
+
+        # Don't treat commands as regular text content (avoid antiflood/filters on /commands)
+        if message.text and message.text.startswith("/"):
+            return
         
         group_id = message.chat.id
         user_id = message.from_user.id

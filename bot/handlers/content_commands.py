@@ -2,7 +2,7 @@
 import logging
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot.container import ServiceContainer
 from bot.utils.permissions import require_admin
@@ -103,14 +103,14 @@ def create_content_handlers(container: ServiceContainer) -> Router:
         buttons = []
         for note in notes[:20]:
             text += f"• `#{note.note_name}`\n"
-            buttons.append([{"text": f"❌ Delete {note.note_name}", "callback_data": f"note:delete:{note.note_name}"}])
+            buttons.append([InlineKeyboardButton(text=f"❌ Delete {note.note_name}", callback_data=f"note:delete:{note.note_name}")])
         
         if len(notes) > 20:
             text += f"\n_...and {len(notes) - 20} more_"
         
         text += "\n\n💡 Type `#notename` to get a note"
         
-        await message.reply(text, reply_markup={"inline_keyboard": buttons})
+        await message.reply(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     
     @router.message(Command("clear"))
     @require_admin
@@ -188,12 +188,12 @@ def create_content_handlers(container: ServiceContainer) -> Router:
         buttons = []
         for f in filters[:15]:
             text += f"• `{f.keyword}` → {f.response[:30]}...\n"
-            buttons.append([{"text": f"❌ Remove {f.keyword}", "callback_data": f"filter:remove:{f.keyword}"}])
+            buttons.append([InlineKeyboardButton(text=f"❌ Remove {f.keyword}", callback_data=f"filter:remove:{f.keyword}")])
         
         if len(filters) > 15:
             text += f"\n_...and {len(filters) - 15} more_"
         
-        await message.reply(text, reply_markup={"inline_keyboard": buttons})
+        await message.reply(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
     @router.callback_query(lambda c: c.data and c.data.startswith("note:delete:"))
     @require_admin

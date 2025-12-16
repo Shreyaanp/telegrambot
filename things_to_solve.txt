@@ -1,1 +1,2 @@
 - Improve admin command targeting: Telegram Bot API cannot resolve arbitrary @usernames to IDs; bot must rely on replies, user_id, or known/admin list. Add inline admin action buttons on replies and consider getChat fallback where possible.
+- Menu UX: adopt “Option A” — DM never shows group settings unless opened via `cfg_<token>` from `/menu` run in that group; `/menu` in DM should only instruct “run /menu in the group”.

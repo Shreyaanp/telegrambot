@@ -11,6 +11,7 @@ from bot.services.mercle_sdk import MercleSDK
 from bot.services.user_manager import UserManager
 from bot.services.group_service import GroupService
 from bot.services.metrics_service import MetricsService
+from bot.services.pending_verification_service import PendingVerificationService
 from bot.utils.qr_generator import generate_qr_code, decode_base64_qr
 from bot.utils.messages import (
     verification_prompt_message,
@@ -34,13 +35,22 @@ class VerificationService:
     4. Handle success/failure/timeout
     """
     
-    def __init__(self, config: Config, mercle_sdk: MercleSDK, user_manager: UserManager, group_service: GroupService, metrics_service: MetricsService):
+    def __init__(
+        self,
+        config: Config,
+        mercle_sdk: MercleSDK,
+        user_manager: UserManager,
+        group_service: GroupService,
+        metrics_service: MetricsService,
+        pending_verification_service: PendingVerificationService | None = None,
+    ):
         """Initialize verification service."""
         self.config = config
         self.mercle_sdk = mercle_sdk
         self.user_manager = user_manager
         self.group_service = group_service
         self.metrics = metrics_service
+        self.pending = pending_verification_service
         self.active_verifications = {}  # session_id -> asyncio.Task
     
     async def start_verification(
@@ -196,6 +206,118 @@ class VerificationService:
                 pass
             
             return False
+
+    async def start_verification_panel(
+        self,
+        *,
+        bot: Bot,
+        telegram_id: int,
+        chat_id: int,
+        username: Optional[str] = None,
+        group_id: Optional[int] = None,
+        pending_id: Optional[int] = None,
+        message_id: Optional[int] = None,
+    ) -> bool:
+        """
+        Start Mercle verification in a single message (edit-in-place, no extra success/fail messages).
+        Used for the join flow DM deep link.
+        """
+        try:
+            timeout_seconds = self.config.verification_timeout
+            action_on_timeout = self.config.action_on_timeout
+            group_name = None
+            if group_id:
+                group = await self.group_service.get_or_create_group(group_id)
+                group_name = group.group_name
+                timeout_seconds = group.verification_timeout or timeout_seconds
+                action_on_timeout = "kick" if group.kick_unverified else "mute"
+
+            metadata = {
+                "telegram_user_id": telegram_id,
+                "telegram_username": username or "unknown",
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+            if group_id:
+                metadata["group_id"] = group_id
+            if pending_id:
+                metadata["pending_id"] = pending_id
+
+            sdk_response = await self.mercle_sdk.create_session(metadata=metadata)
+            session_id = sdk_response["session_id"]
+            base64_qr = sdk_response.get("base64_qr", "")
+
+            expires_at = datetime.utcnow() + timedelta(seconds=int(timeout_seconds))
+            await self.user_manager.create_session(
+                session_id=session_id,
+                telegram_id=telegram_id,
+                chat_id=chat_id,
+                expires_at=expires_at,
+                telegram_username=username,
+                group_id=group_id,
+            )
+
+            if pending_id and self.pending:
+                await self.pending.attach_session(pending_id, session_id)
+
+            import urllib.parse
+
+            universal_link = (
+                f"https://telegram.mercle.ai/verify"
+                f"?session_id={session_id}"
+                f"&app_name={urllib.parse.quote('MercleMerci')}"
+                f"&app_domain={urllib.parse.quote('https://telegram.mercle.ai')}"
+                f"&base64_qr={base64_qr}"
+            )
+
+            header = "<b>Verification</b>"
+            if group_id:
+                header = f"<b>Verification</b>\nGroup: {group_name or group_id}"
+            text = f"{header}\n\nOpen Mercle to verify."
+            reply_markup = InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="Open Mercle", url=universal_link)]]
+            )
+
+            if message_id:
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=True,
+                )
+                await self.user_manager.store_message_ids(session_id, [message_id])
+                panel_message_id = message_id
+            else:
+                sent = await bot.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=reply_markup,
+                    disable_web_page_preview=True,
+                )
+                await self.user_manager.store_message_ids(session_id, [sent.message_id])
+                panel_message_id = sent.message_id
+
+            task = asyncio.create_task(
+                self._poll_verification(
+                    bot,
+                    session_id,
+                    telegram_id,
+                    chat_id,
+                    group_id,
+                    int(timeout_seconds),
+                    action_on_timeout,
+                    pending_id=pending_id,
+                    panel_message_id=panel_message_id,
+                )
+            )
+            self.active_verifications[session_id] = task
+            await self.metrics.incr_verification("started")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to start verification panel: {e}", exc_info=True)
+            return False
     
     async def _poll_verification(
         self,
@@ -205,7 +327,9 @@ class VerificationService:
         chat_id: int,
         group_id: Optional[int],
         timeout_seconds: int,
-        action_on_timeout: str
+        action_on_timeout: str,
+        pending_id: Optional[int] = None,
+        panel_message_id: Optional[int] = None,
     ):
         """
         Poll Mercle SDK for verification status.
@@ -232,20 +356,62 @@ class VerificationService:
                     # Success! User verified
                     mercle_user_id = status_response.get("localized_user_id")
                     await self._handle_success(
-                        bot, session_id, telegram_id, chat_id, mercle_user_id, group_id
+                        bot,
+                        session_id,
+                        telegram_id,
+                        chat_id,
+                        mercle_user_id,
+                        group_id,
+                        send_followup=(panel_message_id is None),
+                        panel_message_id=panel_message_id,
                     )
+                    if pending_id and self.pending:
+                        await self.pending.decide(pending_id, status="approved", decided_by=telegram_id)
+                        pending = await self.pending.get_pending(pending_id)
+                        if pending:
+                            await self.pending.delete_group_prompt(bot, pending)
+                        if group_id:
+                            await self.pending.mark_group_user_verified(int(group_id), telegram_id, session_id)
                     await self.metrics.incr_verification("approved")
                     return
                 
                 elif status in ["rejected", "expired"]:
                     # Verification failed
-                    await self._handle_failure(bot, session_id, chat_id, group_id, telegram_id, action_on_timeout)
+                    await self._handle_failure(
+                        bot,
+                        session_id,
+                        chat_id,
+                        group_id,
+                        telegram_id,
+                        action_on_timeout,
+                        send_followup=(panel_message_id is None),
+                        panel_message_id=panel_message_id,
+                    )
+                    if pending_id and self.pending:
+                        await self.pending.decide(pending_id, status="rejected", decided_by=telegram_id)
+                        pending = await self.pending.get_pending(pending_id)
+                        if pending:
+                            await self.pending.edit_or_delete_group_prompt(bot, pending, "🚫 Rejected")
                     await self.metrics.incr_verification(status)
                     return
             
             # Timeout reached without completion
             logger.warning(f"Verification timeout for session {session_id}")
-            await self._handle_timeout(bot, session_id, chat_id, group_id, telegram_id, action_on_timeout)
+            await self._handle_timeout(
+                bot,
+                session_id,
+                chat_id,
+                group_id,
+                telegram_id,
+                action_on_timeout,
+                send_followup=(panel_message_id is None),
+                panel_message_id=panel_message_id,
+            )
+            if pending_id and self.pending:
+                await self.pending.decide(pending_id, status="timed_out", decided_by=telegram_id)
+                pending = await self.pending.get_pending(pending_id)
+                if pending:
+                    await self.pending.edit_or_delete_group_prompt(bot, pending, "⏱ Timed out")
             
         except asyncio.CancelledError:
             logger.info(f"Polling cancelled for session {session_id}")
@@ -264,7 +430,10 @@ class VerificationService:
         telegram_id: int,
         chat_id: int,
         mercle_user_id: str,
-        group_id: Optional[int] = None
+        group_id: Optional[int] = None,
+        *,
+        send_followup: bool = True,
+        panel_message_id: Optional[int] = None,
     ):
         """Handle successful verification."""
         try:
@@ -274,8 +443,8 @@ class VerificationService:
             session_obj = await self.user_manager.get_session(session_id)
             username = session_obj.telegram_username if session_obj else None
             
-            # Delete verification messages if configured
-            if self.config.auto_delete_verification_messages and session_obj and session_obj.message_ids:
+            # Delete verification messages if configured (skip for panel flows that edit in place)
+            if send_followup and self.config.auto_delete_verification_messages and session_obj and session_obj.message_ids:
                 await self._delete_messages(bot, chat_id, session_obj.message_ids)
             
             # Create/update user in database
@@ -306,30 +475,18 @@ class VerificationService:
                 except Exception as e:
                     logger.error(f"Failed to unmute user: {e}")
             
-            # Send success message with app promotion
-            success_msg = verification_success_message(mercle_user_id)
-            keyboard = [
-                [
-                    InlineKeyboardButton(
-                        text="📥 Download Mercle (iOS)",
-                        url=self.config.mercle_ios_url
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="📥 Download Mercle (Android)",
-                        url=self.config.mercle_android_url
-                    )
+            if send_followup:
+                success_msg = verification_success_message(mercle_user_id)
+                keyboard = [
+                    [InlineKeyboardButton(text="📥 Download Mercle (iOS)", url=self.config.mercle_ios_url)],
+                    [InlineKeyboardButton(text="📥 Download Mercle (Android)", url=self.config.mercle_android_url)],
                 ]
-            ]
-            reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-            
-            await bot.send_message(
-                chat_id=chat_id,
-                text=success_msg,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
+                await bot.send_message(chat_id=chat_id, text=success_msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+            elif panel_message_id:
+                try:
+                    await bot.edit_message_text(chat_id=chat_id, message_id=panel_message_id, text="✅ Verified.", parse_mode="HTML")
+                except Exception:
+                    pass
             
         except Exception as e:
             logger.error(f"Error handling verification success: {e}", exc_info=True)
@@ -341,7 +498,10 @@ class VerificationService:
         chat_id: int,
         group_id: Optional[int],
         telegram_id: int,
-        action_on_timeout: str
+        action_on_timeout: str,
+        *,
+        send_followup: bool = True,
+        panel_message_id: Optional[int] = None,
     ):
         """Handle failed verification."""
         try:
@@ -350,8 +510,8 @@ class VerificationService:
             # Get session details
             session_obj = await self.user_manager.get_session(session_id)
             
-            # Delete verification messages
-            if session_obj and session_obj.message_ids:
+            # Delete verification messages (skip for panel flows)
+            if send_followup and session_obj and session_obj.message_ids:
                 await self._delete_messages(bot, chat_id, session_obj.message_ids)
             
             # Update session status
@@ -361,12 +521,13 @@ class VerificationService:
             if group_id:
                 await self._handle_group_action(bot, group_id, telegram_id, action_on_timeout)
             
-            # Send failure message
-            await bot.send_message(
-                chat_id=chat_id,
-                text=verification_failed_message(),
-                parse_mode="Markdown"
-            )
+            if send_followup:
+                await bot.send_message(chat_id=chat_id, text=verification_failed_message(), parse_mode="Markdown")
+            elif panel_message_id:
+                try:
+                    await bot.edit_message_text(chat_id=chat_id, message_id=panel_message_id, text="❌ Verification failed.", parse_mode="HTML")
+                except Exception:
+                    pass
             
         except Exception as e:
             logger.error(f"Error handling verification failure: {e}", exc_info=True)
@@ -378,7 +539,10 @@ class VerificationService:
         chat_id: int,
         group_id: Optional[int],
         telegram_id: int,
-        action_on_timeout: str
+        action_on_timeout: str,
+        *,
+        send_followup: bool = True,
+        panel_message_id: Optional[int] = None,
     ):
         """Handle verification timeout."""
         try:
@@ -387,8 +551,8 @@ class VerificationService:
             # Get session details
             session_obj = await self.user_manager.get_session(session_id)
             
-            # Delete verification messages
-            if session_obj and session_obj.message_ids:
+            # Delete verification messages (skip for panel flows)
+            if send_followup and session_obj and session_obj.message_ids:
                 await self._delete_messages(bot, chat_id, session_obj.message_ids)
             
             # Update session status
@@ -398,12 +562,13 @@ class VerificationService:
             if group_id:
                 await self._handle_group_action(bot, group_id, telegram_id, action_on_timeout)
             
-            # Send timeout message
-            await bot.send_message(
-                chat_id=chat_id,
-                text=verification_timeout_message(),
-                parse_mode="Markdown"
-            )
+            if send_followup:
+                await bot.send_message(chat_id=chat_id, text=verification_timeout_message(), parse_mode="Markdown")
+            elif panel_message_id:
+                try:
+                    await bot.edit_message_text(chat_id=chat_id, message_id=panel_message_id, text="⏱ Timed out.", parse_mode="HTML")
+                except Exception:
+                    pass
             
         except Exception as e:
             logger.error(f"Error handling verification timeout: {e}", exc_info=True)

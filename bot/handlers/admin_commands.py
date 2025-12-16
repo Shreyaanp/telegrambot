@@ -97,32 +97,31 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             return
         
         target_id = message.reply_to_message.from_user.id
+        target_name = message.reply_to_message.from_user.full_name if message.reply_to_message.from_user else str(target_id)
+        text = f"<b>Actions</b>\nTarget: {target_name} (<code>{target_id}</code>)"
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="🚫 Kick", callback_data=f"act:kick:{target_id}:0"),
-                    InlineKeyboardButton(text="⛔ Ban", callback_data=f"act:ban:{target_id}:0"),
+                    InlineKeyboardButton(text="Warn", callback_data=f"act:warn:{target_id}:0"),
                 ],
                 [
-                    InlineKeyboardButton(text="🔇 Mute 10m", callback_data=f"act:mute:{target_id}:600"),
-                    InlineKeyboardButton(text="🔇 Mute 1h", callback_data=f"act:mute:{target_id}:3600"),
-                    InlineKeyboardButton(text="🔇 Mute 24h", callback_data=f"act:mute:{target_id}:86400"),
+                    InlineKeyboardButton(text="Mute 10m", callback_data=f"act:mute:{target_id}:600"),
+                    InlineKeyboardButton(text="Mute 1h", callback_data=f"act:mute:{target_id}:3600"),
+                    InlineKeyboardButton(text="Mute 24h", callback_data=f"act:mute:{target_id}:86400"),
                 ],
                 [
-                    InlineKeyboardButton(text="🛑 Temp-ban 1h", callback_data=f"act:tempban:{target_id}:3600"),
-                    InlineKeyboardButton(text="🛑 Temp-ban 24h", callback_data=f"act:tempban:{target_id}:86400"),
+                    InlineKeyboardButton(text="Kick", callback_data=f"act:confirm_kick:{target_id}:0"),
+                    InlineKeyboardButton(text="Ban", callback_data=f"act:confirm_ban:{target_id}:0"),
                 ],
                 [
-                    InlineKeyboardButton(text="🧹 Purge 10", callback_data=f"act:purge:{target_id}:10"),
-                    InlineKeyboardButton(text="🧹 Purge 25", callback_data=f"act:purge:{target_id}:25"),
+                    InlineKeyboardButton(text="Purge…", callback_data=f"act:purge_menu:{target_id}:0"),
                 ],
                 [
-                    InlineKeyboardButton(text="🔊 Unmute", callback_data=f"act:unmute:{target_id}:0"),
-                    InlineKeyboardButton(text="⚠️ Warn", callback_data=f"act:warn:{target_id}:0"),
+                    InlineKeyboardButton(text="Close", callback_data=f"act:close:{target_id}:0"),
                 ],
             ]
         )
-        await message.reply("Choose an action:", reply_markup=keyboard)
+        await message.reply(text, reply_markup=keyboard, parse_mode="HTML")
     
     @router.message(Command("ban", "vban"))
     @require_restrict_permission
@@ -522,6 +521,27 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
     async def cmd_checkperms(message: Message):
         """Check bot and your permissions in this group."""
         await send_perm_check(message.bot, message.chat.id, message.from_user.id, reply_to=message)
+
+    @router.message(Command("status"))
+    async def cmd_status(message: Message):
+        """Admin-only status summary."""
+        if message.chat.type not in ["group", "supergroup"]:
+            await message.reply("Run /status in a group.", parse_mode="HTML")
+            return
+        if not await is_user_admin(message.bot, message.chat.id, message.from_user.id):
+            await message.reply("Admins only.", parse_mode="HTML")
+            return
+        container_obj = container
+        admin_actions, verification_outcomes, api_errors, last_update_at = await container_obj.metrics_service.snapshot()
+        # Uptime: best-effort (webhook process may not expose TelegramBot instance here)
+        text = (
+            "<b>Status</b>\n"
+            f"last_update: {last_update_at.isoformat() if last_update_at else 'n/a'}\n"
+            f"actions: {sum(admin_actions.values())}\n"
+            f"verifications: {verification_outcomes}\n"
+            f"api_errors: {api_errors}\n"
+        )
+        await message.reply(text, parse_mode="HTML")
     
     # ========== SETTINGS ==========
     
@@ -773,12 +793,9 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         else:
             await message.reply("Usage: `/roles`, `/roles add @user role`, `/roles remove @user`")
     
-    return router
-    
     @router.callback_query(lambda c: c.data and c.data.startswith("checkperms:"))
     async def checkperms_cb(callback: CallbackQuery):
-        """Callback to check permissions from setup card."""
-        from bot.handlers.admin_commands import send_perm_check  # avoid circular at import time
+        """Callback to check permissions from older setup cards."""
         parts = callback.data.split(":")
         if len(parts) != 2:
             await callback.answer("Invalid", show_alert=True)
@@ -789,6 +806,171 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             await callback.answer("Invalid group", show_alert=True)
             return
         await send_perm_check(callback.bot, group_id, callback.from_user.id, reply_to=callback.message)
+
+    @router.callback_query(lambda c: c.data and c.data.startswith("act:"))
+    async def admin_action_callback(callback: CallbackQuery):
+        """
+        Handle inline admin actions invoked from /actions.
+        Format: act:<action>:<target_id>:<duration_seconds>
+        """
+        data = callback.data.split(":")
+        if len(data) != 4:
+            await callback.answer("Invalid action", show_alert=True)
+            return
+
+        _, action, target_str, duration_str = data
+        chat_id = callback.message.chat.id
+        actor_id = callback.from_user.id
+
+        async def target_display(uid: int) -> str:
+            try:
+                member = await callback.bot.get_chat_member(chat_id, uid)
+                name = member.user.full_name
+            except Exception:
+                name = str(uid)
+            return f"{name} (<code>{uid}</code>)"
+
+        async def render_actions():
+            text = f"<b>Actions</b>\nTarget: {await target_display(target_id)}"
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="Warn", callback_data=f"act:warn:{target_id}:0")],
+                    [
+                        InlineKeyboardButton(text="Mute 10m", callback_data=f"act:mute:{target_id}:600"),
+                        InlineKeyboardButton(text="Mute 1h", callback_data=f"act:mute:{target_id}:3600"),
+                        InlineKeyboardButton(text="Mute 24h", callback_data=f"act:mute:{target_id}:86400"),
+                    ],
+                    [
+                        InlineKeyboardButton(text="Kick", callback_data=f"act:confirm_kick:{target_id}:0"),
+                        InlineKeyboardButton(text="Ban", callback_data=f"act:confirm_ban:{target_id}:0"),
+                    ],
+                    [InlineKeyboardButton(text="Purge…", callback_data=f"act:purge_menu:{target_id}:0")],
+                    [InlineKeyboardButton(text="Close", callback_data=f"act:close:{target_id}:0")],
+                ]
+            )
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+
+        async def render_confirm(label: str, confirm_action: str, count: int = 0):
+            text = f"<b>Confirm</b>\n{label} • {await target_display(target_id)}"
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="Confirm", callback_data=f"act:{confirm_action}:{target_id}:{count}"),
+                        InlineKeyboardButton(text="Cancel", callback_data=f"act:back:{target_id}:0"),
+                    ]
+                ]
+            )
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+
+        # Permission checks: telegram admin OR custom role
+        is_admin = await is_user_admin(callback.bot, chat_id, actor_id)
+        if not is_admin:
+            needed = "kick" if action in ("kick", "ban", "tempban", "mute", "unmute", "confirm_kick", "confirm_ban") else "warn"
+            if action in ("purge_menu", "confirm_purge", "purge"):
+                needed = "kick"
+            if not await has_role_permission(chat_id, actor_id, needed):
+                await callback.answer("Not allowed", show_alert=True)
+                return
+
+        if not await is_bot_admin(callback.bot, chat_id):
+            await callback.answer("Bot not admin.", show_alert=True)
+            return
+
+        try:
+            target_id = int(target_str)
+            duration = int(duration_str)
+        except ValueError:
+            await callback.answer("Invalid target.", show_alert=True)
+            return
+
+        if action == "close":
+            await callback.answer()
+            try:
+                await callback.message.edit_text("Closed.", parse_mode="HTML")
+            except Exception:
+                pass
+            return
+        if action == "back":
+            await callback.answer()
+            await render_actions()
+            return
+        if action == "confirm_kick":
+            await callback.answer()
+            await render_confirm("Kick", "kick")
+            return
+        if action == "confirm_ban":
+            await callback.answer()
+            await render_confirm("Ban", "ban")
+            return
+        if action == "purge_menu":
+            await callback.answer()
+            text = f"<b>Purge</b>\nTarget: {await target_display(target_id)}"
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="Purge 10", callback_data=f"act:confirm_purge:{target_id}:10"),
+                        InlineKeyboardButton(text="Purge 25", callback_data=f"act:confirm_purge:{target_id}:25"),
+                        InlineKeyboardButton(text="Purge 50", callback_data=f"act:confirm_purge:{target_id}:50"),
+                    ],
+                    [InlineKeyboardButton(text="Back", callback_data=f"act:back:{target_id}:0")],
+                ]
+            )
+            await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+            return
+        if action == "confirm_purge":
+            await callback.answer()
+            await render_confirm(f"Purge {duration}", "purge", count=duration)
+            return
+
+        # Actions requiring restrict need bot + actor capability
+        if action in ("kick", "ban", "tempban", "mute", "unmute"):
+            if not await can_restrict_members(callback.bot, chat_id, (await callback.bot.get_me()).id):
+                await callback.answer("I need Restrict members.", show_alert=True)
+                return
+
+        success = False
+
+        if action == "kick":
+            success = await container.admin_service.kick_user(callback.bot, chat_id, target_id, actor_id, reason="(via /actions)")
+        elif action == "ban":
+            success = await container.admin_service.ban_user(callback.bot, chat_id, target_id, actor_id, reason="(via /actions)")
+        elif action == "tempban":
+            from datetime import datetime, timedelta
+
+            until = datetime.utcnow() + timedelta(seconds=duration or 3600)
+            success = await container.admin_service.ban_user(callback.bot, chat_id, target_id, actor_id, reason="(via /actions tempban)", until_date=until)
+        elif action == "mute":
+            success = await container.admin_service.mute_user(callback.bot, chat_id, target_id, actor_id, duration=duration, reason="(via /actions)")
+        elif action == "unmute":
+            success = await container.admin_service.unmute_user(callback.bot, chat_id, target_id, actor_id)
+        elif action == "warn":
+            warns, limit = await container.admin_service.warn_user(group_id=chat_id, user_id=target_id, admin_id=actor_id, reason="(via /actions)")
+            success = True
+            await callback.message.edit_text(f"⚠️ Warned {await target_display(target_id)} ({warns}/{limit}).", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Back", callback_data=f"act:back:{target_id}:0")]]))
+        elif action == "purge":
+            count = max(1, min(duration, 50))
+            deleted = 0
+            for i in range(count):
+                mid = callback.message.message_id - i
+                try:
+                    await callback.bot.delete_message(chat_id=chat_id, message_id=mid)
+                    deleted += 1
+                except Exception:
+                    pass
+            success = deleted > 0
+        else:
+            await callback.answer("Unknown action", show_alert=True)
+            return
+
+        await container.metrics_service.incr_admin_action(action, chat_id)
+        await callback.answer("Done." if success else "Failed.", show_alert=not success)
+        if action in ("kick", "ban", "tempban", "mute", "unmute", "purge") and success:
+            try:
+                await callback.message.edit_text("✅ Done.", parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Back", callback_data=f"act:back:{target_id}:0")]]))
+            except Exception:
+                pass
+
+    return router
 
 
 async def send_perm_check(bot: Bot, chat_id: int, admin_id: int, reply_to: Message):
@@ -812,128 +994,18 @@ async def send_perm_check(bot: Bot, chat_id: int, admin_id: int, reply_to: Messa
     bot_status, bot_perms = fmt(bot_member)
     admin_status, admin_perms = fmt(admin_member)
     
+    restrict = "✅" if getattr(bot_member, "can_restrict_members", False) else "❌"
+    delete = "✅" if getattr(bot_member, "can_delete_messages", False) else "❌"
+    pin = "✅" if getattr(bot_member, "can_pin_messages", False) else "◻️"
     text = (
-        "🔎 **Permissions Check**\n\n"
-        f"Bot `{bot_info.username}`: {bot_status}\n"
-        f"- Perms: {', '.join(bot_perms) if bot_perms else 'none'}\n\n"
-        f"You: {admin_status}\n"
-        f"- Perms: {', '.join(admin_perms) if admin_perms else 'none'}\n\n"
-        "Required: bot needs Restrict Members and Delete Messages."
+        "<b>Permissions</b>\n"
+        f"Restrict: {restrict}  Delete: {delete}  Pin: {pin}\n"
+        "Fix: promote bot + enable missing perms."
     )
-    await reply_to.reply(text, parse_mode="Markdown")
-
-# ========== CALLBACK HANDLERS ==========
-
-    @router.callback_query(lambda c: c.data and c.data.startswith("act:"))
-    async def admin_action_callback(callback: CallbackQuery):
-        """
-        Handle inline admin actions invoked from /actions.
-        Format: act:<action>:<target_id>:<duration_seconds>
-        """
-        data = callback.data.split(":")
-        if len(data) != 4:
-            await callback.answer("Invalid action", show_alert=True)
-            return
-        
-        _, action, target_str, duration_str = data
-        chat_id = callback.message.chat.id
-        admin_id = callback.from_user.id
-        
-        # Permission checks
-        if not await is_user_admin(callback.bot, chat_id, admin_id):
-            await callback.answer("You must be an admin to do that.", show_alert=True)
-            return
-        if not await is_bot_admin(callback.bot, chat_id):
-            await callback.answer("Bot must be admin with restrict rights.", show_alert=True)
-            return
-        if not await can_restrict_members(callback.bot, chat_id, admin_id):
-            await callback.answer("You need 'Restrict Members' permission.", show_alert=True)
-            return
-        
-        try:
-            target_id = int(target_str)
-            duration = int(duration_str)
-        except ValueError:
-            await callback.answer("Invalid target.", show_alert=True)
-            return
-        
-        user_mention = f"user {target_id}"
-        success = False
-        
-        if action == "kick":
-            success = await container.admin_service.kick_user(
-                bot=callback.bot,
-                group_id=chat_id,
-                user_id=target_id,
-                admin_id=admin_id,
-                reason="(via /actions)"
-            )
-        elif action == "ban":
-            success = await container.admin_service.ban_user(
-                bot=callback.bot,
-                group_id=chat_id,
-                user_id=target_id,
-                admin_id=admin_id,
-                reason="(via /actions)"
-            )
-        elif action == "tempban":
-            from datetime import datetime, timedelta
-            until = datetime.utcnow() + timedelta(seconds=duration or 3600)
-            success = await container.admin_service.ban_user(
-                bot=callback.bot,
-                group_id=chat_id,
-                user_id=target_id,
-                admin_id=admin_id,
-                reason="(via /actions tempban)",
-                until_date=until
-            )
-        elif action == "mute":
-            success = await container.admin_service.mute_user(
-                bot=callback.bot,
-                group_id=chat_id,
-                user_id=target_id,
-                admin_id=admin_id,
-                duration=duration,
-                reason="(via /actions)"
-            )
-        elif action == "unmute":
-            success = await container.admin_service.unmute_user(
-                bot=callback.bot,
-                group_id=chat_id,
-                user_id=target_id,
-                admin_id=admin_id
-            )
-        elif action == "warn":
-            warns, limit = await container.admin_service.warn_user(
-                group_id=chat_id,
-                user_id=target_id,
-                admin_id=admin_id,
-                reason="(via /actions)"
-            )
-            success = True
-            await callback.message.answer(
-                f"⚠️ Warned user {target_id} ({warns}/{limit})."
-            )
-        elif action == "purge":
-            # Simple purge: delete last N messages from the chat (not scoped to user_id here)
-            count = min(duration or 0, 50)
-            if count <= 0:
-                await callback.answer("Invalid purge count", show_alert=True)
-                return
-            deleted = 0
-            try:
-                # Telegram API does not allow arbitrary history deletion via bot without message ids.
-                # Placeholder: inform admin this needs message IDs; in future, track recent msgs.
-                await callback.answer("Purge by count not supported without tracking messages.", show_alert=True)
-                return
-            except Exception as e:
-                logger.error(f"Failed to purge messages: {e}")
-                success = False
-        else:
-            await callback.answer("Unknown action", show_alert=True)
-            return
-        
-        if success:
-            await callback.answer("Done.")
-        else:
-            await callback.answer("Failed. Check bot/admin permissions.", show_alert=True)
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Re-check", callback_data=f"setup:recheck:{chat_id}")],
+            [InlineKeyboardButton(text="Help", callback_data="setup:help")],
+        ]
+    )
+    await reply_to.reply(text, parse_mode="HTML", reply_markup=kb)

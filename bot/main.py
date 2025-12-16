@@ -5,6 +5,12 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllChatAdministrators,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeAllPrivateChats,
+)
 
 from bot.config import Config
 from bot.container import ServiceContainer
@@ -41,6 +47,8 @@ class TelegramBot:
         self.dispatcher: Dispatcher = None
         self.container: ServiceContainer = None
         self._running = False
+        self._cleanup_task: asyncio.Task | None = None
+        self.started_at: float | None = None
     
     async def initialize(self):
         """Initialize all bot components."""
@@ -109,6 +117,10 @@ class TelegramBot:
         
         try:
             self._running = True
+            self.started_at = asyncio.get_running_loop().time()
+
+            # Background cleanup (polling mode + non-webhook runners)
+            self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
             
             # Get bot info
             bot_info = await self.bot.get_me()
@@ -122,11 +134,87 @@ class TelegramBot:
             logger.info("=" * 70)
             logger.info("✅ BOT IS RUNNING")
             logger.info("=" * 70)
+
+            # Set slash command menu (Telegram-scoped; cannot be per custom role/user)
+            await self._set_command_menu()
             
         except Exception as e:
             logger.error(f"❌ Failed to start bot: {e}", exc_info=True)
             self._running = False
             raise
+
+    async def _set_command_menu(self):
+        """
+        Configure Telegram's "/" command list.
+
+        Note: Telegram supports command scopes (private/groups/admins) but not per-user custom roles.
+        """
+        try:
+            await self.bot.set_my_commands(
+                commands=[
+                    BotCommand(command="start", description="Home"),
+                    BotCommand(command="help", description="Help"),
+                    BotCommand(command="verify", description="Verify with Mercle"),
+                ],
+                scope=BotCommandScopeAllPrivateChats(),
+            )
+
+            # Keep group commands minimal for normal users.
+            await self.bot.set_my_commands(
+                commands=[
+                    BotCommand(command="menu", description="Open settings in DM (admins)"),
+                    BotCommand(command="actions", description="Moderate (reply-first)"),
+                    BotCommand(command="checkperms", description="Check bot permissions (admins)"),
+                    BotCommand(command="rules", description="Show group rules"),
+                ],
+                scope=BotCommandScopeAllGroupChats(),
+            )
+
+            # Admin-visible list (Telegram admins only).
+            await self.bot.set_my_commands(
+                commands=[
+                    BotCommand(command="menu", description="Open settings in DM"),
+                    BotCommand(command="actions", description="Open action panel (reply)"),
+                    BotCommand(command="checkperms", description="Check bot permissions"),
+                    BotCommand(command="status", description="Bot status (admin)"),
+                    BotCommand(command="kick", description="Kick a user (reply)"),
+                    BotCommand(command="ban", description="Ban a user (reply)"),
+                    BotCommand(command="mute", description="Mute a user (reply)"),
+                    BotCommand(command="unmute", description="Unmute a user (reply)"),
+                    BotCommand(command="warn", description="Warn a user (reply)"),
+                    BotCommand(command="roles", description="Manage custom roles"),
+                    BotCommand(command="lock", description="Lock links/media"),
+                    BotCommand(command="unlock", description="Unlock links/media"),
+                ],
+                scope=BotCommandScopeAllChatAdministrators(),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to set command menu: {e}")
+
+    async def _periodic_cleanup(self):
+        while self._running:
+            try:
+                await asyncio.sleep(60)
+                if self.container:
+                    await self.container.user_manager.cleanup_expired_sessions()
+                    expired = await self.container.pending_verification_service.find_expired()
+                    if expired:
+                        bot_info = await self.bot.get_me()
+                        for pending in expired:
+                            group = await self.container.group_service.get_or_create_group(int(pending.group_id))
+                            action = "kick" if group.kick_unverified else "mute"
+                            if action == "kick":
+                                try:
+                                    await self.bot.ban_chat_member(chat_id=int(pending.group_id), user_id=int(pending.telegram_id))
+                                    await self.bot.unban_chat_member(chat_id=int(pending.group_id), user_id=int(pending.telegram_id))
+                                except Exception:
+                                    pass
+                            await self.container.pending_verification_service.decide(int(pending.id), status="timed_out", decided_by=bot_info.id)
+                            await self.container.pending_verification_service.edit_or_delete_group_prompt(self.bot, pending, "⏱ Timed out")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Periodic cleanup error: {e}")
     
     async def stop(self):
         """Stop the bot and cleanup."""
@@ -140,6 +228,10 @@ class TelegramBot:
         
         try:
             self._running = False
+
+            if self._cleanup_task:
+                self._cleanup_task.cancel()
+                self._cleanup_task = None
             
             # Cleanup services
             if self.container:
@@ -198,6 +290,11 @@ class TelegramBot:
     def is_running(self) -> bool:
         """Check if bot is running."""
         return self._running
+
+    def uptime_seconds(self) -> int:
+        if self.started_at is None:
+            return 0
+        return int(asyncio.get_running_loop().time() - self.started_at)
 
 
 async def main():
