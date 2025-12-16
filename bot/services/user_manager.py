@@ -72,6 +72,7 @@ class UserManager:
         self,
         session_id: str,
         telegram_id: int,
+        chat_id: int,
         expires_at: datetime,
         telegram_username: Optional[str] = None,
         group_id: Optional[int] = None
@@ -81,6 +82,7 @@ class UserManager:
             ver_session = VerificationSession(
                 session_id=session_id,
                 telegram_id=telegram_id,
+                chat_id=chat_id,
                 telegram_username=telegram_username,
                 group_id=group_id,
                 created_at=datetime.utcnow(),
@@ -179,4 +181,3 @@ class UserManager:
                 ver_session.message_ids = ",".join(str(mid) for mid in message_ids)
                 await session.commit()
                 logger.info(f"Stored message IDs for session {session_id}")
-

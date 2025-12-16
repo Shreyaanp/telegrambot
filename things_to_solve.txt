@@ -1,0 +1,1 @@
+- Improve admin command targeting: Telegram Bot API cannot resolve arbitrary @usernames to IDs; bot must rely on replies, user_id, or known/admin list. Add inline admin action buttons on replies and consider getChat fallback where possible.

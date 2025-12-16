@@ -68,7 +68,7 @@ class Database:
         """Create all database tables."""
         logger.info("Creating database tables...")
         async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(Base.metadata.create_all, checkfirst=True)
         logger.info("Database tables created successfully")
     
     async def drop_tables(self):
@@ -178,3 +178,36 @@ async def close_database():
     if _db_instance:
         await _db_instance.disconnect()
         _db_instance = None
+
+
+# Create a simple wrapper class for backward compatibility
+class DatabaseWrapper:
+    """Wrapper to provide 'db' global instance for backward compatibility."""
+    
+    def __init__(self):
+        self._db = None
+    
+    def _get_db(self):
+        if self._db is None:
+            self._db = get_database()
+        return self._db
+    
+    async def create_tables(self):
+        """Create database tables."""
+        db = self._get_db()
+        if db.engine is None:
+            await db.connect()
+        await db.create_tables()
+    
+    async def close(self):
+        """Close database connection."""
+        await close_database()
+        self._db = None
+    
+    def session(self):
+        """Get database session context manager."""
+        return self._get_db().session()
+
+
+# Global 'db' instance for backward compatibility
+db = DatabaseWrapper()

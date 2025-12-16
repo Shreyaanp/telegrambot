@@ -1,33 +1,46 @@
-"""Verification service - handles the complete verification flow."""
+"""Verification service - simplified and user-friendly."""
 import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from aiogram import Bot
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
 from bot.config import Config
 from bot.services.mercle_sdk import MercleSDK
 from bot.services.user_manager import UserManager
+from bot.services.group_service import GroupService
+from bot.services.metrics_service import MetricsService
 from bot.utils.qr_generator import generate_qr_code, decode_base64_qr
 from bot.utils.messages import (
     verification_prompt_message,
     verification_success_message,
     verification_timeout_message,
     verification_failed_message,
+    verification_error_message,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class VerificationService:
-    """Handles verification flow with Mercle SDK."""
+    """
+    Handles verification flow with Mercle SDK.
     
-    def __init__(self, config: Config, mercle_sdk: MercleSDK, user_manager: UserManager):
+    Simplified flow:
+    1. User triggers verification (auto-join or /verify command)
+    2. Create Mercle session and send QR + buttons
+    3. Poll for verification status
+    4. Handle success/failure/timeout
+    """
+    
+    def __init__(self, config: Config, mercle_sdk: MercleSDK, user_manager: UserManager, group_service: GroupService, metrics_service: MetricsService):
         """Initialize verification service."""
         self.config = config
         self.mercle_sdk = mercle_sdk
         self.user_manager = user_manager
+        self.group_service = group_service
+        self.metrics = metrics_service
         self.active_verifications = {}  # session_id -> asyncio.Task
     
     async def start_verification(
@@ -41,10 +54,27 @@ class VerificationService:
         """
         Start verification flow for a user.
         
+        Args:
+            bot: Bot instance
+            telegram_id: User's Telegram ID
+            chat_id: Where to send verification message (user DM or group)
+            username: User's Telegram username
+            group_id: Group ID if verification is for group join
+            
         Returns:
             True if verification started successfully, False otherwise
         """
         try:
+            logger.info(f"Starting verification for user {telegram_id} ({username})")
+            
+            # Determine per-group settings
+            timeout_seconds = self.config.verification_timeout
+            action_on_timeout = self.config.action_on_timeout
+            if group_id:
+                group = await self.group_service.get_or_create_group(group_id)
+                timeout_seconds = group.verification_timeout or timeout_seconds
+                action_on_timeout = "kick" if group.kick_unverified else "mute"
+            
             # Create Mercle SDK session
             metadata = {
                 "telegram_user_id": telegram_id,
@@ -59,53 +89,58 @@ class VerificationService:
             base64_qr = sdk_response.get("base64_qr", "")
             qr_data = sdk_response.get("qr_data", "")
             
+            logger.info(f"Created Mercle session: {session_id}")
+            
             # Save session to database
-            expires_at = datetime.utcnow() + timedelta(seconds=self.config.verification_timeout)
+            expires_at = datetime.utcnow() + timedelta(seconds=timeout_seconds)
             await self.user_manager.create_session(
                 session_id=session_id,
                 telegram_id=telegram_id,
+                chat_id=chat_id,
                 expires_at=expires_at,
                 telegram_username=username,
                 group_id=group_id
             )
             
-            # Generate QR code from base64_qr (already contains JSON)
+            # Generate QR code image
             qr_json = decode_base64_qr(base64_qr) if base64_qr else qr_data
             qr_image = generate_qr_code(qr_json) if qr_json else None
             
-            # Create universal link that redirects to deep link
+            # Create universal link for mobile users
             import urllib.parse
-            universal_link = f"https://telegram.mercle.ai/verify?session_id={session_id}&app_name={urllib.parse.quote('Telegram Verification Bot')}&app_domain={urllib.parse.quote('https://telegram.mercle.ai')}&base64_qr={base64_qr}"
+            universal_link = (
+                f"https://telegram.mercle.ai/verify"
+                f"?session_id={session_id}"
+                f"&app_name={urllib.parse.quote('Telegram Verification Bot')}"
+                f"&app_domain={urllib.parse.quote('https://telegram.mercle.ai')}"
+                f"&base64_qr={base64_qr}"
+            )
             
-            # Build inline keyboard with buttons
-            keyboard = []
-            
-            # Add button that opens via web redirect (works on mobile!)
-            keyboard.append([
-                InlineKeyboardButton(
-                    text="📱 Open Mercle App",
-                    url=universal_link
-                )
-            ])
-            
-            # Add download buttons as fallback
-            keyboard.append([
-                InlineKeyboardButton(
-                    text="📥 Get Mercle App (iOS)",
-                    url="https://apps.apple.com/ng/app/mercle/id6751991316"
-                )
-            ])
-            keyboard.append([
-                InlineKeyboardButton(
-                    text="📥 Get Mercle App (Android)",
-                    url="https://play.google.com/store/apps/details?id=com.mercle.app"
-                )
-            ])
-            
+            # Build inline keyboard with clear CTAs
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        text="🚀 Verify Now (Tap Here!)",
+                        url=universal_link
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="📥 Get Mercle App (iOS)",
+                        url=self.config.mercle_ios_url
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="📥 Get Mercle App (Android)",
+                        url=self.config.mercle_android_url
+                    )
+                ]
+            ]
             reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
             
-            # Send verification message with QR code
-            message_text = verification_prompt_message(self.config.verification_timeout)
+            # Send verification message
+            message_text = verification_prompt_message(timeout_seconds)
             
             sent_message = None
             if qr_image:
@@ -125,21 +160,41 @@ class VerificationService:
                     parse_mode="Markdown"
                 )
             
-            # Store message ID to delete later
+            # Store message ID for later deletion
             if sent_message:
                 await self.user_manager.store_message_ids(session_id, [sent_message.message_id])
             
-            # Start polling task
+            # Start polling task in background
             task = asyncio.create_task(
-                self._poll_verification(bot, session_id, telegram_id, chat_id)
+                self._poll_verification(
+                    bot,
+                    session_id,
+                    telegram_id,
+                    chat_id,
+                    group_id,
+                    timeout_seconds,
+                    action_on_timeout
+                )
             )
             self.active_verifications[session_id] = task
             
-            logger.info(f"Started verification for user {telegram_id}, session: {session_id}")
+            logger.info(f"✅ Verification started for user {telegram_id}")
+            await self.metrics.incr_verification("started")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to start verification: {e}", exc_info=True)
+            logger.error(f"❌ Failed to start verification: {e}", exc_info=True)
+            
+            # Send error message to user
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=verification_error_message(),
+                    parse_mode="Markdown"
+                )
+            except:
+                pass
+            
             return False
     
     async def _poll_verification(
@@ -147,37 +202,54 @@ class VerificationService:
         bot: Bot,
         session_id: str,
         telegram_id: int,
-        chat_id: int
+        chat_id: int,
+        group_id: Optional[int],
+        timeout_seconds: int,
+        action_on_timeout: str
     ):
-        """Poll Mercle SDK for verification status."""
-        timeout = self.config.verification_timeout
+        """
+        Poll Mercle SDK for verification status.
+        
+        This runs in the background and checks every 3 seconds.
+        """
+        timeout = timeout_seconds
         poll_interval = 3  # Check every 3 seconds
         max_polls = timeout // poll_interval
         
         try:
+            logger.info(f"Polling verification for session {session_id}")
+            
             for i in range(max_polls):
                 await asyncio.sleep(poll_interval)
                 
-                # Check session status
+                # Check session status from Mercle
                 status_response = await self.mercle_sdk.check_status(session_id)
                 status = status_response.get("status")
                 
+                logger.debug(f"Session {session_id} status: {status} (poll {i+1}/{max_polls})")
+                
                 if status == "approved":
-                    # Verification successful!
+                    # Success! User verified
                     mercle_user_id = status_response.get("localized_user_id")
-                    await self._handle_verification_success(
-                        bot, session_id, telegram_id, chat_id, mercle_user_id
+                    await self._handle_success(
+                        bot, session_id, telegram_id, chat_id, mercle_user_id, group_id
                     )
+                    await self.metrics.incr_verification("approved")
                     return
                 
                 elif status in ["rejected", "expired"]:
                     # Verification failed
-                    await self._handle_verification_failure(bot, session_id, chat_id)
+                    await self._handle_failure(bot, session_id, chat_id, group_id, telegram_id, action_on_timeout)
+                    await self.metrics.incr_verification(status)
                     return
             
-            # Timeout reached
-            await self._handle_verification_timeout(bot, session_id, chat_id)
+            # Timeout reached without completion
+            logger.warning(f"Verification timeout for session {session_id}")
+            await self._handle_timeout(bot, session_id, chat_id, group_id, telegram_id, action_on_timeout)
             
+        except asyncio.CancelledError:
+            logger.info(f"Polling cancelled for session {session_id}")
+            raise
         except Exception as e:
             logger.error(f"Error polling verification: {e}", exc_info=True)
         finally:
@@ -185,28 +257,26 @@ class VerificationService:
             if session_id in self.active_verifications:
                 del self.active_verifications[session_id]
     
-    async def _handle_verification_success(
+    async def _handle_success(
         self,
         bot: Bot,
         session_id: str,
         telegram_id: int,
         chat_id: int,
-        mercle_user_id: str
+        mercle_user_id: str,
+        group_id: Optional[int] = None
     ):
         """Handle successful verification."""
         try:
-            # Get session to find username and message IDs
+            logger.info(f"✅ Verification successful for user {telegram_id}")
+            
+            # Get session details
             session_obj = await self.user_manager.get_session(session_id)
             username = session_obj.telegram_username if session_obj else None
             
-            # Delete old verification messages
-            if session_obj and session_obj.message_ids:
-                message_ids = [int(mid) for mid in session_obj.message_ids.split(",") if mid.strip()]
-                for msg_id in message_ids:
-                    try:
-                        await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-                    except Exception as e:
-                        logger.warning(f"Could not delete message {msg_id}: {e}")
+            # Delete verification messages if configured
+            if self.config.auto_delete_verification_messages and session_obj and session_obj.message_ids:
+                await self._delete_messages(bot, chat_id, session_obj.message_ids)
             
             # Create/update user in database
             await self.user_manager.create_user(
@@ -218,21 +288,37 @@ class VerificationService:
             # Update session status
             await self.user_manager.update_session_status(session_id, "approved")
             
+            # If this was for a group, unmute the user
+            if group_id:
+                try:
+                    await bot.restrict_chat_member(
+                        chat_id=group_id,
+                        user_id=telegram_id,
+                        permissions={
+                            "can_send_messages": True,
+                            "can_send_media_messages": True,
+                            "can_send_polls": True,
+                            "can_send_other_messages": True,
+                            "can_add_web_page_previews": True,
+                        }
+                    )
+                    logger.info(f"Unmuted user {telegram_id} in group {group_id}")
+                except Exception as e:
+                    logger.error(f"Failed to unmute user: {e}")
+            
             # Send success message with app promotion
             success_msg = verification_success_message(mercle_user_id)
-            
-            # Add Mercle app promotion buttons
             keyboard = [
                 [
                     InlineKeyboardButton(
                         text="📥 Download Mercle (iOS)",
-                        url="https://apps.apple.com/ng/app/mercle/id6751991316"
+                        url=self.config.mercle_ios_url
                     )
                 ],
                 [
                     InlineKeyboardButton(
                         text="📥 Download Mercle (Android)",
-                        url="https://play.google.com/store/apps/details?id=com.mercle.app"
+                        url=self.config.mercle_android_url
                     )
                 ]
             ]
@@ -245,58 +331,121 @@ class VerificationService:
                 parse_mode="Markdown"
             )
             
-            logger.info(f"Verification successful for user {telegram_id}")
-            
         except Exception as e:
             logger.error(f"Error handling verification success: {e}", exc_info=True)
     
-    async def _handle_verification_failure(self, bot: Bot, session_id: str, chat_id: int):
+    async def _handle_failure(
+        self,
+        bot: Bot,
+        session_id: str,
+        chat_id: int,
+        group_id: Optional[int],
+        telegram_id: int,
+        action_on_timeout: str
+    ):
         """Handle failed verification."""
         try:
-            # Get session to find message IDs
+            logger.warning(f"❌ Verification failed for session {session_id}")
+            
+            # Get session details
             session_obj = await self.user_manager.get_session(session_id)
             
-            # Delete old verification messages
+            # Delete verification messages
             if session_obj and session_obj.message_ids:
-                message_ids = [int(mid) for mid in session_obj.message_ids.split(",") if mid.strip()]
-                for msg_id in message_ids:
-                    try:
-                        await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-                    except Exception as e:
-                        logger.warning(f"Could not delete message {msg_id}: {e}")
+                await self._delete_messages(bot, chat_id, session_obj.message_ids)
             
+            # Update session status
             await self.user_manager.update_session_status(session_id, "rejected")
+            
+            # If this was for a group, apply configured action
+            if group_id:
+                await self._handle_group_action(bot, group_id, telegram_id, action_on_timeout)
+            
+            # Send failure message
             await bot.send_message(
                 chat_id=chat_id,
                 text=verification_failed_message(),
                 parse_mode="Markdown"
             )
-            logger.info(f"Verification failed for session {session_id}")
+            
         except Exception as e:
             logger.error(f"Error handling verification failure: {e}", exc_info=True)
     
-    async def _handle_verification_timeout(self, bot: Bot, session_id: str, chat_id: int):
+    async def _handle_timeout(
+        self,
+        bot: Bot,
+        session_id: str,
+        chat_id: int,
+        group_id: Optional[int],
+        telegram_id: int,
+        action_on_timeout: str
+    ):
         """Handle verification timeout."""
         try:
-            # Get session to find message IDs
+            logger.warning(f"⏰ Verification timeout for session {session_id}")
+            
+            # Get session details
             session_obj = await self.user_manager.get_session(session_id)
             
-            # Delete old verification messages
+            # Delete verification messages
             if session_obj and session_obj.message_ids:
-                message_ids = [int(mid) for mid in session_obj.message_ids.split(",") if mid.strip()]
-                for msg_id in message_ids:
-                    try:
-                        await bot.delete_message(chat_id=chat_id, message_id=msg_id)
-                    except Exception as e:
-                        logger.warning(f"Could not delete message {msg_id}: {e}")
+                await self._delete_messages(bot, chat_id, session_obj.message_ids)
             
+            # Update session status
             await self.user_manager.update_session_status(session_id, "expired")
+            
+            # If this was for a group, take action based on setting
+            if group_id:
+                await self._handle_group_action(bot, group_id, telegram_id, action_on_timeout)
+            
+            # Send timeout message
             await bot.send_message(
                 chat_id=chat_id,
                 text=verification_timeout_message(),
                 parse_mode="Markdown"
             )
-            logger.info(f"Verification timeout for session {session_id}")
+            
         except Exception as e:
             logger.error(f"Error handling verification timeout: {e}", exc_info=True)
-
+    
+    async def _delete_messages(self, bot: Bot, chat_id: int, message_ids_str: str):
+        """Delete verification messages."""
+        try:
+            message_ids = [int(mid) for mid in message_ids_str.split(",") if mid.strip()]
+            for msg_id in message_ids:
+                try:
+                    await bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                except Exception as e:
+                    logger.debug(f"Could not delete message {msg_id}: {e}")
+        except Exception as e:
+            logger.error(f"Error deleting messages: {e}")
+    
+    async def _handle_group_action(self, bot: Bot, group_id: int, telegram_id: int, action: str):
+        """Handle group action (kick or mute) on verification failure/timeout."""
+        try:
+            if action == "kick":
+                await bot.ban_chat_member(chat_id=group_id, user_id=telegram_id)
+                await bot.unban_chat_member(chat_id=group_id, user_id=telegram_id)
+                logger.info(f"Kicked user {telegram_id} from group {group_id}")
+            elif action == "mute":
+                await bot.restrict_chat_member(
+                    chat_id=group_id,
+                    user_id=telegram_id,
+                    permissions={
+                        "can_send_messages": False,
+                        "can_send_media_messages": False,
+                        "can_send_polls": False,
+                        "can_send_other_messages": False,
+                        "can_add_web_page_previews": False,
+                    }
+                )
+                logger.info(f"Muted user {telegram_id} in group {group_id}")
+        except Exception as e:
+            logger.error(f"Failed to {action} user {telegram_id}: {e}")
+    
+    def cancel_verification(self, session_id: str):
+        """Cancel an active verification."""
+        if session_id in self.active_verifications:
+            task = self.active_verifications[session_id]
+            task.cancel()
+            logger.info(f"Cancelled verification for session {session_id}")

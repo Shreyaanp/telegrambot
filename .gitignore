@@ -4,27 +4,25 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 
 # Virtual Environment
-.venv/
 venv/
-ENV/
 env/
+ENV/
+
+# Database
+*.sqlite
+*.db
+bot_db.sqlite
+bot.db
+
+# Logs
+*.log
+bot.log
+
+# Environment
+.env
+.env.local
 
 # IDE
 .vscode/
@@ -33,22 +31,10 @@ env/
 *.swo
 *~
 
-# Environment variables
-.env
-.env.local
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
 # OS
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-
-# Bot data
-bot_data/
-sessions/
+# Temporary files
+*.tmp
+*.bak

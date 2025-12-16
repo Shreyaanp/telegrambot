@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Complete command reference for Mercle Verification Bot - All user and admin commands documented with examples.">
+    <meta name="description" content="Complete command reference for Mercle Verification Bot - user and admin commands with usage examples.">
     <title>Commands Reference - Mercle Verification Bot</title>
     
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
@@ -36,7 +36,6 @@
             <li><a href="/docs/features.html#admin">Admin Tools</a></li>
             <li><a href="/docs/features.html#greetings">Welcome/Goodbye</a></li>
             <li><a href="/docs/features.html#filters">Message Filters</a></li>
-            <li><a href="/docs/features.html#locks">Message Locks</a></li>
             <li><a href="/docs/features.html#notes">Notes System</a></li>
             <li><a href="/docs/features.html#logs">Admin Logs</a></li>
             <li><a href="/docs/features.html#antiflood">Anti-Flood</a></li>
@@ -68,17 +67,15 @@
             <div class="toc">
                 <h4>Command Categories</h4>
                 <ul>
-                    <li><a href="#user-commands">User Commands</a> (5 commands)</li>
-                    <li><a href="#admin-commands">Admin Commands</a> (25+ commands)</li>
+                    <li><a href="#user-commands">User Commands</a> (4)</li>
+                    <li><a href="#admin-commands">Admin Commands</a></li>
                     <ul>
                         <li><a href="#moderation">Moderation</a></li>
-                        <li><a href="#settings">Settings</a></li>
-                        <li><a href="#greetings">Greetings</a></li>
-                        <li><a href="#filters">Filters</a></li>
-                        <li><a href="#locks">Locks</a></li>
-                        <li><a href="#notes">Notes</a></li>
                         <li><a href="#warnings">Warnings</a></li>
                         <li><a href="#whitelist">Whitelist</a></li>
+                        <li><a href="#notes-filters">Notes & Filters</a></li>
+                        <li><a href="#greetings-rules">Greetings & Rules</a></li>
+                        <li><a href="#settings">Settings</a></li>
                     </ul>
                 </ul>
             </div>
@@ -86,7 +83,7 @@
             <!-- User Commands -->
             <section id="user-commands">
                 <h2>👤 User Commands</h2>
-                <p>Commands available to all group members.</p>
+                <p>Commands available to all users.</p>
                 
                 <div class="command-block">
                     <div class="command-header">
@@ -94,12 +91,8 @@
                         <span class="badge user">User</span>
                     </div>
                     <p class="command-description">
-                        Start the bot and get a welcome message with basic information.
+                        Start the bot and get a welcome message with basic info.
                     </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/start</code></pre>
-                    </div>
                 </div>
                 
                 <div class="command-block">
@@ -108,19 +101,14 @@
                         <span class="badge user">User</span>
                     </div>
                     <p class="command-description">
-                        Initiate the verification process. Displays QR code and button for biometric verification.
+                        Begin biometric verification. The bot sends a QR and deep link to complete in Mercle.
                     </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/verify</code></pre>
-                    </div>
                     <div class="command-params">
-                        <strong>What happens:</strong>
+                        <strong>Flow:</strong>
                         <ul>
-                            <li>Bot sends QR code and verification button</li>
-                            <li>User scans QR or taps button to open Mercle app</li>
-                            <li>User completes face verification</li>
-                            <li>Bot unmutes user upon successful verification</li>
+                            <li>Bot sends QR + button</li>
+                            <li>User scans or taps to open Mercle</li>
+                            <li>Complete face scan; bot unmutes/allows chat</li>
                         </ul>
                     </div>
                 </div>
@@ -131,12 +119,8 @@
                         <span class="badge user">User</span>
                     </div>
                     <p class="command-description">
-                        Check your current verification status.
+                        Check your current verification status and ID.
                     </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/status</code></pre>
-                    </div>
                 </div>
                 
                 <div class="command-block">
@@ -145,12 +129,204 @@
                         <span class="badge user">User</span>
                     </div>
                     <p class="command-description">
-                        Display help message with available commands and bot information.
+                        Show the interactive help message with shortcuts.
                     </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/help</code></pre>
+                </div>
+            </section>
+            
+            <!-- Admin Commands -->
+            <section id="admin-commands">
+                <h2>👮 Admin Commands</h2>
+                <p>Commands for group admins (and trusted roles).</p>
+                
+                <!-- Moderation -->
+                <h3 id="moderation">Moderation</h3>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/kick @user [reason]</code>
+                        <span class="badge admin">Admin</span>
                     </div>
+                    <p class="command-description">Kick a user from the group.</p>
+                    <div class="command-params">
+                        <strong>Usage:</strong>
+                        <ul>
+                            <li>Reply with <code>/kick</code></li>
+                            <li><code>/kick @username Spamming</code></li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/ban @user [reason]</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Ban a user (until manually unbanned).</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/unban @user</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Remove an existing ban.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/mute @user [reason]</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Mute a user (no messages). Use <code>/unmute</code> to restore.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/unmute @user</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Unmute a user and restore chat permissions.</p>
+                </div>
+                
+                <!-- Warnings -->
+                <h3 id="warnings">Warnings</h3>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/warn @user [reason]</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Issue a warning. The bot auto-kicks at the configured limit (default 3).</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/warns @user</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Show recent warnings for a user.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/resetwarns @user</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Clear all warnings for a user.</p>
+                </div>
+                
+                <!-- Whitelist -->
+                <h3 id="whitelist">Whitelist</h3>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/whitelist</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Show the current whitelist for the group.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/whitelist add @user [reason]</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Add a user so they bypass verification.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/whitelist remove @user</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Remove a user from the whitelist.</p>
+                </div>
+                
+                <!-- Notes & Filters -->
+                <h3 id="notes-filters">Notes & Filters</h3>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/save name content</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Save or update a note. Users can call it with <code>#name</code> or <code>/get name</code>.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/get name</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Retrieve a saved note.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/notes</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">List all saved notes.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/clear name</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Delete a note.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/filter keyword response</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Create an auto-response filter for a keyword.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/filters</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">List active filters.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/stop keyword</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Remove a filter by keyword.</p>
+                </div>
+                
+                <!-- Greetings & Rules -->
+                <h3 id="greetings-rules">Greetings & Rules</h3>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/setwelcome message</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Set the welcome message. Supports placeholders {name}, {mention}, {group}, {count}.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/welcome</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Show the current welcome message and toggle on/off.</p>
+                </div>
+                
+                <div class="command-block">
+                    <div class="command-header">
+                        <code>/setgoodbye message</code>
+                        <span class="badge admin">Admin</span>
+                    </div>
+                    <p class="command-description">Set the goodbye message for members leaving.</p>
                 </div>
                 
                 <div class="command-block">
@@ -158,513 +334,43 @@
                         <code>/rules</code>
                         <span class="badge user">User</span>
                     </div>
-                    <p class="command-description">
-                        View the group rules (if set by admins).
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/rules</code></pre>
-                    </div>
-                </div>
-            </section>
-            
-            <!-- Admin Commands -->
-            <section id="admin-commands">
-                <h2>👮 Admin Commands</h2>
-                <p>Commands available only to group administrators.</p>
-                
-                <!-- Moderation -->
-                <h3 id="moderation">Moderation Commands</h3>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/vkick @user</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Kick a user from the group. User can rejoin with invite link.
-                    </p>
-                    <div class="command-params">
-                        <strong>Usage:</strong>
-                        <ul>
-                            <li>Reply to user's message with <code>/vkick</code></li>
-                            <li>Or use <code>/vkick @username</code></li>
-                            <li>Or use <code>/vkick &lt;user_id&gt;</code></li>
-                        </ul>
-                    </div>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/vkick @spammer</code></pre>
-                    </div>
+                    <p class="command-description">Show the group rules if set.</p>
                 </div>
                 
                 <div class="command-block">
                     <div class="command-header">
-                        <code>/vban @user [reason]</code>
-                        <span class="badge admin">Admin Only</span>
+                        <code>/setrules text</code>
+                        <span class="badge admin">Admin</span>
                     </div>
-                    <p class="command-description">
-                        Permanently ban a user from the group. User cannot rejoin.
-                    </p>
-                    <div class="command-params">
-                        <strong>Parameters:</strong>
-                        <ul>
-                            <li><code>@user</code> - User to ban (required)</li>
-                            <li><code>reason</code> - Reason for ban (optional)</li>
-                        </ul>
-                    </div>
-                    <div class="command-example">
-                        <strong>Examples:</strong>
-                        <pre><code>/vban @spammer
-/vban @user Repeated spam violations</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/vverify @user</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Manually verify a user, bypassing the biometric verification process.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/vverify @user</code></pre>
-                    </div>
+                    <p class="command-description">Set or update the group rules.</p>
                 </div>
                 
                 <!-- Settings -->
-                <h3 id="settings">Settings Commands</h3>
+                <h3 id="settings">Settings</h3>
                 
                 <div class="command-block">
                     <div class="command-header">
                         <code>/settings</code>
-                        <span class="badge admin">Admin Only</span>
+                        <span class="badge admin">Admin</span>
                     </div>
-                    <p class="command-description">
-                        View current group settings or update specific settings.
-                    </p>
+                    <p class="command-description">View current group settings.</p>
                     <div class="command-params">
-                        <strong>Available Settings:</strong>
+                        <strong>Examples:</strong>
                         <ul>
-                            <li><code>/settings</code> - View all settings</li>
-                            <li><code>/settings timeout &lt;seconds&gt;</code> - Set verification timeout</li>
-                            <li><code>/settings location &lt;group/dm/both&gt;</code> - Set verification location</li>
-                            <li><code>/settings autoverify &lt;on/off&gt;</code> - Toggle auto-verification</li>
+                            <li><code>/settings timeout 240</code> (seconds)</li>
+                            <li><code>/settings action kick</code></li>
+                            <li><code>/settings antiflood 15</code></li>
+                            <li><code>/settings welcome off</code></li>
+                            <li><code>/settings verify off</code></li>
                         </ul>
                     </div>
-                    <div class="command-example">
-                        <strong>Examples:</strong>
-                        <pre><code>/settings
-/settings timeout 120
-/settings location dm
-/settings autoverify on</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/setrules &lt;text&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Set or update the group rules.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/setrules 1. Be respectful
-2. No spam
-3. Stay on topic</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/stats</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        View verification statistics for the group.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/stats</code></pre>
-                    </div>
-                </div>
-                
-                <!-- Greetings -->
-                <h3 id="greetings">Greeting Commands</h3>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/setwelcome &lt;message&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Set a custom welcome message for new members. Supports variables and buttons.
-                    </p>
-                    <div class="command-params">
-                        <strong>Variables:</strong>
-                        <ul>
-                            <li><code>{name}</code> - User's first name</li>
-                            <li><code>{mention}</code> - Mention the user</li>
-                            <li><code>{group}</code> - Group name</li>
-                        </ul>
-                        <strong>Button Format:</strong>
-                        <ul>
-                            <li><code>[Button Text](URL)</code></li>
-                        </ul>
-                    </div>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/setwelcome Welcome {mention} to {group}! [Rules](https://example.com/rules)</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/setgoodbye &lt;message&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Set a goodbye message for leaving members.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/setgoodbye Goodbye {name}, hope to see you again!</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/goodbye &lt;on/off&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Enable or disable goodbye messages.
-                    </p>
-                    <div class="command-example">
-                        <strong>Examples:</strong>
-                        <pre><code>/goodbye on
-/goodbye off</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/welcome</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Test the welcome message (preview).
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/welcome</code></pre>
-                    </div>
-                </div>
-                
-                <!-- Filters -->
-                <h3 id="filters">Filter Commands</h3>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/filter &lt;keyword&gt; &lt;response&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Create an auto-response filter for a specific keyword.
-                    </p>
-                    <div class="command-example">
-                        <strong>Examples:</strong>
-                        <pre><code>/filter hello Hello! Welcome to our group!
-/filter rules Check our [Rules](https://example.com/rules)</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/filters</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        List all active filters in the group.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/filters</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/stop &lt;keyword&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Remove a filter.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/stop hello</code></pre>
-                    </div>
-                </div>
-                
-                <!-- Locks -->
-                <h3 id="locks">Lock Commands</h3>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/lock &lt;type&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Lock a specific message type. Locked messages are automatically deleted.
-                    </p>
-                    <div class="command-params">
-                        <strong>Available Types:</strong>
-                        <ul>
-                            <li><code>links</code> - Block all URLs</li>
-                            <li><code>media</code> - Block photos, videos, files</li>
-                            <li><code>stickers</code> - Block stickers and GIFs</li>
-                            <li><code>forwards</code> - Block forwarded messages</li>
-                        </ul>
-                    </div>
-                    <div class="command-example">
-                        <strong>Examples:</strong>
-                        <pre><code>/lock links
-/lock media
-/lock stickers</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/unlock &lt;type&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Unlock a message type.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/unlock links</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/locks</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Show all active locks in the group.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/locks</code></pre>
-                    </div>
-                </div>
-                
-                <!-- Notes -->
-                <h3 id="notes">Notes Commands</h3>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/save &lt;notename&gt; &lt;content&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Save a note that can be retrieved later.
-                    </p>
-                    <div class="command-example">
-                        <strong>Examples:</strong>
-                        <pre><code>/save rules Please read our rules at example.com
-/save faq Check our [FAQ](https://example.com/faq)</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/get &lt;notename&gt;</code>
-                        <span class="badge user">User</span>
-                    </div>
-                    <p class="command-description">
-                        Retrieve a saved note. Can also use <code>#notename</code>.
-                    </p>
-                    <div class="command-example">
-                        <strong>Examples:</strong>
-                        <pre><code>/get rules
-#rules</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/notes</code>
-                        <span class="badge user">User</span>
-                    </div>
-                    <p class="command-description">
-                        List all saved notes in the group.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/notes</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/clear &lt;notename&gt;</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Delete a saved note.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/clear rules</code></pre>
-                    </div>
-                </div>
-                
-                <!-- Warnings -->
-                <h3 id="warnings">Warning Commands</h3>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/warn @user [reason]</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Warn a user. After 3 warnings, user is automatically kicked.
-                    </p>
-                    <div class="command-example">
-                        <strong>Examples:</strong>
-                        <pre><code>/warn @user
-/warn @user Please follow group rules</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/warnings @user</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Show all warnings for a user.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/warnings @user</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/resetwarns @user</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Clear all warnings for a user.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/resetwarns @user</code></pre>
-                    </div>
-                </div>
-                
-                <!-- Whitelist -->
-                <h3 id="whitelist">Whitelist Commands</h3>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/whitelist add @user</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Add a user to the whitelist. Whitelisted users bypass verification.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/whitelist add @trusteduser</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/whitelist remove @user</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Remove a user from the whitelist.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/whitelist remove @user</code></pre>
-                    </div>
-                </div>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/whitelist list</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        Show all whitelisted users in the group.
-                    </p>
-                    <div class="command-example">
-                        <strong>Example:</strong>
-                        <pre><code>/whitelist list</code></pre>
-                    </div>
-                </div>
-                
-                <!-- Admin Logs -->
-                <h3 id="logs">Admin Log Commands</h3>
-                
-                <div class="command-block">
-                    <div class="command-header">
-                        <code>/adminlog</code>
-                        <span class="badge admin">Admin Only</span>
-                    </div>
-                    <p class="command-description">
-                        View recent admin actions in the group.
-                    </p>
-                    <div class="command-params">
-                        <strong>Usage:</strong>
-                        <ul>
-                            <li><code>/adminlog</code> - View last 20 actions</li>
-                            <li><code>/adminlog @user</code> - View actions for specific user</li>
-                            <li><code>/adminlog &lt;user_id&gt;</code> - View actions by user ID</li>
-                        </ul>
-                    </div>
-                    <div class="command-example">
-                        <strong>Examples:</strong>
-                        <pre><code>/adminlog
-/adminlog @user</code></pre>
-                    </div>
-                </div>
-            </section>
-            
-            <!-- Call to Action -->
-            <section class="cta-section">
-                <h2>Start Using These Commands</h2>
-                <p>Add Mercle Verification Bot to your group and try out all these powerful commands.</p>
-                <div class="hero-buttons">
-                    <a href="https://t.me/YOUR_BOT_USERNAME" class="btn btn-telegram btn-lg" target="_blank">
-                        <i class="fab fa-telegram"></i> Add to Telegram
-                    </a>
-                    <a href="/docs/setup.html" class="btn btn-outline btn-lg" style="background: white; color: var(--primary-color);">
-                        <i class="fas fa-rocket"></i> Setup Guide
-                    </a>
                 </div>
             </section>
         </div>
     </div>
     
-    <script src="/docs/js/main.js"></script>
     <script src="/docs/js/sidebar.js"></script>
     <script src="/docs/js/search.js"></script>
+    <script src="/docs/js/main.js"></script>
 </body>
 </html>
-

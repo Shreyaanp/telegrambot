@@ -1,8 +1,7 @@
-"""Database models for the Rose-style verification bot."""
+"""Database models - Complete schema for full-featured bot."""
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index, BigInteger
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -12,16 +11,15 @@ class User(Base):
     """Verified users table - global verification across all groups."""
     __tablename__ = "users"
     
-    telegram_id = Column(Integer, primary_key=True)
+    telegram_id = Column(BigInteger, primary_key=True)
     username = Column(String, nullable=True)
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
     mercle_user_id = Column(String, nullable=False, unique=True)
     verified_at = Column(DateTime, default=datetime.utcnow)
-    global_reputation = Column(Integer, default=0)  # For future federation features
+    is_banned = Column(Boolean, default=False)  # Global ban
     
     # Relationships
-    # sessions, warnings, whitelist, permissions, flood_records removed - these can exist before user verification
     memberships = relationship("GroupMember", back_populates="user")
     
     def __repr__(self):
@@ -32,18 +30,31 @@ class Group(Base):
     """Group settings table - per-group configuration."""
     __tablename__ = "groups"
     
-    group_id = Column(Integer, primary_key=True)
+    group_id = Column(BigInteger, primary_key=True)
     group_name = Column(String, nullable=True)
+    
+    # Verification settings
     verification_enabled = Column(Boolean, default=True)
-    auto_verify_on_join = Column(Boolean, default=True)
-    verification_timeout = Column(Integer, default=120)  # seconds
-    kick_on_timeout = Column(Boolean, default=True)
-    verification_location = Column(String, default="group")  # group, dm, or both
+    verification_timeout = Column(Integer, default=300)  # 5 minutes
+    kick_unverified = Column(Boolean, default=True)
+    
+    # Welcome/Goodbye
+    welcome_enabled = Column(Boolean, default=True)
     welcome_message = Column(Text, nullable=True)
-    welcome_message_buttons = Column(Text, nullable=True)  # JSON for buttons
-    goodbye_message = Column(Text, nullable=True)
     goodbye_enabled = Column(Boolean, default=False)
+    goodbye_message = Column(Text, nullable=True)
+    
+    # Moderation settings
+    warn_limit = Column(Integer, default=3)  # Kick after X warns
+    antiflood_enabled = Column(Boolean, default=True)
+    antiflood_limit = Column(Integer, default=10)  # Messages per minute
+    lock_links = Column(Boolean, default=False)
+    lock_media = Column(Boolean, default=False)
+    
+    # Rules
     rules_text = Column(Text, nullable=True)
+    
+    # Metadata
     added_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -53,6 +64,9 @@ class Group(Base):
     whitelist_entries = relationship("Whitelist", back_populates="group")
     permissions = relationship("Permission", back_populates="group")
     flood_records = relationship("FloodTracker", back_populates="group")
+    notes = relationship("Note", back_populates="group")
+    filters = relationship("Filter", back_populates="group")
+    admin_logs = relationship("AdminLog", back_populates="group")
     
     def __repr__(self):
         return f"<Group(group_id={self.group_id}, group_name={self.group_name})>"
@@ -63,17 +77,15 @@ class GroupMember(Base):
     __tablename__ = "group_members"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False)
-    telegram_id = Column(Integer, ForeignKey("users.telegram_id"), nullable=False)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    telegram_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False)
     joined_at = Column(DateTime, default=datetime.utcnow)
-    verified = Column(Boolean, default=False)
-    muted = Column(Boolean, default=False)
+    is_muted = Column(Boolean, default=False)
     
     # Relationships
     group = relationship("Group", back_populates="members")
     user = relationship("User", back_populates="memberships")
     
-    # Composite index for fast lookups
     __table_args__ = (
         Index('idx_group_member', 'group_id', 'telegram_id'),
     )
@@ -87,27 +99,24 @@ class VerificationSession(Base):
     __tablename__ = "verification_sessions"
     
     session_id = Column(String, primary_key=True)
-    telegram_id = Column(Integer, nullable=False)  # Removed ForeignKey - user doesn't exist yet during verification
-    group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=True)
-    chat_id = Column(Integer, nullable=False)  # Where verification message was sent
+    telegram_id = Column(BigInteger, nullable=False)
+    telegram_username = Column(String, nullable=True)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=True)
+    chat_id = Column(BigInteger, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
     status = Column(String, default="pending")  # pending, approved, rejected, expired
-    message_ids = Column(Text, nullable=True)  # JSON array of message IDs to delete
-    trigger_type = Column(String, default="manual")  # auto_join or manual_command
+    message_ids = Column(Text, nullable=True)  # Comma-separated message IDs to delete
     
-    # Relationships removed - user might not exist yet
-    # user = relationship("User", back_populates="sessions")
+    # Relationships
     group = relationship("Group", back_populates="sessions")
     
-    # Index for fast status lookups
     __table_args__ = (
         Index('idx_telegram_status', 'telegram_id', 'status'),
     )
     
     @property
     def is_expired(self) -> bool:
-        """Check if session has expired."""
         return datetime.utcnow() > self.expires_at
     
     def __repr__(self):
@@ -115,21 +124,19 @@ class VerificationSession(Base):
 
 
 class Warning(Base):
-    """Warning system table - track user warnings."""
+    """Warning system table."""
     __tablename__ = "warnings"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False)
-    telegram_id = Column(Integer, nullable=False)  # No FK - user might not exist yet
-    warned_by = Column(Integer, nullable=False)  # Admin telegram_id
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    telegram_id = Column(BigInteger, nullable=False)
+    warned_by = Column(BigInteger, nullable=False)  # Admin telegram_id
     reason = Column(Text, nullable=True)
     warned_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="warnings")
-    # user relationship removed - user might not exist yet
     
-    # Index for fast warning count lookups
     __table_args__ = (
         Index('idx_group_user_warnings', 'group_id', 'telegram_id'),
     )
@@ -143,17 +150,15 @@ class Whitelist(Base):
     __tablename__ = "whitelist"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False)
-    telegram_id = Column(Integer, nullable=False)  # No FK - user might not exist yet
-    added_by = Column(Integer, nullable=False)  # Admin telegram_id
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    telegram_id = Column(BigInteger, nullable=False)
+    added_by = Column(BigInteger, nullable=False)  # Admin telegram_id
     reason = Column(Text, nullable=True)
     added_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="whitelist_entries")
-    # user relationship removed - user might not exist yet
     
-    # Index for fast whitelist checks
     __table_args__ = (
         Index('idx_group_user_whitelist', 'group_id', 'telegram_id'),
     )
@@ -163,42 +168,118 @@ class Whitelist(Base):
 
 
 class Permission(Base):
-    """Permissions table - custom admin roles and permissions."""
+    """Custom permissions table - for non-Telegram admins."""
     __tablename__ = "permissions"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False)
-    telegram_id = Column(Integer, nullable=False)  # No FK - user might not exist yet
-    role = Column(String, default="moderator")  # owner, admin, moderator
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    telegram_id = Column(BigInteger, nullable=False)
+    role = Column(String, default="moderator")  # moderator, helper
     can_verify = Column(Boolean, default=False)
     can_kick = Column(Boolean, default=False)
     can_ban = Column(Boolean, default=False)
     can_warn = Column(Boolean, default=False)
-    can_settings = Column(Boolean, default=False)
-    granted_by = Column(Integer, nullable=False)  # Admin telegram_id
+    can_manage_notes = Column(Boolean, default=False)
+    can_manage_filters = Column(Boolean, default=False)
+    granted_by = Column(BigInteger, nullable=False)
     granted_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="permissions")
-    # user relationship removed - user might not exist yet
     
     def __repr__(self):
         return f"<Permission(group_id={self.group_id}, telegram_id={self.telegram_id}, role={self.role})>"
 
 
 class FloodTracker(Base):
-    """Anti-flood tracking table - message rate limiting."""
+    """Anti-flood tracking table."""
     __tablename__ = "flood_tracker"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    group_id = Column(Integer, ForeignKey("groups.group_id"), nullable=False)
-    telegram_id = Column(Integer, nullable=False)  # No FK - user might not exist yet
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    telegram_id = Column(BigInteger, nullable=False)
     message_count = Column(Integer, default=0)
     window_start = Column(DateTime, default=datetime.utcnow)
+    last_message = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="flood_records")
-    # user relationship removed - user might not exist yet
+    
+    __table_args__ = (
+        Index('idx_flood_tracking', 'group_id', 'telegram_id'),
+    )
     
     def __repr__(self):
         return f"<FloodTracker(group_id={self.group_id}, telegram_id={self.telegram_id}, count={self.message_count})>"
+
+
+class Note(Base):
+    """Notes system table - save and retrieve content."""
+    __tablename__ = "notes"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    note_name = Column(String, nullable=False)  # Lowercase, no spaces
+    content = Column(Text, nullable=False)
+    file_id = Column(String, nullable=True)  # For media notes
+    file_type = Column(String, nullable=True)  # photo, video, document, etc.
+    created_by = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    group = relationship("Group", back_populates="notes")
+    
+    __table_args__ = (
+        Index('idx_group_note', 'group_id', 'note_name', unique=True),
+    )
+    
+    def __repr__(self):
+        return f"<Note(group_id={self.group_id}, note_name={self.note_name})>"
+
+
+class Filter(Base):
+    """Message filters table - auto-respond or delete."""
+    __tablename__ = "filters"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    keyword = Column(String, nullable=False)  # Trigger keyword
+    response = Column(Text, nullable=False)  # Response text
+    filter_type = Column(String, default="text")  # text, delete, warn
+    created_by = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    group = relationship("Group", back_populates="filters")
+    
+    __table_args__ = (
+        Index('idx_group_filter', 'group_id', 'keyword'),
+    )
+    
+    def __repr__(self):
+        return f"<Filter(group_id={self.group_id}, keyword={self.keyword})>"
+
+
+class AdminLog(Base):
+    """Admin action logging table - track everything."""
+    __tablename__ = "admin_logs"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    admin_id = Column(BigInteger, nullable=False)  # Who did the action
+    target_id = Column(BigInteger, nullable=True)  # Who was affected (if applicable)
+    action = Column(String, nullable=False)  # kick, ban, warn, mute, etc.
+    reason = Column(Text, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    group = relationship("Group", back_populates="admin_logs")
+    
+    __table_args__ = (
+        Index('idx_admin_logs', 'group_id', 'timestamp'),
+        Index('idx_target_logs', 'group_id', 'target_id'),
+    )
+    
+    def __repr__(self):
+        return f"<AdminLog(group_id={self.group_id}, action={self.action}, admin_id={self.admin_id})>"

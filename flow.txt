@@ -1,0 +1,71 @@
+# Bot Flow (LLM-friendly)
+
+Actors:
+- User (member)
+- Admin
+- Bot
+
+Prereqs:
+- Admin verifies in DM first.
+- Bot must be admin in group with Restrict/Delete (Pin optional).
+
+Lifecycles:
+1) DM onboarding
+- User opens bot → /start → if not verified: prompt /verify; if verified: show add-to-group CTA (startgroup link) and /menu.
+- /menu in DM (verified admin): lists groups where caller is admin (stored), deep-links to inline settings per group.
+
+2) Add bot to group
+- Bot added → posts setup card:
+  - “Promote me to Admin; grant Restrict/Delete (Pin optional). Run /menu in this group.”
+  - Buttons: Open settings in DM (deep link), Check permissions (callback runs /checkperms).
+- Admin runs /menu in group → DM deep link for settings.
+
+3) Settings (DM inline panel)
+- In DM /menu, select group → inline panel:
+  - Verification on/off
+  - Timeout presets (120/300/600s)
+  - Action on timeout (kick/mute)
+  - Antiflood on/off + limit presets
+  - Welcome on/off
+  - Locks: links/media toggles
+- Changes persist to group settings.
+
+4) Member join flow
+- On new member (not bot): register group; if verification disabled → allow.
+- If verification enabled:
+  - Mute user, optional welcome message, DM verification (/verify flow with QR/deep link), poll status.
+  - On success: unmute, mark verified (global).
+  - On fail/timeout: kick/mute based on config.
+
+5) Verification (any user)
+- /verify in DM or group: start Mercle session, send QR/deep link, poll status.
+- Outcomes logged; metrics increment.
+
+6) Moderation (admin or delegated role)
+- Reply-based is preferred.
+- /actions on reply shows buttons: Kick/Ban/Tempban (1h/24h)/Mute (10m/1h/24h)/Unmute/Warn/Purge.
+- Commands (/kick /ban /mute /warn /resetwarns /unban /whitelist add/remove /roles add/remove) still work; errors instruct to reply or use numeric ID.
+- /purge (reply) deletes messages from replied message up to the command (bounded by API errors).
+- Locks: /lock /unlock links|media; enforcement deletes locked content.
+- Pins: /pin /unpin with permission checks.
+- Roles: /roles (list/add/remove moderator|helper); custom roles honored by permission decorators.
+- Whitelist: /whitelist lists entries with inline remove buttons.
+
+7) Content tools
+- Notes: /save /get /notes; /notes has inline delete buttons.
+- Filters: /filter /filters; /filters has inline remove buttons. (Warn/reply actions TBD.)
+
+8) Help/diagnostics
+- /help: user help; /help_admin: admin targeting guidance.
+- /checkperms: shows bot/admin perms in group; also available via setup card callback.
+- /status: returns health/stats including admin_action counts and verification outcomes.
+
+Diagram (text):
+[User DM] --/start--> [Verify? yes -> add-group CTA; no -> /verify]
+[Admin DM /menu] --list groups--> [Select group] --inline settings--> [Update group settings]
+[Bot added to group] -> [Setup card: promote, perms, run /menu, DM link]
+[New member joins group] -> [Mute + welcome?] -> [DM verify + poll] -> [Success: unmute/global verify | Fail/timeout: kick/mute]
+[In-group moderation] (reply + /actions buttons) -> [Kick/Ban/Tempban/Mute/Unmute/Warn/Purge]
+[Locks/pins] /lock /unlock + enforcement; /pin /unpin
+[Content] /save /get /notes (inline delete); /filter /filters (inline delete)
+[Diagnostics] /checkperms, /status metrics

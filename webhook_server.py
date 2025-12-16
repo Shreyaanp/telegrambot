@@ -1,4 +1,4 @@
-"""Webhook server for production deployment with FastAPI."""
+"""Webhook server for production deployment - clean architecture."""
 import logging
 import asyncio
 from contextlib import asynccontextmanager
@@ -6,27 +6,10 @@ from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from aiogram.types import Update
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler
 
-from bot.core.bot import TelegramBot
+from bot.main import TelegramBot
 from bot.config import Config
-from bot.services.mercle_sdk import MercleSDK
-from bot.services.session_service import SessionService
-from database import init_database, get_database
-
-# Import all plugins
-from bot.plugins.verification import VerificationPlugin
-from bot.plugins.admin import AdminPlugin
-from bot.plugins.warnings import WarningsPlugin
-from bot.plugins.whitelist import WhitelistPlugin
-from bot.plugins.rules import RulesPlugin
-from bot.plugins.stats import StatsPlugin
-from bot.plugins.antiflood import AntiFloodPlugin
-from bot.plugins.greetings import GreetingsPlugin
-from bot.plugins.filters import FiltersPlugin
-from bot.plugins.locks import LocksPlugin
-from bot.plugins.notes import NotesPlugin
-from bot.plugins.admin_logs import AdminLogsPlugin
+from bot.services.user_manager import UserManager
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,62 +33,7 @@ async def lifespan(app: FastAPI):
         # Initialize bot
         telegram_bot = TelegramBot(config)
         await telegram_bot.initialize()
-        
-        # Initialize Mercle SDK
-        mercle_sdk = MercleSDK(
-            api_url=config.mercle_api_url,
-            api_key=config.mercle_api_key
-        )
-        
-        # Register services
-        telegram_bot.get_plugin_manager().register_service("mercle_sdk", mercle_sdk)
-        
-        # Load all plugins
-        plugin_classes = [
-            VerificationPlugin,
-            AdminPlugin,
-            WarningsPlugin,
-            WhitelistPlugin,
-            RulesPlugin,
-            StatsPlugin,
-            AntiFloodPlugin,
-            GreetingsPlugin,
-            FiltersPlugin,
-            LocksPlugin,
-            NotesPlugin,
-            AdminLogsPlugin,
-        ]
-        await telegram_bot.load_plugins(plugin_classes)
-        
-        # Start bot
         await telegram_bot.start()
-        
-        # Register all commands in Telegram UI
-        from aiogram.types import BotCommand
-        commands = [
-            BotCommand(command="start", description="Start the bot"),
-            BotCommand(command="help", description="Show all commands and features"),
-            BotCommand(command="verify", description="Verify your identity with biometrics"),
-            BotCommand(command="status", description="Check your verification status"),
-            BotCommand(command="settings", description="View/change group settings (admin)"),
-            BotCommand(command="vverify", description="Manually verify a user (admin)"),
-            BotCommand(command="vunverify", description="Remove user's verification (admin)"),
-            BotCommand(command="kick", description="Kick a user from the group (admin)"),
-            BotCommand(command="ban", description="Ban a user from the group (admin)"),
-            BotCommand(command="unban", description="Unban a user (admin)"),
-            BotCommand(command="mute", description="Mute a user (admin)"),
-            BotCommand(command="unmute", description="Unmute a user (admin)"),
-            BotCommand(command="warn", description="Warn a user (admin)"),
-            BotCommand(command="warns", description="Check user's warnings"),
-            BotCommand(command="resetwarns", description="Reset user's warnings (admin)"),
-            BotCommand(command="whitelist", description="Add user to whitelist (admin)"),
-            BotCommand(command="unwhitelist", description="Remove from whitelist (admin)"),
-            BotCommand(command="rules", description="Show group rules"),
-            BotCommand(command="setrules", description="Set group rules (admin)"),
-            BotCommand(command="stats", description="Show verification statistics"),
-        ]
-        await telegram_bot.get_bot().set_my_commands(commands)
-        logger.info(f"✅ Registered {len(commands)} commands in Telegram UI")
         
         # Set webhook
         webhook_url = f"{config.webhook_url}{config.webhook_path}"
@@ -137,13 +65,13 @@ async def periodic_cleanup():
         try:
             await asyncio.sleep(60)  # Run every minute
             
-            db = get_database()
-            session_service = SessionService(db)
-            count = await session_service.cleanup_expired_sessions()
-            
-            if count > 0:
-                logger.info(f"🧹 Cleaned up {count} expired sessions")
+            if telegram_bot and telegram_bot.get_container():
+                user_manager = telegram_bot.get_container().user_manager
+                count = await user_manager.cleanup_expired_sessions()
                 
+                if count > 0:
+                    logger.info(f"🧹 Cleaned up {count} expired sessions")
+                    
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -151,7 +79,12 @@ async def periodic_cleanup():
 
 
 # Create FastAPI app
-app = FastAPI(lifespan=lifespan, title="Telegram Verification Bot")
+app = FastAPI(
+    lifespan=lifespan,
+    title="Telegram Verification Bot",
+    description="Biometric verification bot powered by Mercle SDK",
+    version="2.0.0"
+)
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -159,7 +92,11 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.post(config.webhook_path)
 async def webhook_handler(request: Request):
-    """Handle incoming webhook updates from Telegram."""
+    """
+    Handle incoming webhook updates from Telegram.
+    
+    This is called by Telegram whenever there's a new message, command, or event.
+    """
     try:
         update_data = await request.json()
         update = Update(**update_data)
@@ -173,7 +110,7 @@ async def webhook_handler(request: Request):
         return Response(status_code=200)
         
     except Exception as e:
-        logger.error(f"Error processing webhook update: {e}", exc_info=True)
+        logger.error(f"❌ Error processing webhook update: {e}", exc_info=True)
         return Response(status_code=500)
 
 
@@ -181,9 +118,14 @@ async def webhook_handler(request: Request):
 async def verify_redirect(
     session_id: str,
     app_name: str,
-    app_domain: str
+    app_domain: str,
+    base64_qr: str = ""
 ):
-    """Serve the deep link redirect page."""
+    """
+    Serve the deep link redirect page.
+    
+    This page automatically redirects to the Mercle app with the verification data.
+    """
     try:
         # Read the verify.html file
         with open("static/verify.html", "r") as f:
@@ -194,66 +136,130 @@ async def verify_redirect(
     except Exception as e:
         logger.error(f"Error serving verify page: {e}")
         return HTMLResponse(
-            content="<html><body><h1>Error loading verification page</h1></body></html>",
+            content="""
+            <html>
+                <head><title>Error</title></head>
+                <body>
+                    <h1>Error loading verification page</h1>
+                    <p>Please try again or contact support.</p>
+                </body>
+            </html>
+            """,
             status_code=500
         )
 
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """
+    Health check endpoint.
+    
+    Returns the health status of the bot and its components.
+    """
     try:
-        if telegram_bot:
-            health = await telegram_bot.health_check()
+        if telegram_bot and telegram_bot.is_running():
+            # Try to get bot info to verify it's working
+            bot_info = await telegram_bot.get_bot().get_me()
+            
             return {
                 "status": "healthy",
-                "bot": health.get("bot", False),
-                "database": health.get("database", False),
-                "plugins": health.get("plugins", {})
+                "bot": {
+                    "username": bot_info.username,
+                    "id": bot_info.id,
+                    "running": True
+                },
+                "database": "connected",
+                "version": "2.0.0"
             }
         else:
-            return {"status": "initializing"}
+            return {
+                "status": "initializing",
+                "message": "Bot is starting up..."
+            }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        return {"status": "unhealthy", "error": str(e)}
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
 
 
 @app.get("/status")
 async def status():
-    """Status endpoint with plugin information."""
+    """
+    Status endpoint with detailed information.
+    
+    Returns statistics and configuration details.
+    """
     try:
-        if telegram_bot:
-            plugin_manager = telegram_bot.get_plugin_manager()
-            status_info = plugin_manager.get_status()
+        if telegram_bot and telegram_bot.is_running():
+            container = telegram_bot.get_container()
             
-            # Add database stats
-            db = telegram_bot.get_database()
-            table_counts = await db.get_table_counts()
+            # Get some basic stats
+            from database.db import db
+            from database.models import User, VerificationSession
+            from sqlalchemy import select, func
+            admin_actions, verification_outcomes = await container.metrics_service.snapshot()
+            
+            async with db.session() as session:
+                # Count verified users
+                user_count = await session.execute(select(func.count(User.telegram_id)))
+                total_users = user_count.scalar()
+                
+                # Count active sessions
+                session_count = await session.execute(
+                    select(func.count(VerificationSession.session_id))
+                    .where(VerificationSession.status == "pending")
+                )
+                active_sessions = session_count.scalar()
             
             return {
                 "status": "running",
-                "plugins": status_info,
-                "database": table_counts
+                "version": "2.0.0",
+                "stats": {
+                    "total_verified_users": total_users,
+                    "active_verification_sessions": active_sessions,
+                    "admin_actions": admin_actions,
+                    "verification_outcomes": verification_outcomes,
+                },
+                "config": {
+                    "verification_timeout_minutes": container.config.timeout_minutes,
+                    "action_on_timeout": container.config.action_on_timeout,
+                    "auto_delete_messages": container.config.auto_delete_verification_messages
+                }
             }
         else:
-            return {"status": "initializing"}
+            return {
+                "status": "initializing",
+                "message": "Bot is starting up..."
+            }
     except Exception as e:
         logger.error(f"Status check failed: {e}")
-        return {"status": "error", "error": str(e)}
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
+    """
+    Root endpoint with API information.
+    """
     return {
         "name": "Telegram Verification Bot",
+        "description": "Biometric verification bot powered by Mercle SDK",
         "version": "2.0.0",
-        "status": "running",
+        "status": "running" if telegram_bot and telegram_bot.is_running() else "initializing",
         "endpoints": {
             "webhook": config.webhook_path,
             "health": "/health",
             "status": "/status",
             "verify": "/verify"
+        },
+        "documentation": {
+            "commands": "/help",
+            "support": "support@mercle.ai"
         }
     }
 
