@@ -10,7 +10,7 @@ from bot.container import ServiceContainer
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import ChatPermissions
 
-from bot.utils.permissions import is_user_admin, has_role_permission, is_bot_admin, can_restrict_members, can_delete_messages, can_pin_messages
+from bot.utils.permissions import can_user, is_user_admin, has_role_permission, is_bot_admin, can_restrict_members, can_delete_messages, can_pin_messages
 from database.db import db
 from sqlalchemy import select
 
@@ -30,6 +30,34 @@ def create_member_handlers(container: ServiceContainer) -> Router:
         Router with registered handlers
     """
     router = Router()
+
+    async def _send_welcome(bot, group_id: int, user) -> None:
+        try:
+            welcome = await container.welcome_service.get_welcome(group_id)
+            if not welcome:
+                return
+            enabled, template = welcome
+            if not enabled or not template:
+                return
+            try:
+                chat = await container.group_service.get_or_create_group(group_id)
+                group_name = chat.group_name or "this group"
+            except Exception:
+                group_name = "this group"
+            try:
+                member_count = await bot.get_chat_member_count(group_id)
+            except Exception:
+                member_count = 0
+
+            name = getattr(user, "full_name", None) or getattr(user, "first_name", None) or "there"
+            try:
+                mention = user.mention_html()
+            except Exception:
+                mention = name
+            text = container.welcome_service.format_message(template, name, mention, group_name, int(member_count or 0))
+            await bot.send_message(chat_id=group_id, text=text, parse_mode="HTML")
+        except Exception:
+            return
     
     @router.chat_member(
         ChatMemberUpdatedFilter(
@@ -62,13 +90,31 @@ def create_member_handlers(container: ServiceContainer) -> Router:
         
         # Register group name/settings
         await container.group_service.register_group(group_id, group_name)
-        await container.pending_verification_service.touch_group_user(group_id, user_id)
+        await container.pending_verification_service.touch_group_user(
+            group_id,
+            user_id,
+            username=username,
+            first_name=new_member.first_name,
+            last_name=new_member.last_name,
+            source="join",
+            increment_join=True,
+        )
         
         # Load group settings
         group = await container.group_service.get_or_create_group(group_id)
         if not group.verification_enabled:
             logger.info(f"Verification disabled for group {group_id}; allowing user {user_id}")
+            await _send_welcome(event.bot, group_id, new_member)
             return
+
+        # Whitelist bypass (per-group)
+        try:
+            if await container.whitelist_service.is_whitelisted(group_id, user_id):
+                logger.info(f"User {user_id} is whitelisted in group {group_id}; allowing access")
+                await _send_welcome(event.bot, group_id, new_member)
+                return
+        except Exception:
+            pass
         
         # Check if already verified globally
         is_verified = await container.user_manager.is_verified(user_id)
@@ -76,6 +122,7 @@ def create_member_handlers(container: ServiceContainer) -> Router:
         if is_verified:
             logger.info(f"✅ User {user_id} is already verified globally, allowing access")
             await container.pending_verification_service.mark_group_user_verified(group_id, user_id)
+            await _send_welcome(event.bot, group_id, new_member)
             return
         
         try:
@@ -169,10 +216,9 @@ def create_member_handlers(container: ServiceContainer) -> Router:
         actor_id = callback.from_user.id
 
         # Permission check: telegram admin OR custom role that can_verify
-        if not await is_user_admin(callback.bot, group_id, actor_id):
-            if not await has_role_permission(group_id, actor_id, "verify"):
-                await callback.answer("Not allowed", show_alert=True)
-                return
+        if not await can_user(callback.bot, group_id, actor_id, "verify"):
+            await callback.answer("Not allowed", show_alert=True)
+            return
 
         # Bot needs restrict to approve/reject (kick)
         if not await is_bot_admin(callback.bot, group_id):
@@ -200,6 +246,11 @@ def create_member_handlers(container: ServiceContainer) -> Router:
                 return
             await container.pending_verification_service.decide(pending_id, status="approved", decided_by=actor_id)
             await container.pending_verification_service.delete_group_prompt(callback.bot, pending)
+            try:
+                member = await callback.bot.get_chat_member(group_id, int(pending.telegram_id))
+                await _send_welcome(callback.bot, group_id, member.user)
+            except Exception:
+                pass
             await callback.answer("Approved")
             return
 
@@ -216,6 +267,41 @@ def create_member_handlers(container: ServiceContainer) -> Router:
             return
 
         await callback.answer("Not allowed", show_alert=True)
+
+    return router
+
+
+def create_leave_handlers(container: ServiceContainer) -> Router:
+    """
+    Separate router for member leave events (goodbye messages).
+    """
+    router = Router()
+
+    @router.chat_member(ChatMemberUpdatedFilter(member_status_changed=(MEMBER | RESTRICTED) >> (LEFT | KICKED)))
+    async def on_member_left(event: ChatMemberUpdated):
+        user = event.old_chat_member.user
+        if user.is_bot:
+            return
+        group_id = event.chat.id
+        try:
+            goodbye = await container.welcome_service.get_goodbye(group_id)
+            if not goodbye:
+                return
+            enabled, template = goodbye
+            if not enabled or not template:
+                return
+            group = await container.group_service.get_or_create_group(group_id)
+            group_name = group.group_name or "this group"
+            try:
+                member_count = await event.bot.get_chat_member_count(group_id)
+            except Exception:
+                member_count = 0
+            name = user.full_name or user.first_name or "there"
+            mention = user.mention_html()
+            text = container.welcome_service.format_message(template, name, mention, group_name, int(member_count or 0))
+            await event.bot.send_message(chat_id=group_id, text=text, parse_mode="HTML")
+        except Exception:
+            return
 
     return router
 
@@ -350,6 +436,13 @@ async def _send_or_update_setup_card(bot, container: ServiceContainer, group_id:
             try:
                 await bot.delete_message(chat_id=group_id, message_id=message_id)
             except Exception:
-                pass
+                try:
+                    await bot.edit_message_reply_markup(chat_id=group_id, message_id=message_id, reply_markup=None)
+                except Exception:
+                    pass
+                try:
+                    await bot.edit_message_text(chat_id=group_id, message_id=message_id, text="✅ Resolved.", parse_mode="HTML")
+                except Exception:
+                    pass
 
         asyncio.create_task(_del())

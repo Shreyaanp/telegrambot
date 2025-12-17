@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 
 from bot.container import ServiceContainer
-from bot.utils.permissions import can_delete_messages, can_pin_messages, can_restrict_members, has_role_permission, is_bot_admin, is_user_admin
+from bot.utils.permissions import can_delete_messages, can_pin_messages, can_restrict_members, can_user, has_role_permission, is_bot_admin, is_user_admin
 from database.db import db
 from database.models import DmPanelState, GroupWizardState
 
@@ -110,7 +110,16 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             if pending.expires_at < datetime.utcnow():
                 await message.answer("Verification expired. Ask an admin or rejoin.", parse_mode="HTML")
                 return
-            await container.token_service.mark_verification_token_used(token)
+            # Persist a durable (group_id, user_id) link from this DM verification entry-point.
+            await container.pending_verification_service.touch_group_user(
+                int(ver.group_id),
+                user_id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name,
+                last_name=message.from_user.last_name,
+                source="dm_verify",
+                increment_join=False,
+            )
             await open_dm_verification_panel(message.bot, container, user_id=user_id, pending_id=ver.pending_id)
             return
 
@@ -129,7 +138,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             for group in groups[:50]:
                 group_id = int(group.group_id)
                 try:
-                    if await is_user_admin(message.bot, group_id, user_id) or await has_role_permission(group_id, user_id, "settings"):
+                    if await can_user(message.bot, group_id, user_id, "settings"):
                         allowed.append(group)
                 except Exception:
                     continue
@@ -158,10 +167,9 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         await container.group_service.register_group(group_id, message.chat.title)
 
         is_admin = await is_user_admin(message.bot, group_id, admin_id)
-        if not is_admin:
-            if not await has_role_permission(group_id, admin_id, "settings"):
-                await message.reply("Admins only. Ask an admin to run /menu.", parse_mode="HTML")
-                return
+        if not await can_user(message.bot, group_id, admin_id, "settings"):
+            await message.reply("Admins only. Ask an admin to run /menu.", parse_mode="HTML")
+            return
 
         if not await is_bot_admin(message.bot, group_id):
             await message.reply("I need to be admin. Run <code>/checkperms</code>.", parse_mode="HTML")
@@ -207,6 +215,9 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         group_id = await _get_active_logs_setup_group_id(message.from_user.id)
         if not group_id:
             return
+        if not await can_user(message.bot, group_id, message.from_user.id, "settings"):
+            await show_dm_home(message.bot, container, user_id=message.from_user.id)
+            return
         chat = message.forward_from_chat
         if not chat or not chat.id:
             return
@@ -219,8 +230,19 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             return
         group_id = await _get_active_logs_setup_group_id(message.from_user.id)
         if group_id:
+            if not await can_user(message.bot, group_id, message.from_user.id, "settings"):
+                await show_dm_home(message.bot, container, user_id=message.from_user.id)
+                return
             raw = (message.text or "").strip()
             dest_id: Optional[int] = None
+            thread_id: Optional[int] = None
+            if ":" in raw:
+                left, right = raw.split(":", 1)
+                raw = left.strip()
+                try:
+                    thread_id = int(right.strip())
+                except ValueError:
+                    thread_id = None
             if raw.startswith("@"):
                 try:
                     chat = await message.bot.get_chat(raw)
@@ -235,7 +257,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             if dest_id is None:
                 await open_logs_setup(message.bot, container, admin_id=message.from_user.id, group_id=group_id)
                 return
-            await container.group_service.update_setting(group_id, logs_enabled=True, logs_chat_id=int(dest_id))
+            await container.group_service.update_setting(group_id, logs_enabled=True, logs_chat_id=int(dest_id), logs_thread_id=thread_id)
             await open_settings_screen(message.bot, container, admin_id=message.from_user.id, group_id=group_id, screen="logs")
             return
 
@@ -277,10 +299,9 @@ def create_command_handlers(container: ServiceContainer) -> Router:
 
         # Live permission check: Telegram admin OR custom role with settings access
         actor_id = callback.from_user.id
-        if not await is_user_admin(callback.bot, group_id, actor_id):
-            if not await has_role_permission(group_id, actor_id, "settings"):
-                await callback.answer("Not allowed", show_alert=True)
-                return
+        if not await can_user(callback.bot, group_id, actor_id, "settings"):
+            await callback.answer("Not allowed", show_alert=True)
+            return
 
         if action == "close":
             await callback.answer()
@@ -323,6 +344,35 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 await container.group_service.update_setting(group_id, verification_timeout=seconds)
                 await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "verification")
                 return
+            if key == "join_gate":
+                if val == "on":
+                    # Join gate requires: join requests enabled + bot can approve/decline (can_invite_users).
+                    try:
+                        chat = await callback.bot.get_chat(group_id)
+                        join_by_request = getattr(chat, "join_by_request", None)
+                    except Exception:
+                        join_by_request = None
+
+                    if join_by_request is not True:
+                        await callback.answer("Enable join requests in group settings first.", show_alert=True)
+                        await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "verification")
+                        return
+
+                    try:
+                        bot_info = await callback.bot.get_me()
+                        bot_member = await callback.bot.get_chat_member(group_id, bot_info.id)
+                        can_invite = bool(getattr(bot_member, "can_invite_users", False))
+                    except Exception:
+                        can_invite = False
+
+                    if not can_invite:
+                        await callback.answer("Grant the bot 'Invite Users' permission to manage join requests.", show_alert=True)
+                        await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "verification")
+                        return
+
+                await container.group_service.update_setting(group_id, join_gate_enabled=(val == "on"))
+                await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "verification")
+                return
             if key == "action":
                 await container.group_service.update_setting(group_id, action_on_timeout=("kick" if val == "kick" else "mute"))
                 await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "verification")
@@ -361,6 +411,39 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                     return
                 await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "logs")
                 return
+            if key == "logs_test":
+                try:
+                    group = await container.group_service.get_or_create_group(group_id)
+                    if not getattr(group, "logs_enabled", False) or not getattr(group, "logs_chat_id", None):
+                        await callback.bot.send_message(chat_id=callback.from_user.id, text="Logs are Off.", parse_mode="HTML")
+                        return
+                    dest_chat_id = int(group.logs_chat_id)
+                    thread_id = int(group.logs_thread_id) if getattr(group, "logs_thread_id", None) else None
+                    bot_info = await callback.bot.get_me()
+                    try:
+                        bot_member = await callback.bot.get_chat_member(dest_chat_id, bot_info.id)
+                        if bot_member.status not in ("administrator", "creator", "member"):
+                            raise RuntimeError(f"bot status: {bot_member.status}")
+                    except Exception:
+                        await callback.bot.send_message(
+                            chat_id=callback.from_user.id,
+                            text="I can't access that chat. Add me there (and make me admin for channels), then try again.",
+                            parse_mode="HTML",
+                        )
+                        return
+                    kwargs = {"disable_web_page_preview": True}
+                    if thread_id:
+                        kwargs["message_thread_id"] = thread_id
+                    await callback.bot.send_message(
+                        chat_id=dest_chat_id,
+                        text=f"<b>Log test</b>\nGroup: <code>{group_id}</code>",
+                        parse_mode="HTML",
+                        **kwargs,
+                    )
+                    await callback.bot.send_message(chat_id=callback.from_user.id, text="✅ Sent a test log.", parse_mode="HTML")
+                except Exception:
+                    await callback.bot.send_message(chat_id=callback.from_user.id, text="❌ Failed to send test log.", parse_mode="HTML")
+                return
 
         await callback.answer()
         await open_settings_panel(callback.bot, container, admin_id=callback.from_user.id, group_id=group_id)
@@ -398,14 +481,21 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             return
 
         if action == "confirm":
+            # Idempotency: double-tap confirm should not start multiple Mercle sessions.
+            ok = await container.pending_verification_service.try_mark_starting(pending_id, callback.from_user.id)
+            if not ok:
+                await callback.answer("Already started or expired.", show_alert=True)
+                return
+
             await callback.answer()
+            await container.token_service.mark_verification_tokens_used_for_pending(pending_id, callback.from_user.id)
             await callback.bot.edit_message_text(
                 chat_id=callback.from_user.id,
                 message_id=callback.message.message_id,
                 text="<b>Verification</b>\nStarting Mercle…",
                 parse_mode="HTML",
             )
-            await container.verification_service.start_verification_panel(
+            started = await container.verification_service.start_verification_panel(
                 bot=callback.bot,
                 telegram_id=callback.from_user.id,
                 chat_id=callback.from_user.id,
@@ -413,7 +503,19 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 group_id=int(pending.group_id),
                 pending_id=pending_id,
                 message_id=callback.message.message_id,
+                pending_kind=getattr(pending, "kind", None),
             )
+            if not started:
+                await container.pending_verification_service.clear_starting_if_needed(pending_id, callback.from_user.id)
+                try:
+                    await callback.bot.edit_message_text(
+                        chat_id=callback.from_user.id,
+                        message_id=callback.message.message_id,
+                        text="❌ Failed to start verification. Try again.",
+                        parse_mode="HTML",
+                    )
+                except Exception:
+                    pass
             return
 
     return router
@@ -632,12 +734,28 @@ async def handle_wizard_choice(bot, container: ServiceContainer, admin_id: int, 
 async def open_settings_screen(bot, container: ServiceContainer, admin_id: int, group_id: int, screen: str):
     group = await container.group_service.get_or_create_group(group_id)
     if screen == "verification":
-        text = f"<b>Verification</b> • {group.group_name or group_id}\n\nChoose:"
+        gate = "On ✅" if getattr(group, "join_gate_enabled", False) else "Off"
+        text = (
+            f"<b>Verification</b> • {group.group_name or group_id}\n\n"
+            f"Require verification: {'On ✅' if group.verification_enabled else 'Off'}\n"
+            f"Join gate (requires join requests): {gate}\n\n"
+            "Choose:"
+        )
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(text="On" if not group.verification_enabled else "On ✅", callback_data=f"cfg:{group_id}:set:verify:on"),
                     InlineKeyboardButton(text="Off" if group.verification_enabled else "Off ✅", callback_data=f"cfg:{group_id}:set:verify:off"),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="Join gate: On ✅" if getattr(group, "join_gate_enabled", False) else "Join gate: On",
+                        callback_data=f"cfg:{group_id}:set:join_gate:on",
+                    ),
+                    InlineKeyboardButton(
+                        text="Join gate: Off ✅" if not getattr(group, "join_gate_enabled", False) else "Join gate: Off",
+                        callback_data=f"cfg:{group_id}:set:join_gate:off",
+                    ),
                 ],
                 [
                     InlineKeyboardButton(text="2m", callback_data=f"cfg:{group_id}:set:timeout:120"),
@@ -658,7 +776,12 @@ async def open_settings_screen(bot, container: ServiceContainer, admin_id: int, 
             ]
         )
     elif screen == "antispam":
-        text = f"<b>Anti-spam</b> • {group.group_name or group_id}\n\nChoose:"
+        text = (
+            f"<b>Anti-spam</b> • {group.group_name or group_id}\n\n"
+            f"Status: {'On ✅' if group.antiflood_enabled else 'Off'}\n"
+            f"Limit: <code>{int(group.antiflood_limit or 10)}</code> msgs/min\n\n"
+            "Tip: when a user exceeds the limit, the bot mutes them for 5 minutes."
+        )
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -674,6 +797,10 @@ async def open_settings_screen(bot, container: ServiceContainer, admin_id: int, 
                 [
                     InlineKeyboardButton(text="Limit 10", callback_data=f"cfg:{group_id}:set:antiflood_limit:10"),
                     InlineKeyboardButton(text="Limit 20", callback_data=f"cfg:{group_id}:set:antiflood_limit:20"),
+                ],
+                [
+                    InlineKeyboardButton(text="Limit 30", callback_data=f"cfg:{group_id}:set:antiflood_limit:30"),
+                    InlineKeyboardButton(text="Limit 50", callback_data=f"cfg:{group_id}:set:antiflood_limit:50"),
                 ],
                 [InlineKeyboardButton(text="Back", callback_data=f"cfg:{group_id}:home")],
             ]
@@ -703,7 +830,10 @@ async def open_settings_screen(bot, container: ServiceContainer, admin_id: int, 
                 dest = "This group"
             else:
                 dest = f"<code>{int(group.logs_chat_id)}</code>"
-        text = f"<b>Logs</b> • {group.group_name or group_id}\n\nCurrent: {dest}\n\nChoose:"
+        thread = ""
+        if getattr(group, "logs_enabled", False) and getattr(group, "logs_thread_id", None):
+            thread = f"\nThread: <code>{int(group.logs_thread_id)}</code>"
+        text = f"<b>Logs</b> • {group.group_name or group_id}\n\nCurrent: {dest}{thread}\n\nChoose:"
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -717,6 +847,7 @@ async def open_settings_screen(bot, container: ServiceContainer, admin_id: int, 
                     ),
                 ],
                 [InlineKeyboardButton(text="Choose Channel/Group…", callback_data=f"cfg:{group_id}:set:logs:channel")],
+                [InlineKeyboardButton(text="Test log", callback_data=f"cfg:{group_id}:set:logs_test:now")],
                 [InlineKeyboardButton(text="Back", callback_data=f"cfg:{group_id}:home")],
             ]
         )

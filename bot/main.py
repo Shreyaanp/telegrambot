@@ -15,7 +15,8 @@ from aiogram.types import (
 from bot.config import Config
 from bot.container import ServiceContainer
 from bot.handlers.commands import create_command_handlers
-from bot.handlers.member_events import create_member_handlers, create_admin_join_handlers
+from bot.handlers.member_events import create_member_handlers, create_admin_join_handlers, create_leave_handlers
+from bot.handlers.join_requests import create_join_request_handlers
 from bot.handlers.admin_commands import create_admin_handlers
 from bot.handlers.content_commands import create_content_handlers
 from bot.handlers.message_handlers import create_message_handlers
@@ -86,16 +87,20 @@ class TelegramBot:
             command_router = create_command_handlers(self.container)
             member_router = create_member_handlers(self.container)
             admin_join_router = create_admin_join_handlers(self.container)
+            leave_router = create_leave_handlers(self.container)
             admin_router = create_admin_handlers(self.container)
             content_router = create_content_handlers(self.container)
             message_router = create_message_handlers(self.container)
             rbac_router = create_rbac_help_handlers(self.container)
+            join_req_router = create_join_request_handlers(self.container)
             
             self.dispatcher.include_router(command_router)
             self.dispatcher.include_router(admin_router)
             self.dispatcher.include_router(content_router)
             self.dispatcher.include_router(member_router)
             self.dispatcher.include_router(admin_join_router)
+            self.dispatcher.include_router(leave_router)
+            self.dispatcher.include_router(join_req_router)
             self.dispatcher.include_router(rbac_router)
             self.dispatcher.include_router(message_router)  # Last, so it doesn't intercept commands
             logger.info("✅ All handlers registered")
@@ -207,6 +212,15 @@ class TelegramBot:
                         bot_info = await self.bot.get_me()
                         for pending in expired:
                             group = await self.container.group_service.get_or_create_group(int(pending.group_id))
+                            kind = getattr(pending, "kind", "post_join")
+                            if kind == "join_request":
+                                try:
+                                    await self.bot.decline_chat_join_request(chat_id=int(pending.group_id), user_id=int(pending.telegram_id))
+                                except Exception:
+                                    pass
+                                await self.container.pending_verification_service.decide(int(pending.id), status="timed_out", decided_by=bot_info.id)
+                                continue
+
                             action = "kick" if group.kick_unverified else "mute"
                             if action == "kick":
                                 try:

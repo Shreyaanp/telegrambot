@@ -5,10 +5,22 @@ from functools import wraps
 from aiogram.types import Message, CallbackQuery
 from aiogram import Bot
 from database.db import db
-from database.models import Permission
+from database.models import Permission, GroupUserState
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
+
+async def can_user(bot: Bot, chat_id: int, user_id: int, action: str) -> bool:
+    """
+    Unified permission check: Telegram admin OR matching custom role permission.
+
+    action: one of:
+      - 'verify', 'kick', 'ban', 'warn', 'filters', 'notes'
+      - 'settings', 'locks', 'roles', 'status', 'logs'
+    """
+    if await is_user_admin(bot, chat_id, user_id):
+        return True
+    return await has_role_permission(chat_id, user_id, action)
 
 
 async def is_user_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
@@ -96,8 +108,10 @@ async def has_role_permission(chat_id: int, user_id: int, action: str) -> bool:
                 return False
             if action == "verify":
                 return perm.can_verify
-            if action in ("kick", "ban"):
-                return perm.can_kick or perm.can_ban
+            if action in ("kick", "mute", "unmute", "purge"):
+                return perm.can_kick
+            if action in ("ban", "unban"):
+                return perm.can_ban
             if action == "warn":
                 return perm.can_warn
             if action == "filters":
@@ -204,11 +218,10 @@ def require_admin(func):
             await message.reply("❌ This command only works in groups.")
             return
         
-        # Check if user is admin or has custom role permission (broad/admin-like)
+        # Telegram admins only (roles are handled by capability-specific decorators).
         if not await is_user_admin(message.bot, message.chat.id, message.from_user.id):
-            if not await has_role_permission(message.chat.id, message.from_user.id, "settings"):
-                await message.reply("❌ You need to be an admin (or a granted role) to use this command.")
-                return
+            await message.reply("❌ You need to be an admin to use this command.")
+            return
         
         # Check if bot is admin
         if not await is_bot_admin(message.bot, message.chat.id):
@@ -245,7 +258,7 @@ def require_role_or_admin(action: str):
     return deco
 
 
-def require_restrict_permission(func):
+def require_restrict_permission(func=None, *, action: str = "kick"):
     """
     Decorator to require restrict members permission.
     
@@ -254,26 +267,45 @@ def require_restrict_permission(func):
         async def cmd_kick(message: Message):
             ...
     """
+    if func is None:
+        def _deco(f):
+            return require_restrict_permission(f, action=action)
+        return _deco
+
     @wraps(func)
     async def wrapper(message: Message, *args, **kwargs):
-        # Check if in group
         if message.chat.type not in ["group", "supergroup"]:
             await message.reply("❌ This command only works in groups.")
             return
-        
-        # Check if user can restrict
+
         if not await can_restrict_members(message.bot, message.chat.id, message.from_user.id):
-            if not await has_role_permission(message.chat.id, message.from_user.id, "kick"):
-                await message.reply("❌ You need 'Restrict Members' or a granted role to use this command.")
+            if not await has_role_permission(message.chat.id, message.from_user.id, action):
+                await message.reply("❌ Not allowed.")
                 return
-        
-        # Check if bot is admin
+
         if not await is_bot_admin(message.bot, message.chat.id):
             await message.reply("❌ I need to be an admin to do this.")
             return
-        
+
         return await func(message, *args, **kwargs)
-    
+
+    return wrapper
+
+
+def require_telegram_admin(func):
+    """
+    Decorator to require Telegram group admin (creator/administrator).
+    Used for sensitive bot-local operations like granting roles.
+    """
+    @wraps(func)
+    async def wrapper(message: Message, *args, **kwargs):
+        if message.chat.type not in ["group", "supergroup"]:
+            await message.reply("❌ This command only works in groups.")
+            return
+        if not await is_user_admin(message.bot, message.chat.id, message.from_user.id):
+            await message.reply("❌ Admins only.")
+            return
+        return await func(message, *args, **kwargs)
     return wrapper
 
 
@@ -323,6 +355,20 @@ async def extract_user_and_reason(message: Message) -> tuple[Optional[int], Opti
                     return adm.user.id, reason
         except Exception as e:
             logger.warning(f"Could not fetch admins to resolve username @{username}: {e}")
+        # Try to resolve via stored per-group mapping (works for silent users we saw join or verify).
+        try:
+            async with db.session() as session:
+                result = await session.execute(
+                    select(GroupUserState.telegram_id).where(
+                        GroupUserState.group_id == message.chat.id,
+                        GroupUserState.username_lc == username,
+                    )
+                )
+                mapped = result.scalar_one_or_none()
+                if mapped:
+                    return int(mapped), reason
+        except Exception as e:
+            logger.debug(f"GroupUserState lookup failed for @{username}: {e}")
         # Optional: try getChat if bot has dialog with the user (best effort)
         try:
             chat_obj = await message.bot.get_chat(username)

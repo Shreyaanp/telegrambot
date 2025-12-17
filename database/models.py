@@ -1,7 +1,7 @@
 """Database models - Complete schema for full-featured bot."""
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index, BigInteger
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index, BigInteger, text
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -11,7 +11,7 @@ class User(Base):
     """Verified users table - global verification across all groups."""
     __tablename__ = "users"
     
-    telegram_id = Column(BigInteger, primary_key=True)
+    telegram_id = Column(BigInteger, primary_key=True, autoincrement=False)
     username = Column(String, nullable=True)
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
@@ -30,13 +30,14 @@ class Group(Base):
     """Group settings table - per-group configuration."""
     __tablename__ = "groups"
     
-    group_id = Column(BigInteger, primary_key=True)
+    group_id = Column(BigInteger, primary_key=True, autoincrement=False)
     group_name = Column(String, nullable=True)
     
     # Verification settings
     verification_enabled = Column(Boolean, default=True)
     verification_timeout = Column(Integer, default=300)  # 5 minutes
     kick_unverified = Column(Boolean, default=True)
+    join_gate_enabled = Column(Boolean, default=False)  # If group uses join requests, only approve after verification
     
     # Welcome/Goodbye
     welcome_enabled = Column(Boolean, default=True)
@@ -319,8 +320,11 @@ class PendingJoinVerification(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
     telegram_id = Column(BigInteger, nullable=False)
+    kind = Column(String, default="post_join")  # post_join | join_request
     status = Column(String, default="pending")  # pending, approved, rejected, timed_out, cancelled
     created_at = Column(DateTime, default=datetime.utcnow)
+    join_request_at = Column(DateTime, nullable=True)
+    user_chat_id = Column(BigInteger, nullable=True)  # Only for kind=join_request (DM window target)
     expires_at = Column(DateTime, nullable=False)
     prompt_message_id = Column(BigInteger, nullable=True)
     dm_message_id = Column(BigInteger, nullable=True)
@@ -333,6 +337,18 @@ class PendingJoinVerification(Base):
     __table_args__ = (
         Index("idx_pv_group_user", "group_id", "telegram_id"),
         Index("idx_pv_status_expiry", "status", "expires_at"),
+        Index("idx_pv_expires_at", "expires_at"),
+        # One active pending per (group_id, telegram_id, kind) when status='pending'.
+        # This is relied upon by PendingVerificationService.create_pending() for concurrency safety.
+        Index(
+            "uq_pv_active",
+            "group_id",
+            "telegram_id",
+            "kind",
+            unique=True,
+            sqlite_where=text("status='pending'"),
+            postgresql_where=text("status='pending'"),
+        ),
     )
 
 
@@ -353,6 +369,7 @@ class VerificationLinkToken(Base):
     __table_args__ = (
         Index("idx_ver_token_expiry", "expires_at"),
         Index("idx_ver_token_pending", "pending_id"),
+        Index("idx_ver_token_pending_expiry_used", "pending_id", "expires_at", "used_at"),
     )
 
 
@@ -391,6 +408,11 @@ class GroupUserState(Base):
 
     group_id = Column(BigInteger, ForeignKey("groups.group_id"), primary_key=True)
     telegram_id = Column(BigInteger, primary_key=True)
+    username = Column(String, nullable=True)
+    username_lc = Column(String, nullable=True)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    last_source = Column(String, nullable=True)  # join | dm_verify | message | other
     first_seen_at = Column(DateTime, default=datetime.utcnow)
     last_seen_at = Column(DateTime, default=datetime.utcnow)
     join_count = Column(Integer, default=1)
@@ -398,3 +420,7 @@ class GroupUserState(Base):
     last_verification_session_id = Column(String, nullable=True)
 
     group = relationship("Group")
+
+    __table_args__ = (
+        Index("idx_group_user_username", "group_id", "username_lc"),
+    )

@@ -123,7 +123,7 @@ class VerificationService:
                 f"?session_id={session_id}"
                 f"&app_name={urllib.parse.quote('Telegram Verification Bot')}"
                 f"&app_domain={urllib.parse.quote('https://telegram.mercle.ai')}"
-                f"&base64_qr={base64_qr}"
+                f"&base64_qr={urllib.parse.quote(base64_qr)}"
             )
             
             # Build inline keyboard with clear CTAs
@@ -217,6 +217,7 @@ class VerificationService:
         group_id: Optional[int] = None,
         pending_id: Optional[int] = None,
         message_id: Optional[int] = None,
+        pending_kind: Optional[str] = None,
     ) -> bool:
         """
         Start Mercle verification in a single message (edit-in-place, no extra success/fail messages).
@@ -266,7 +267,7 @@ class VerificationService:
                 f"?session_id={session_id}"
                 f"&app_name={urllib.parse.quote('MercleMerci')}"
                 f"&app_domain={urllib.parse.quote('https://telegram.mercle.ai')}"
-                f"&base64_qr={base64_qr}"
+                f"&base64_qr={urllib.parse.quote(base64_qr)}"
             )
 
             header = "<b>Verification</b>"
@@ -310,6 +311,7 @@ class VerificationService:
                     action_on_timeout,
                     pending_id=pending_id,
                     panel_message_id=panel_message_id,
+                    pending_kind=pending_kind,
                 )
             )
             self.active_verifications[session_id] = task
@@ -330,6 +332,7 @@ class VerificationService:
         action_on_timeout: str,
         pending_id: Optional[int] = None,
         panel_message_id: Optional[int] = None,
+        pending_kind: Optional[str] = None,
     ):
         """
         Poll Mercle SDK for verification status.
@@ -364,6 +367,7 @@ class VerificationService:
                         group_id,
                         send_followup=(panel_message_id is None),
                         panel_message_id=panel_message_id,
+                        pending_kind=pending_kind,
                     )
                     if pending_id and self.pending:
                         await self.pending.decide(pending_id, status="approved", decided_by=telegram_id)
@@ -372,6 +376,12 @@ class VerificationService:
                             await self.pending.delete_group_prompt(bot, pending)
                         if group_id:
                             await self.pending.mark_group_user_verified(int(group_id), telegram_id, session_id)
+                        try:
+                            kind = getattr(pending, "kind", None) if pending else None
+                            if (pending_kind == "join_request" or kind == "join_request") and group_id:
+                                await bot.approve_chat_join_request(chat_id=int(group_id), user_id=int(telegram_id))
+                        except Exception:
+                            pass
                     await self.metrics.incr_verification("approved")
                     return
                 
@@ -386,12 +396,19 @@ class VerificationService:
                         action_on_timeout,
                         send_followup=(panel_message_id is None),
                         panel_message_id=panel_message_id,
+                        pending_kind=pending_kind,
                     )
                     if pending_id and self.pending:
                         await self.pending.decide(pending_id, status="rejected", decided_by=telegram_id)
                         pending = await self.pending.get_pending(pending_id)
                         if pending:
                             await self.pending.edit_or_delete_group_prompt(bot, pending, "🚫 Rejected")
+                        try:
+                            kind = getattr(pending, "kind", None) if pending else None
+                            if (pending_kind == "join_request" or kind == "join_request") and group_id:
+                                await bot.decline_chat_join_request(chat_id=int(group_id), user_id=int(telegram_id))
+                        except Exception:
+                            pass
                     await self.metrics.incr_verification(status)
                     return
             
@@ -406,12 +423,19 @@ class VerificationService:
                 action_on_timeout,
                 send_followup=(panel_message_id is None),
                 panel_message_id=panel_message_id,
+                pending_kind=pending_kind,
             )
             if pending_id and self.pending:
                 await self.pending.decide(pending_id, status="timed_out", decided_by=telegram_id)
                 pending = await self.pending.get_pending(pending_id)
                 if pending:
                     await self.pending.edit_or_delete_group_prompt(bot, pending, "⏱ Timed out")
+                try:
+                    kind = getattr(pending, "kind", None) if pending else None
+                    if (pending_kind == "join_request" or kind == "join_request") and group_id:
+                        await bot.decline_chat_join_request(chat_id=int(group_id), user_id=int(telegram_id))
+                except Exception:
+                    pass
             
         except asyncio.CancelledError:
             logger.info(f"Polling cancelled for session {session_id}")
@@ -434,6 +458,7 @@ class VerificationService:
         *,
         send_followup: bool = True,
         panel_message_id: Optional[int] = None,
+        pending_kind: Optional[str] = None,
     ):
         """Handle successful verification."""
         try:
@@ -457,8 +482,8 @@ class VerificationService:
             # Update session status
             await self.user_manager.update_session_status(session_id, "approved")
             
-            # If this was for a group, unmute the user
-            if group_id:
+            # If this was for a group, unmute the user (skip for join-request gating; user isn't a member yet).
+            if group_id and pending_kind != "join_request":
                 try:
                     await bot.restrict_chat_member(
                         chat_id=group_id,
@@ -502,6 +527,7 @@ class VerificationService:
         *,
         send_followup: bool = True,
         panel_message_id: Optional[int] = None,
+        pending_kind: Optional[str] = None,
     ):
         """Handle failed verification."""
         try:
@@ -517,8 +543,8 @@ class VerificationService:
             # Update session status
             await self.user_manager.update_session_status(session_id, "rejected")
             
-            # If this was for a group, apply configured action
-            if group_id:
+            # If this was for a group, apply configured action (skip for join-request gating).
+            if group_id and pending_kind != "join_request":
                 await self._handle_group_action(bot, group_id, telegram_id, action_on_timeout)
             
             if send_followup:
@@ -543,6 +569,7 @@ class VerificationService:
         *,
         send_followup: bool = True,
         panel_message_id: Optional[int] = None,
+        pending_kind: Optional[str] = None,
     ):
         """Handle verification timeout."""
         try:
@@ -558,8 +585,8 @@ class VerificationService:
             # Update session status
             await self.user_manager.update_session_status(session_id, "expired")
             
-            # If this was for a group, take action based on setting
-            if group_id:
+            # If this was for a group, take action based on setting (skip for join-request gating).
+            if group_id and pending_kind != "join_request":
                 await self._handle_group_action(bot, group_id, telegram_id, action_on_timeout)
             
             if send_followup:

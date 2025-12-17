@@ -3,13 +3,23 @@ import logging
 from html import escape
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    InlineQuery,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
+)
 
 from bot.container import ServiceContainer
 from bot.utils.permissions import (
     require_restrict_permission,
     require_admin,
     require_role_or_admin,
+    require_telegram_admin,
+    can_user,
     extract_user_and_reason,
     get_user_mention,
     format_time_delta,
@@ -21,6 +31,9 @@ from bot.utils.permissions import (
 from aiogram import Bot
 from bot.utils.permissions import can_pin_messages
 from database.models import Permission
+from database.db import db
+from database.models import User, VerificationSession, PendingJoinVerification, Group
+from sqlalchemy import select, func
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +41,32 @@ def _reason_line(reason: str | None) -> str:
     if not reason:
         return ""
     return f"\nReason: {escape(reason)}"
+
+def _parse_duration_token(token: str) -> int | None:
+    """
+    Parse a duration token like "30s", "10m", "2h", "1d", or raw seconds ("600").
+    Returns seconds or None if token isn't a duration.
+    """
+    t = (token or "").strip().lower()
+    if not t:
+        return None
+    if t.isdigit():
+        return int(t)
+    if len(t) < 2:
+        return None
+    num, unit = t[:-1], t[-1]
+    if not num.isdigit():
+        return None
+    n = int(num)
+    if unit == "s":
+        return n
+    if unit == "m":
+        return n * 60
+    if unit == "h":
+        return n * 3600
+    if unit == "d":
+        return n * 86400
+    return None
 
 
 def create_admin_handlers(container: ServiceContainer) -> Router:
@@ -42,10 +81,83 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
     """
     router = Router()
     
+    # ========== INLINE MODE: PREFILL COMMANDS ==========
+    #
+    # Used by /actions buttons via switch_inline_query_current_chat to "prefill" commands.
+    # Requires enabling inline mode in @BotFather for the bot.
+    @router.inline_query()
+    async def inline_prefill(inline_query: InlineQuery):
+        raw = (inline_query.query or "").strip()
+        parts = raw.split(maxsplit=2)
+        if not parts:
+            results = [
+                InlineQueryResultArticle(
+                    id="help",
+                    title="Commands",
+                    description="Type: kick|ban|mute|unmute|warn <user_id> [reason]",
+                    input_message_content=InputTextMessageContent(
+                        message_text="kick <user_id> [reason]\nban <user_id> [reason]\nmute <user_id> [reason]\nunmute <user_id>\nwarn <user_id> [reason]",
+                        parse_mode=None,
+                    ),
+                )
+            ]
+            await inline_query.answer(results, cache_time=1, is_personal=True)
+            return
+
+        action = parts[0].lower()
+        target = parts[1] if len(parts) > 1 else ""
+        rest = parts[2] if len(parts) > 2 else ""
+
+        supported = {"kick", "ban", "mute", "unmute", "warn", "unban"}
+        if action not in supported:
+            await inline_query.answer(
+                [
+                    InlineQueryResultArticle(
+                        id="unsupported",
+                        title="Unsupported action",
+                        description="Use: kick|ban|mute|unmute|warn|unban",
+                        input_message_content=InputTextMessageContent(message_text="/help", parse_mode=None),
+                    )
+                ],
+                cache_time=1,
+                is_personal=True,
+            )
+            return
+
+        if not target:
+            await inline_query.answer(
+                [
+                    InlineQueryResultArticle(
+                        id="missing_target",
+                        title=f"/{action} <user_id> [reason]",
+                        description="Missing user id/username",
+                        input_message_content=InputTextMessageContent(message_text=f"/{action} <user_id> ", parse_mode=None),
+                    )
+                ],
+                cache_time=1,
+                is_personal=True,
+            )
+            return
+
+        # Prefer numeric IDs, but allow @username as a best-effort convenience.
+        cmd = f"/{action} {target}"
+        if rest:
+            cmd = f"{cmd} {rest}"
+
+        title = f"Send {cmd}"
+        desc = "Sends the command into this chat"
+        result = InlineQueryResultArticle(
+            id=f"{action}:{target}"[:64],
+            title=title[:256],
+            description=desc[:512],
+            input_message_content=InputTextMessageContent(message_text=cmd, parse_mode=None),
+        )
+        await inline_query.answer([result], cache_time=1, is_personal=True)
+
     # ========== MODERATION COMMANDS ==========
     
     @router.message(Command("kick", "vkick"))
-    @require_restrict_permission
+    @require_restrict_permission(action="kick")
     async def cmd_kick(message: Message):
         """
         Kick a user from the group.
@@ -103,11 +215,9 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             return
 
         # Allow Telegram admins OR role users who can warn/kick.
-        if not await is_user_admin(message.bot, message.chat.id, message.from_user.id):
-            allowed = await has_role_permission(message.chat.id, message.from_user.id, "warn") or await has_role_permission(message.chat.id, message.from_user.id, "kick")
-            if not allowed:
-                await message.reply("❌ Not allowed.")
-                return
+        if not (await can_user(message.bot, message.chat.id, message.from_user.id, "warn") or await can_user(message.bot, message.chat.id, message.from_user.id, "kick")):
+            await message.reply("❌ Not allowed.")
+            return
 
         if not await is_bot_admin(message.bot, message.chat.id):
             await message.reply("❌ I need to be an admin to do this.")
@@ -123,16 +233,15 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Warn", callback_data=f"act:warn:{target_id}:0"),
+                    InlineKeyboardButton(text="Kick…", switch_inline_query_current_chat=f"kick {target_id} "),
+                    InlineKeyboardButton(text="Ban…", switch_inline_query_current_chat=f"ban {target_id} "),
                 ],
                 [
-                    InlineKeyboardButton(text="Mute 10m", callback_data=f"act:mute:{target_id}:600"),
-                    InlineKeyboardButton(text="Mute 1h", callback_data=f"act:mute:{target_id}:3600"),
-                    InlineKeyboardButton(text="Mute 24h", callback_data=f"act:mute:{target_id}:86400"),
+                    InlineKeyboardButton(text="Mute…", switch_inline_query_current_chat=f"mute {target_id} 10m "),
+                    InlineKeyboardButton(text="Unmute", switch_inline_query_current_chat=f"unmute {target_id}"),
                 ],
                 [
-                    InlineKeyboardButton(text="Kick", callback_data=f"act:confirm_kick:{target_id}:0"),
-                    InlineKeyboardButton(text="Ban", callback_data=f"act:confirm_ban:{target_id}:0"),
+                    InlineKeyboardButton(text="Warn…", switch_inline_query_current_chat=f"warn {target_id} "),
                 ],
                 [
                     InlineKeyboardButton(text="Purge…", callback_data=f"act:purge_menu:{target_id}:0"),
@@ -145,7 +254,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
     
     @router.message(Command("ban", "vban"))
-    @require_restrict_permission
+    @require_restrict_permission(action="ban")
     async def cmd_ban(message: Message):
         """
         Ban a user from the group.
@@ -154,6 +263,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             /ban (reply to user) [reason]
             /ban @username [reason]
         """
+        # Support: /ban <user> [duration] [reason]
         user_id, reason = await extract_user_and_reason(message)
         logger.info(f"[CMD]/ban chat={message.chat.id} from={message.from_user.id} target={user_id} reason={reason}")
         
@@ -168,13 +278,28 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             )
             return
         
+        # Try to parse optional duration from raw text (extract_user_and_reason doesn't handle it).
+        until_date = None
+        parts = (message.text or "").split()
+        if len(parts) >= 3:
+            seconds = _parse_duration_token(parts[2])
+            if seconds is not None:
+                from datetime import datetime, timedelta
+                until_date = datetime.utcnow() + timedelta(seconds=seconds)
+                # If reason was parsed as "duration rest...", strip the duration token.
+                if reason:
+                    reason_parts = reason.split(maxsplit=1)
+                    if reason_parts and _parse_duration_token(reason_parts[0]) is not None:
+                        reason = reason_parts[1] if len(reason_parts) > 1 else None
+
         # Ban the user
         success = await container.admin_service.ban_user(
             bot=message.bot,
             group_id=message.chat.id,
             user_id=user_id,
             admin_id=message.from_user.id,
-            reason=reason
+            reason=reason,
+            until_date=until_date,
         )
         await container.metrics_service.incr_admin_action("ban", message.chat.id)
         
@@ -192,7 +317,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             await message.answer("❌ Failed to ban user. Make sure I have admin rights.")
     
     @router.message(Command("unban", "vunban"))
-    @require_restrict_permission
+    @require_restrict_permission(action="ban")
     async def cmd_unban(message: Message):
         """Unban a user from the group."""
         user_id, _ = await extract_user_and_reason(message)
@@ -221,7 +346,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             await message.answer("❌ Failed to unban user.")
     
     @router.message(Command("mute"))
-    @require_restrict_permission
+    @require_restrict_permission(action="kick")
     async def cmd_mute(message: Message):
         """Mute a user in the group."""
         user_id, reason = await extract_user_and_reason(message)
@@ -236,21 +361,36 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             )
             return
         
+        # Support: /mute <user> [duration] [reason]
+        duration = None
+        parts = (message.text or "").split()
+        if len(parts) >= 3:
+            seconds = _parse_duration_token(parts[2])
+            if seconds is not None:
+                duration = seconds
+                if reason:
+                    reason_parts = reason.split(maxsplit=1)
+                    if reason_parts and _parse_duration_token(reason_parts[0]) is not None:
+                        reason = reason_parts[1] if len(reason_parts) > 1 else None
+
         success = await container.admin_service.mute_user(
             bot=message.bot,
             group_id=message.chat.id,
             user_id=user_id,
             admin_id=message.from_user.id,
-            reason=reason
+            duration=duration,
+            reason=reason,
         )
         await container.metrics_service.incr_admin_action("mute", message.chat.id)
         
         if success:
             user_mention = await get_user_mention(message, user_id)
+            duration_text = format_time_delta(duration) if duration else "Permanent"
             await message.answer(
                 f"<b>🔇 User Muted</b>\n\n"
                 f"👤 User: {escape(user_mention)}\n"
                 f"👮 Admin: {message.from_user.mention_html()}"
+                f"\n⏱ Duration: {escape(duration_text)}"
                 f"{_reason_line(reason)}\n\n"
                 f"💡 Use <code>/unmute</code> to restore their voice",
                 parse_mode="HTML",
@@ -259,7 +399,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             await message.answer("❌ Failed to mute user.")
     
     @router.message(Command("unmute"))
-    @require_restrict_permission
+    @require_restrict_permission(action="kick")
     async def cmd_unmute(message: Message):
         """Unmute a user in the group."""
         user_id, _ = await extract_user_and_reason(message)
@@ -292,7 +432,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             await message.answer("❌ Failed to unmute user.")
 
     @router.message(Command("purge"))
-    @require_restrict_permission
+    @require_restrict_permission(action="kick")
     async def cmd_purge(message: Message):
         """
         Purge messages from a replied message up to the command message.
@@ -303,6 +443,14 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             return
         start_id = message.reply_to_message.message_id
         end_id = message.message_id
+        max_delete = 50
+        if end_id - start_id + 1 > max_delete:
+            await message.reply(
+                f"Too many messages ({end_id - start_id + 1}). For safety, I only purge up to {max_delete} at a time.\n"
+                f"Tip: use /actions → Purge… for a bounded purge.",
+                parse_mode="HTML",
+            )
+            return
         deleted = 0
         for mid in range(start_id, end_id + 1):
             try:
@@ -315,7 +463,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
     # ========== WARNING SYSTEM ==========
     
     @router.message(Command("warn"))
-    @require_admin
+    @require_role_or_admin("warn")
     async def cmd_warn(message: Message):
         """Warn a user."""
         user_id, reason = await extract_user_and_reason(message)
@@ -439,7 +587,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
     # ========== WHITELIST COMMANDS ==========
     
     @router.message(Command("whitelist"))
-    @require_admin
+    @require_role_or_admin("verify")
     async def cmd_whitelist(message: Message):
         """Add user to whitelist or show whitelist."""
         parts = message.text.split(maxsplit=2)
@@ -527,7 +675,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             )
     
     @router.callback_query(lambda c: c.data and c.data.startswith("wl:remove:"))
-    @require_admin
+    @require_role_or_admin("verify")
     async def wl_remove_cb(callback: CallbackQuery):
         """Inline whitelist removal."""
         try:
@@ -561,16 +709,42 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         if message.chat.type not in ["group", "supergroup"]:
             await message.reply("Run /status in a group.", parse_mode="HTML")
             return
-        if not await is_user_admin(message.bot, message.chat.id, message.from_user.id):
-            if not await has_role_permission(message.chat.id, message.from_user.id, "status"):
-                await message.reply("Not allowed.", parse_mode="HTML")
-                return
+        if not await can_user(message.bot, message.chat.id, message.from_user.id, "status"):
+            await message.reply("Not allowed.", parse_mode="HTML")
+            return
         container_obj = container
         admin_actions, verification_outcomes, api_errors, last_update_at = await container_obj.metrics_service.snapshot()
-        # Uptime: best-effort (webhook process may not expose TelegramBot instance here)
+        # DB-backed counts (stable across restarts)
+        try:
+            async with db.session() as session:
+                user_count = (await session.execute(select(func.count(User.telegram_id)))).scalar() or 0
+                active_sessions = (
+                    (await session.execute(select(func.count(VerificationSession.session_id)).where(VerificationSession.status == "pending"))).scalar()
+                    or 0
+                )
+                pending_joins = (
+                    (await session.execute(select(func.count(PendingJoinVerification.id)).where(PendingJoinVerification.status == "pending"))).scalar()
+                    or 0
+                )
+                group = (await session.execute(select(Group).where(Group.group_id == message.chat.id))).scalar_one_or_none()
+        except Exception:
+            user_count = active_sessions = pending_joins = 0
+            group = None
+
+        logs_dest = "Off"
+        try:
+            if group and getattr(group, "logs_enabled", False) and getattr(group, "logs_chat_id", None):
+                logs_dest = str(int(group.logs_chat_id))
+        except Exception:
+            pass
+
         text = (
             "<b>Status</b>\n"
             f"last_update: {last_update_at.isoformat() if last_update_at else 'n/a'}\n"
+            f"verified_users: {user_count}\n"
+            f"active_sessions: {active_sessions}\n"
+            f"pending_joins: {pending_joins}\n"
+            f"logs_dest: {logs_dest}\n"
             f"actions: {sum(admin_actions.values())}\n"
             f"verifications: {verification_outcomes}\n"
             f"api_errors: {api_errors}\n"
@@ -774,14 +948,16 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
     # ========== ROLES ==========
     
     @router.message(Command("roles"))
-    @require_role_or_admin("roles")
+    @require_telegram_admin
     async def cmd_roles(message: Message):
         """
         Manage custom roles.
         Usage:
             /roles            -> list
-            /roles add @user role   (role: moderator|helper)
+            /roles add @user role   (role: moderator|helper|<custom>)
             /roles remove @user
+            /roles show @user
+            /roles set @user <perm> on|off
         """
         parts = message.text.split()
         if len(parts) == 1:
@@ -801,9 +977,6 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         if action == "add" and len(parts) >= 4:
             user_id, _ = await extract_user_and_reason(message)
             role = parts[3].lower() if len(parts) >= 4 else "moderator"
-            if role not in ["moderator", "helper"]:
-                await message.reply("Role must be `moderator` or `helper`.")
-                return
             if not user_id:
                 await message.reply("Reply to the user or provide their ID for /roles add.")
                 return
@@ -814,6 +987,44 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
                 granted_by=message.from_user.id
             )
             await message.reply(f"✅ Assigned role *{perm.role}* to `{user_id}`.", parse_mode="Markdown")
+        elif action == "show":
+            user_id, _ = await extract_user_and_reason(message)
+            if not user_id:
+                await message.reply("Reply to the user or provide their ID for /roles show.")
+                return
+            perm = await container.roles_service.get_role(message.chat.id, user_id)
+            if not perm:
+                await message.reply("ℹ️ No role found for that user.")
+                return
+            flags = container.roles_service.format_flags(perm)
+            await message.reply(f"🧑‍💼 Role for `{user_id}`: *{perm.role}*\n{flags}", parse_mode="Markdown")
+        elif action == "set" and len(parts) >= 5:
+            user_id, _ = await extract_user_and_reason(message)
+            if not user_id:
+                await message.reply("Reply to the user or provide their ID for /roles set.")
+                return
+            perm_key = parts[3].lower()
+            val = parts[4].lower()
+            if val not in ("on", "off"):
+                await message.reply("Value must be `on` or `off`.")
+                return
+            ok = await container.roles_service.set_permission(
+                group_id=message.chat.id,
+                user_id=user_id,
+                permission_key=perm_key,
+                enabled=(val == "on"),
+                granted_by=message.from_user.id,
+            )
+            if not ok:
+                await message.reply(
+                    "Unknown permission. Use one of:\n"
+                    "`verify`, `kick`, `ban`, `warn`, `notes`, `filters`, `settings`, `locks`, `roles`, `status`, `logs`",
+                    parse_mode="Markdown",
+                )
+                return
+            perm = await container.roles_service.get_role(message.chat.id, user_id)
+            flags = container.roles_service.format_flags(perm) if perm else ""
+            await message.reply(f"✅ Updated `{perm_key}` for `{user_id}`.\n{flags}", parse_mode="Markdown")
         elif action == "remove":
             user_id, _ = await extract_user_and_reason(message)
             if not user_id:
@@ -825,7 +1036,15 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             else:
                 await message.reply("ℹ️ No role found for that user.")
         else:
-            await message.reply("Usage: `/roles`, `/roles add @user role`, `/roles remove @user`")
+            await message.reply(
+                "Usage:\n"
+                "`/roles`\n"
+                "`/roles add <user> moderator|helper|customname`\n"
+                "`/roles show <user>`\n"
+                "`/roles set <user> <perm> on|off`\n"
+                "`/roles remove <user>`",
+                parse_mode="Markdown",
+            )
     
     @router.callback_query(lambda c: c.data and c.data.startswith("checkperms:"))
     async def checkperms_cb(callback: CallbackQuery):

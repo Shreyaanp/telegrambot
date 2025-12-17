@@ -1,57 +1,61 @@
-"""Database connection and session management with WAL mode optimizations."""
+"""Database connection and session management."""
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import StaticPool
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import event, text
 from database.models import Base
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# Ensure `.env` is loaded even when database module is imported before `bot.config`.
+load_dotenv()
+
 
 class Database:
-    """Database connection manager with SQLite WAL mode optimizations."""
+    """Database connection manager."""
     
-    def __init__(self, database_url: str = "sqlite+aiosqlite:///bot_db.sqlite"):
+    def __init__(self, database_url: str | None = None):
         """Initialize database connection."""
-        self.database_url = database_url
+        self.database_url = database_url or os.getenv("DATABASE_URL") or "sqlite+aiosqlite:///bot_db.sqlite"
         self.engine = None
         self.session_factory = None
         
     async def connect(self):
-        """Connect to database and enable WAL mode."""
-        logger.info(f"Connecting to database: {self.database_url}")
-        
-        # Create async engine with optimizations
+        """Connect to database."""
+        if self.engine is not None and self.session_factory is not None:
+            return
+
+        logger.info(f"Connecting to database: {_redact_url(self.database_url)}")
+
+        connect_args = {}
+        if self.database_url.startswith("sqlite"):
+            connect_args = {"check_same_thread": False}
+
         self.engine = create_async_engine(
             self.database_url,
             echo=False,
             future=True,
-            pool_pre_ping=True,  # Verify connections before using
-            connect_args={
-                "check_same_thread": False,
-            }
+            pool_pre_ping=True,
+            connect_args=connect_args,
         )
-        
-        # Enable WAL mode and optimizations
-        @event.listens_for(self.engine.sync_engine, "connect")
-        def set_sqlite_pragma(dbapi_conn, connection_record):
-            cursor = dbapi_conn.cursor()
-            # Enable WAL mode for concurrent reads/writes
-            cursor.execute("PRAGMA journal_mode=WAL")
-            # Normal synchronous mode for better performance
-            cursor.execute("PRAGMA synchronous=NORMAL")
-            # 64MB cache size for better performance
-            cursor.execute("PRAGMA cache_size=-64000")
-            # Store temp tables in memory
-            cursor.execute("PRAGMA temp_store=MEMORY")
-            # Wait up to 5 seconds on database locks
-            cursor.execute("PRAGMA busy_timeout=5000")
-            # Enable foreign key constraints
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.close()
-            logger.debug("SQLite WAL mode and optimizations enabled")
+
+        if self.database_url.startswith("sqlite"):
+            # Enable WAL mode and optimizations
+            @event.listens_for(self.engine.sync_engine, "connect")
+            def set_sqlite_pragma(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA cache_size=-64000")
+                cursor.execute("PRAGMA temp_store=MEMORY")
+                cursor.execute("PRAGMA busy_timeout=5000")
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+                logger.debug("SQLite WAL mode and optimizations enabled")
         
         # Create session factory
         self.session_factory = async_sessionmaker(
@@ -65,13 +69,13 @@ class Database:
         logger.info("Database connection established")
     
     async def create_tables(self):
-        """Create all database tables."""
+        """Create all database tables (create-from-scratch schema; no runtime migrations)."""
+        if self.engine is None:
+            await self.connect()
+
         logger.info("Creating database tables...")
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all, checkfirst=True)
-            # Lightweight SQLite migrations for existing installations (create_all doesn't ALTER tables).
-            if self.database_url.startswith("sqlite"):
-                await conn.run_sync(_sqlite_migrate_schema)
         logger.info("Database tables created successfully")
     
     async def drop_tables(self):
@@ -86,7 +90,13 @@ class Database:
         if self.engine:
             logger.info("Disconnecting from database...")
             await self.engine.dispose()
+            self.engine = None
+            self.session_factory = None
             logger.info("Database disconnected")
+
+    async def close(self):
+        """Alias for disconnect() (kept for compatibility with existing call sites)."""
+        await self.disconnect()
     
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
@@ -100,7 +110,7 @@ class Database:
                 await session.commit()
         """
         if not self.session_factory:
-            raise RuntimeError("Database not connected. Call connect() first.")
+            await self.connect()
         
         async with self.session_factory() as session:
             try:
@@ -153,123 +163,19 @@ class Database:
         
         return counts
 
-
-# Global database instance
-_db_instance: Database = None
-
-
-def get_database() -> Database:
-    """Get the global database instance."""
-    global _db_instance
-    if _db_instance is None:
-        _db_instance = Database()
-    return _db_instance
+# Single shared DB handle used across the app.
+db = Database()
 
 
-async def init_database(database_url: str = "sqlite+aiosqlite:///bot_db.sqlite"):
-    """Initialize the global database instance."""
-    global _db_instance
-    _db_instance = Database(database_url)
-    await _db_instance.connect()
-    await _db_instance.create_tables()
-    return _db_instance
-
-
-async def close_database():
-    """Close the global database instance."""
-    global _db_instance
-    if _db_instance:
-        await _db_instance.disconnect()
-        _db_instance = None
-
-
-# Create a simple wrapper class for backward compatibility
-class DatabaseWrapper:
-    """Wrapper to provide 'db' global instance for backward compatibility."""
-    
-    def __init__(self):
-        self._db = None
-    
-    def _get_db(self):
-        if self._db is None:
-            self._db = get_database()
-        return self._db
-    
-    async def create_tables(self):
-        """Create database tables."""
-        db = self._get_db()
-        if db.engine is None:
-            await db.connect()
-        await db.create_tables()
-    
-    async def close(self):
-        """Close database connection."""
-        await close_database()
-        self._db = None
-    
-    def session(self):
-        """Get database session context manager."""
-        return self._get_db().session()
-
-
-# Global 'db' instance for backward compatibility
-db = DatabaseWrapper()
-
-
-def _sqlite_migrate_schema(sync_conn):
-    """
-    Minimal SQLite migrations for additive schema changes.
-
-    This keeps production running without a full migration framework.
-    """
+def _redact_url(url: str) -> str:
+    # Redact credentials in logs: scheme://user:pass@host -> scheme://user:***@host
     try:
-        _sqlite_ensure_group_columns(sync_conn)
-        _sqlite_ensure_permission_columns(sync_conn)
-    except Exception as e:
-        logger.warning(f"SQLite migration skipped/failed: {e}")
-
-
-def _sqlite_ensure_group_columns(sync_conn):
-    # Map of expected columns for groups table (name -> SQL fragment).
-    expected = {
-        "verification_enabled": "BOOLEAN DEFAULT 1",
-        "verification_timeout": "INTEGER DEFAULT 300",
-        "kick_unverified": "BOOLEAN DEFAULT 1",
-        "welcome_enabled": "BOOLEAN DEFAULT 1",
-        "welcome_message": "TEXT",
-        "goodbye_enabled": "BOOLEAN DEFAULT 0",
-        "goodbye_message": "TEXT",
-        "warn_limit": "INTEGER DEFAULT 3",
-        "antiflood_enabled": "BOOLEAN DEFAULT 1",
-        "antiflood_limit": "INTEGER DEFAULT 10",
-        "lock_links": "BOOLEAN DEFAULT 0",
-        "lock_media": "BOOLEAN DEFAULT 0",
-        "logs_enabled": "BOOLEAN DEFAULT 0",
-        "logs_chat_id": "INTEGER",
-        "logs_thread_id": "INTEGER",
-        "rules_text": "TEXT",
-        "added_at": "DATETIME",
-    }
-
-    cols = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(groups)")).fetchall()}
-    for name, ddl in expected.items():
-        if name in cols:
-            continue
-        logger.info(f"SQLite migrate: adding groups.{name}")
-        sync_conn.execute(text(f"ALTER TABLE groups ADD COLUMN {name} {ddl}"))
-
-
-def _sqlite_ensure_permission_columns(sync_conn):
-    expected = {
-        "can_manage_settings": "BOOLEAN DEFAULT 0",
-        "can_manage_locks": "BOOLEAN DEFAULT 0",
-        "can_manage_roles": "BOOLEAN DEFAULT 0",
-        "can_view_status": "BOOLEAN DEFAULT 0",
-        "can_view_logs": "BOOLEAN DEFAULT 0",
-    }
-    cols = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(permissions)")).fetchall()}
-    for name, ddl in expected.items():
-        if name in cols:
-            continue
-        logger.info(f"SQLite migrate: adding permissions.{name}")
-        sync_conn.execute(text(f"ALTER TABLE permissions ADD COLUMN {name} {ddl}"))
+        if "://" not in url or "@" not in url:
+            return url
+        left, right = url.split("@", 1)
+        if ":" not in left:
+            return url
+        prefix, _ = left.rsplit(":", 1)
+        return f"{prefix}:***@{right}"
+    except Exception:
+        return "<redacted>"

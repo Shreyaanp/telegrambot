@@ -87,8 +87,6 @@ class TokenService:
             row = result.scalar_one_or_none()
             if not row:
                 return None
-            if row.used_at is not None:
-                return None
             if row.expires_at < now:
                 return None
             return VerificationTokenPayload(
@@ -104,6 +102,25 @@ class TokenService:
             result = await session.execute(select(VerificationLinkToken).where(VerificationLinkToken.token == token))
             row = result.scalar_one_or_none()
             if row and row.used_at is None:
+                row.used_at = now
+
+    async def mark_verification_tokens_used_for_pending(self, pending_id: int, telegram_id: int) -> None:
+        """
+        Mark any outstanding verification tokens for this pending/user as used.
+
+        This supports the UX where users can open `/start ver_<token>` multiple times
+        while still pending, but we only "consume" when they actually confirm.
+        """
+        now = datetime.utcnow()
+        async with db.session() as session:
+            result = await session.execute(
+                select(VerificationLinkToken).where(
+                    VerificationLinkToken.pending_id == pending_id,
+                    VerificationLinkToken.telegram_id == telegram_id,
+                    VerificationLinkToken.used_at.is_(None),
+                )
+            )
+            for row in result.scalars().all():
                 row.used_at = now
 
     async def get_pending(self, pending_id: int) -> Optional[PendingJoinVerification]:

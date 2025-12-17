@@ -1,6 +1,5 @@
 """Webhook server for production deployment - clean architecture."""
 import logging
-import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
@@ -42,64 +41,17 @@ async def lifespan(app: FastAPI):
             allowed_updates=telegram_bot.get_dispatcher().resolve_used_update_types()
         )
         logger.info(f"✅ Webhook set to: {webhook_url}")
-        
-        # Start periodic cleanup task
-        cleanup_task = asyncio.create_task(periodic_cleanup())
-        
+
         yield
         
         # Shutdown
         logger.info("🛑 Shutting down Webhook Server...")
-        cleanup_task.cancel()
         await telegram_bot.get_bot().delete_webhook()
         await telegram_bot.stop()
         
     except Exception as e:
         logger.error(f"❌ Failed to start webhook server: {e}", exc_info=True)
         raise
-
-
-async def periodic_cleanup():
-    """Periodically cleanup expired sessions."""
-    while True:
-        try:
-            await asyncio.sleep(60)  # Run every minute
-            
-            if telegram_bot and telegram_bot.get_container():
-                user_manager = telegram_bot.get_container().user_manager
-                count = await user_manager.cleanup_expired_sessions()
-                
-                if count > 0:
-                    logger.info(f"🧹 Cleaned up {count} expired sessions")
-
-                # Handle expired join verifications
-                container = telegram_bot.get_container()
-                expired = await container.pending_verification_service.find_expired()
-                if expired:
-                    bot = telegram_bot.get_bot()
-                    bot_info = await bot.get_me()
-                    for pending in expired:
-                        group = await container.group_service.get_or_create_group(int(pending.group_id))
-                        action = "kick" if group.kick_unverified else "mute"
-                        if action == "kick":
-                            try:
-                                await bot.ban_chat_member(chat_id=int(pending.group_id), user_id=int(pending.telegram_id))
-                                await bot.unban_chat_member(chat_id=int(pending.group_id), user_id=int(pending.telegram_id))
-                            except Exception:
-                                pass
-                        # keep muted: do nothing extra
-                        await container.pending_verification_service.decide(int(pending.id), status="timed_out", decided_by=bot_info.id)
-                        await container.pending_verification_service.edit_or_delete_group_prompt(bot, pending, "⏱ Timed out")
-                
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error(f"Error in periodic cleanup: {e}")
-            try:
-                if telegram_bot and telegram_bot.get_container():
-                    await telegram_bot.get_container().metrics_service.incr_api_error("periodic_cleanup")
-            except Exception:
-                pass
 
 
 # Create FastAPI app

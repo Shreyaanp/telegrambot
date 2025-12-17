@@ -58,6 +58,7 @@ class GroupService:
         antiflood_enabled: Optional[bool] = None,
         welcome_enabled: Optional[bool] = None,
         verification_enabled: Optional[bool] = None,
+        join_gate_enabled: Optional[bool] = None,
         logs_enabled: Optional[bool] = None,
         logs_chat_id: Optional[int] = None,
         logs_thread_id: Optional[int] = None,
@@ -85,6 +86,8 @@ class GroupService:
                 group.welcome_enabled = welcome_enabled
             if verification_enabled is not None:
                 group.verification_enabled = verification_enabled
+            if join_gate_enabled is not None:
+                group.join_gate_enabled = join_gate_enabled
             if logs_enabled is not None:
                 group.logs_enabled = logs_enabled
                 if not logs_enabled:
