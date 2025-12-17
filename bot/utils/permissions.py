@@ -79,7 +79,9 @@ async def has_role_permission(chat_id: int, user_id: int, action: str) -> bool:
     """
     Check custom role permissions stored in DB for this group/user.
     
-    action: one of 'verify', 'kick', 'ban', 'warn', 'filters', 'notes'
+    action: one of:
+      - 'verify', 'kick', 'ban', 'warn', 'filters', 'notes'
+      - 'settings', 'locks', 'roles', 'status', 'logs'
     """
     try:
         async with db.session() as session:
@@ -102,6 +104,16 @@ async def has_role_permission(chat_id: int, user_id: int, action: str) -> bool:
                 return perm.can_manage_filters
             if action == "notes":
                 return perm.can_manage_notes
+            if action == "settings":
+                return getattr(perm, "can_manage_settings", False)
+            if action == "locks":
+                return getattr(perm, "can_manage_locks", False)
+            if action == "roles":
+                return getattr(perm, "can_manage_roles", False)
+            if action == "status":
+                return getattr(perm, "can_view_status", False)
+            if action == "logs":
+                return getattr(perm, "can_view_logs", False)
             return False
     except Exception as e:
         logger.error(f"Error checking role permission: {e}")
@@ -192,9 +204,9 @@ def require_admin(func):
             await message.reply("❌ This command only works in groups.")
             return
         
-        # Check if user is admin or has custom role permission
+        # Check if user is admin or has custom role permission (broad/admin-like)
         if not await is_user_admin(message.bot, message.chat.id, message.from_user.id):
-            if not await has_role_permission(message.chat.id, message.from_user.id, "verify"):
+            if not await has_role_permission(message.chat.id, message.from_user.id, "settings"):
                 await message.reply("❌ You need to be an admin (or a granted role) to use this command.")
                 return
         
@@ -206,6 +218,31 @@ def require_admin(func):
         return await func(message, *args, **kwargs)
     
     return wrapper
+
+
+def require_role_or_admin(action: str):
+    """
+    Decorator to require Telegram admin OR a matching custom role permission.
+    """
+
+    def deco(func):
+        @wraps(func)
+        async def wrapper(message: Message, *args, **kwargs):
+            if message.chat.type not in ["group", "supergroup"]:
+                await message.reply("❌ This command only works in groups.")
+                return
+            if not await is_user_admin(message.bot, message.chat.id, message.from_user.id):
+                if not await has_role_permission(message.chat.id, message.from_user.id, action):
+                    await message.reply("❌ Not allowed.")
+                    return
+            if not await is_bot_admin(message.bot, message.chat.id):
+                await message.reply("❌ I need to be an admin to do this.")
+                return
+            return await func(message, *args, **kwargs)
+
+        return wrapper
+
+    return deco
 
 
 def require_restrict_permission(func):

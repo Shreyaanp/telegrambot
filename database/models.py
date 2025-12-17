@@ -50,6 +50,11 @@ class Group(Base):
     antiflood_limit = Column(Integer, default=10)  # Messages per minute
     lock_links = Column(Boolean, default=False)
     lock_media = Column(Boolean, default=False)
+
+    # Logs destination
+    logs_enabled = Column(Boolean, default=False)
+    logs_chat_id = Column(BigInteger, nullable=True)
+    logs_thread_id = Column(BigInteger, nullable=True)
     
     # Rules
     rules_text = Column(Text, nullable=True)
@@ -181,6 +186,11 @@ class Permission(Base):
     can_warn = Column(Boolean, default=False)
     can_manage_notes = Column(Boolean, default=False)
     can_manage_filters = Column(Boolean, default=False)
+    can_manage_settings = Column(Boolean, default=False)
+    can_manage_locks = Column(Boolean, default=False)
+    can_manage_roles = Column(Boolean, default=False)
+    can_view_status = Column(Boolean, default=False)
+    can_view_logs = Column(Boolean, default=False)
     granted_by = Column(BigInteger, nullable=False)
     granted_at = Column(DateTime, default=datetime.utcnow)
     

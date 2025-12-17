@@ -1,5 +1,6 @@
 """Message handlers - intercept and process regular messages."""
 import logging
+import re
 from aiogram import Router, F
 from aiogram.types import Message
 
@@ -7,6 +8,7 @@ from bot.container import ServiceContainer
 from aiogram.enums import ContentType
 
 logger = logging.getLogger(__name__)
+_URL_RE = re.compile(r"(https?://|www\\.|t\\.me/)", re.IGNORECASE)
 
 
 def create_message_handlers(container: ServiceContainer) -> Router:
@@ -43,7 +45,9 @@ def create_message_handlers(container: ServiceContainer) -> Router:
         
         # Enforce locks: links
         lock_links, lock_media = await container.lock_service.get_locks(group_id)
-        if lock_links and ("http://" in text or "https://" in text):
+        has_url_entity = any(getattr(e, "type", None) in ("url", "text_link") for e in (message.entities or []))
+        looks_like_url = bool(_URL_RE.search(text or ""))
+        if lock_links and (has_url_entity or looks_like_url):
             try:
                 await message.delete()
                 return
@@ -109,6 +113,7 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                 # Warn the user
                 try:
                     await container.admin_service.warn_user(
+                        bot=message.bot,
                         group_id=group_id,
                         user_id=user_id,
                         admin_id=message.bot.id,

@@ -17,6 +17,11 @@ ROLE_PRESETS = {
         can_warn=True,
         can_manage_notes=True,
         can_manage_filters=True,
+        can_manage_settings=True,
+        can_manage_locks=True,
+        can_manage_roles=False,
+        can_view_status=True,
+        can_view_logs=True,
     ),
     "helper": dict(
         can_verify=True,
@@ -25,6 +30,11 @@ ROLE_PRESETS = {
         can_warn=True,
         can_manage_notes=False,
         can_manage_filters=False,
+        can_manage_settings=False,
+        can_manage_locks=False,
+        can_manage_roles=False,
+        can_view_status=False,
+        can_view_logs=False,
     ),
 }
 

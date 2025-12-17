@@ -11,11 +11,46 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy import select
 
 from bot.container import ServiceContainer
-from bot.utils.permissions import can_delete_messages, can_pin_messages, can_restrict_members, is_bot_admin, is_user_admin
+from bot.utils.permissions import can_delete_messages, can_pin_messages, can_restrict_members, has_role_permission, is_bot_admin, is_user_admin
 from database.db import db
-from database.models import GroupWizardState
+from database.models import DmPanelState, GroupWizardState
 
 logger = logging.getLogger(__name__)
+
+def logs_summary(group, group_id: int) -> str:
+    if not getattr(group, "logs_enabled", False) or not getattr(group, "logs_chat_id", None):
+        return "Off"
+    try:
+        dest = int(group.logs_chat_id)
+    except Exception:
+        return "On"
+    if dest == int(group_id):
+        return "This group"
+    return "Channel/Group"
+
+async def open_logs_setup(bot, container: ServiceContainer, *, admin_id: int, group_id: int) -> None:
+    text = (
+        "<b>Logs destination</b>\n\n"
+        "Send me one of these:\n"
+        "1) Forward a message from the target channel/group\n"
+        "2) The channel @username\n"
+        "3) A numeric chat id\n\n"
+        "Note: I must be added to that chat (and admin for channels) to send logs."
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Back", callback_data=f"cfg:{group_id}:screen:logs")],
+            [InlineKeyboardButton(text="Cancel", callback_data=f"cfg:{group_id}:home")],
+        ]
+    )
+    await container.panel_service.upsert_dm_panel(
+        bot=bot,
+        user_id=admin_id,
+        panel_type="logs_setup",
+        group_id=group_id,
+        text=text,
+        reply_markup=kb,
+    )
 
 
 def create_command_handlers(container: ServiceContainer) -> Router:
@@ -23,6 +58,24 @@ def create_command_handlers(container: ServiceContainer) -> Router:
 
     async def show_link_expired(chat_id: int, bot):
         await bot.send_message(chat_id=chat_id, text="Link expired. Run /menu again in the group.", parse_mode="HTML")
+
+    async def _get_active_logs_setup_group_id(user_id: int) -> Optional[int]:
+        async with db.session() as session:
+            result = await session.execute(
+                select(DmPanelState)
+                .where(
+                    DmPanelState.telegram_id == user_id,
+                    DmPanelState.panel_type == "logs_setup",
+                )
+                .order_by(DmPanelState.updated_at.desc())
+                .limit(1)
+            )
+            state = result.scalar_one_or_none()
+            if not state:
+                return None
+            if state.updated_at and (datetime.utcnow() - state.updated_at).total_seconds() > 15 * 60:
+                return None
+            return int(state.group_id) if state.group_id is not None else None
 
     @router.message(CommandStart())
     async def cmd_start(message: Message):
@@ -66,7 +119,35 @@ def create_command_handlers(container: ServiceContainer) -> Router:
     @router.message(Command("menu"))
     async def cmd_menu(message: Message):
         if message.chat.type == "private":
-            await message.answer("To configure a group, run <code>/menu</code> in that group.", parse_mode="HTML")
+            groups = await container.group_service.list_groups()
+            if not groups:
+                await message.answer("No groups found yet. Add me to a group and run <code>/menu</code> there.", parse_mode="HTML")
+                return
+
+            user_id = message.from_user.id
+            allowed = []
+            for group in groups[:50]:
+                group_id = int(group.group_id)
+                try:
+                    if await is_user_admin(message.bot, group_id, user_id) or await has_role_permission(group_id, user_id, "settings"):
+                        allowed.append(group)
+                except Exception:
+                    continue
+
+            if not allowed:
+                await message.answer("I don't see any groups where you can manage settings yet. Run <code>/menu</code> in the group once.", parse_mode="HTML")
+                return
+
+            buttons = []
+            for group in allowed[:12]:
+                title = group.group_name or str(group.group_id)
+                buttons.append([InlineKeyboardButton(text=title, callback_data=f"cfg:{int(group.group_id)}:home")])
+            buttons.append([InlineKeyboardButton(text="Close", callback_data="dm:home")])
+            await message.answer(
+                "<b>Choose a group</b>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+            )
             return
 
         if message.chat.type not in ["group", "supergroup"]:
@@ -76,9 +157,11 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         admin_id = message.from_user.id
         await container.group_service.register_group(group_id, message.chat.title)
 
-        if not await is_user_admin(message.bot, group_id, admin_id):
-            await message.reply("Admins only. Ask an admin to run /menu.", parse_mode="HTML")
-            return
+        is_admin = await is_user_admin(message.bot, group_id, admin_id)
+        if not is_admin:
+            if not await has_role_permission(group_id, admin_id, "settings"):
+                await message.reply("Admins only. Ask an admin to run /menu.", parse_mode="HTML")
+                return
 
         if not await is_bot_admin(message.bot, group_id):
             await message.reply("I need to be admin. Run <code>/checkperms</code>.", parse_mode="HTML")
@@ -119,10 +202,43 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             username=message.from_user.username,
         )
 
+    @router.message(F.chat.type == "private", F.forward_from_chat)
+    async def dm_logs_setup_forward(message: Message):
+        group_id = await _get_active_logs_setup_group_id(message.from_user.id)
+        if not group_id:
+            return
+        chat = message.forward_from_chat
+        if not chat or not chat.id:
+            return
+        await container.group_service.update_setting(group_id, logs_enabled=True, logs_chat_id=int(chat.id))
+        await open_settings_screen(message.bot, container, admin_id=message.from_user.id, group_id=group_id, screen="logs")
+
     @router.message(F.chat.type == "private", F.text)
     async def dm_fallback_text(message: Message):
         if message.text and message.text.startswith("/"):
             return
+        group_id = await _get_active_logs_setup_group_id(message.from_user.id)
+        if group_id:
+            raw = (message.text or "").strip()
+            dest_id: Optional[int] = None
+            if raw.startswith("@"):
+                try:
+                    chat = await message.bot.get_chat(raw)
+                    dest_id = int(chat.id)
+                except Exception:
+                    dest_id = None
+            else:
+                try:
+                    dest_id = int(raw)
+                except ValueError:
+                    dest_id = None
+            if dest_id is None:
+                await open_logs_setup(message.bot, container, admin_id=message.from_user.id, group_id=group_id)
+                return
+            await container.group_service.update_setting(group_id, logs_enabled=True, logs_chat_id=int(dest_id))
+            await open_settings_screen(message.bot, container, admin_id=message.from_user.id, group_id=group_id, screen="logs")
+            return
+
         await show_dm_home(message.bot, container, user_id=message.from_user.id)
 
     @router.callback_query(lambda c: c.data and c.data.startswith("dm:"))
@@ -159,9 +275,12 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             await callback.answer("Not allowed", show_alert=True)
             return
 
-        if not await is_user_admin(callback.bot, group_id, callback.from_user.id):
-            await callback.answer("Not allowed", show_alert=True)
-            return
+        # Live permission check: Telegram admin OR custom role with settings access
+        actor_id = callback.from_user.id
+        if not await is_user_admin(callback.bot, group_id, actor_id):
+            if not await has_role_permission(group_id, actor_id, "settings"):
+                await callback.answer("Not allowed", show_alert=True)
+                return
 
         if action == "close":
             await callback.answer()
@@ -229,7 +348,17 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "locks")
                 return
             if key == "logs":
-                # Placeholder: no routing implemented yet; keep as UX-only.
+                if val == "off":
+                    await container.group_service.update_setting(group_id, logs_enabled=False)
+                    await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "logs")
+                    return
+                if val == "group":
+                    await container.group_service.update_setting(group_id, logs_enabled=True, logs_chat_id=group_id, logs_thread_id=None)
+                    await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "logs")
+                    return
+                if val == "channel":
+                    await open_logs_setup(callback.bot, container, admin_id=callback.from_user.id, group_id=group_id)
+                    return
                 await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "logs")
                 return
 
@@ -374,7 +503,7 @@ async def open_settings_panel(bot, container: ServiceContainer, admin_id: int, g
         await render_wizard(bot, container, admin_id, group, state, bot_ok)
         return
 
-    logs_on = "Off"  # placeholder until log destinations are implemented
+    logs_on = logs_summary(group, group_id)
     text = (
         f"<b>Settings</b> • {group.group_name or group.group_id}\n"
         f"Verify: {'On' if group.verification_enabled else 'Off'}  Logs: {logs_on}  Bot: {bot_ok}\n\n"
@@ -485,7 +614,15 @@ async def handle_wizard_choice(bot, container: ServiceContainer, admin_id: int, 
             state.wizard_step = 3
 
         elif kind == "logs":
-            # Minimal implementation: record completion; logs routing is handled elsewhere.
+            if choice == "off":
+                await container.group_service.update_setting(group_id, logs_enabled=False)
+            elif choice == "group":
+                await container.group_service.update_setting(group_id, logs_enabled=True, logs_chat_id=group_id)
+            elif choice == "channel":
+                state.wizard_completed = True
+                state.wizard_step = 3
+                await open_logs_setup(bot, container, admin_id=admin_id, group_id=group_id)
+                return
             state.wizard_completed = True
             state.wizard_step = 3
 
@@ -560,14 +697,26 @@ async def open_settings_screen(bot, container: ServiceContainer, admin_id: int, 
             ]
         )
     elif screen == "logs":
-        text = f"<b>Logs</b> • {group.group_name or group_id}\n\nChoose:"
+        dest = "Off"
+        if getattr(group, "logs_enabled", False) and getattr(group, "logs_chat_id", None):
+            if int(group.logs_chat_id) == int(group_id):
+                dest = "This group"
+            else:
+                dest = f"<code>{int(group.logs_chat_id)}</code>"
+        text = f"<b>Logs</b> • {group.group_name or group_id}\n\nCurrent: {dest}\n\nChoose:"
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Off ✅", callback_data=f"cfg:{group_id}:set:logs:off"),
-                    InlineKeyboardButton(text="This Group", callback_data=f"cfg:{group_id}:set:logs:group"),
+                    InlineKeyboardButton(
+                        text="Off ✅" if not getattr(group, "logs_enabled", False) else "Off",
+                        callback_data=f"cfg:{group_id}:set:logs:off",
+                    ),
+                    InlineKeyboardButton(
+                        text="This Group ✅" if getattr(group, "logs_enabled", False) and getattr(group, "logs_chat_id", None) and int(group.logs_chat_id) == int(group_id) else "This Group",
+                        callback_data=f"cfg:{group_id}:set:logs:group",
+                    ),
                 ],
-                [InlineKeyboardButton(text="Choose Channel", callback_data=f"cfg:{group_id}:set:logs:channel")],
+                [InlineKeyboardButton(text="Choose Channel/Group…", callback_data=f"cfg:{group_id}:set:logs:channel")],
                 [InlineKeyboardButton(text="Back", callback_data=f"cfg:{group_id}:home")],
             ]
         )

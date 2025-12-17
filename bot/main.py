@@ -19,6 +19,7 @@ from bot.handlers.member_events import create_member_handlers, create_admin_join
 from bot.handlers.admin_commands import create_admin_handlers
 from bot.handlers.content_commands import create_content_handlers
 from bot.handlers.message_handlers import create_message_handlers
+from bot.handlers.rbac_help import create_rbac_help_handlers
 from database.db import db
 
 # Configure logging
@@ -88,12 +89,14 @@ class TelegramBot:
             admin_router = create_admin_handlers(self.container)
             content_router = create_content_handlers(self.container)
             message_router = create_message_handlers(self.container)
+            rbac_router = create_rbac_help_handlers(self.container)
             
             self.dispatcher.include_router(command_router)
             self.dispatcher.include_router(admin_router)
             self.dispatcher.include_router(content_router)
             self.dispatcher.include_router(member_router)
             self.dispatcher.include_router(admin_join_router)
+            self.dispatcher.include_router(rbac_router)
             self.dispatcher.include_router(message_router)  # Last, so it doesn't intercept commands
             logger.info("✅ All handlers registered")
             
@@ -166,6 +169,7 @@ class TelegramBot:
                     BotCommand(command="actions", description="Moderate (reply-first)"),
                     BotCommand(command="checkperms", description="Check bot permissions (admins)"),
                     BotCommand(command="rules", description="Show group rules"),
+                    BotCommand(command="mycommands", description="Show commands you can use"),
                 ],
                 scope=BotCommandScopeAllGroupChats(),
             )
@@ -177,6 +181,7 @@ class TelegramBot:
                     BotCommand(command="actions", description="Open action panel (reply)"),
                     BotCommand(command="checkperms", description="Check bot permissions"),
                     BotCommand(command="status", description="Bot status (admin)"),
+                    BotCommand(command="mycommands", description="Show commands you can use"),
                     BotCommand(command="kick", description="Kick a user (reply)"),
                     BotCommand(command="ban", description="Ban a user (reply)"),
                     BotCommand(command="mute", description="Mute a user (reply)"),

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from aiogram import Bot
 from aiogram.types import ChatPermissions
+from html import escape
 from sqlalchemy import select, func, and_
 
 from database.db import db
@@ -57,6 +58,14 @@ class AdminService:
                 action="kick",
                 reason=reason
             )
+            await self._maybe_send_log(
+                bot,
+                group_id,
+                admin_id=admin_id,
+                target_id=user_id,
+                action="kick",
+                reason=reason,
+            )
             
             logger.info(f"User {user_id} kicked from group {group_id} by admin {admin_id}")
             return True
@@ -105,6 +114,14 @@ class AdminService:
                 action=action_type,
                 reason=reason
             )
+            await self._maybe_send_log(
+                bot,
+                group_id,
+                admin_id=admin_id,
+                target_id=user_id,
+                action=action_type,
+                reason=reason,
+            )
             
             logger.info(f"User {user_id} banned from group {group_id} by admin {admin_id}")
             return True
@@ -143,6 +160,14 @@ class AdminService:
                 target_id=user_id,
                 action="unban",
                 reason=None
+            )
+            await self._maybe_send_log(
+                bot,
+                group_id,
+                admin_id=admin_id,
+                target_id=user_id,
+                action="unban",
+                reason=None,
             )
             
             logger.info(f"User {user_id} unbanned from group {group_id} by admin {admin_id}")
@@ -198,6 +223,14 @@ class AdminService:
                 action=action_type,
                 reason=reason
             )
+            await self._maybe_send_log(
+                bot,
+                group_id,
+                admin_id=admin_id,
+                target_id=user_id,
+                action=action_type,
+                reason=reason,
+            )
             
             logger.info(f"User {user_id} muted in group {group_id} by admin {admin_id}")
             return True
@@ -250,6 +283,14 @@ class AdminService:
                 action="unmute",
                 reason=None
             )
+            await self._maybe_send_log(
+                bot,
+                group_id,
+                admin_id=admin_id,
+                target_id=user_id,
+                action="unmute",
+                reason=None,
+            )
             
             logger.info(f"User {user_id} unmuted in group {group_id} by admin {admin_id}")
             return True
@@ -260,10 +301,12 @@ class AdminService:
     
     async def warn_user(
         self,
+        *,
+        bot: Optional[Bot] = None,
         group_id: int,
         user_id: int,
         admin_id: int,
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
     ) -> tuple[int, int]:
         """
         Warn a user in the group.
@@ -316,6 +359,15 @@ class AdminService:
                 action="warn",
                 reason=reason
             )
+            if bot:
+                await self._maybe_send_log(
+                    bot,
+                    group_id,
+                    admin_id=admin_id,
+                    target_id=user_id,
+                    action="warn",
+                    reason=reason,
+                )
             
             logger.info(f"User {user_id} warned in group {group_id} ({warn_count}/{warn_limit})")
             return warn_count, warn_limit
@@ -374,17 +426,15 @@ class AdminService:
             )
             count = result.scalar()
             
-            # Delete warnings
-            await session.execute(
-                select(Warning)
-                .where(
+            warnings_result = await session.execute(
+                select(Warning).where(
                     and_(
                         Warning.group_id == group_id,
-                        Warning.telegram_id == user_id
+                        Warning.telegram_id == user_id,
                     )
                 )
             )
-            warnings = result.scalars().all()
+            warnings = list(warnings_result.scalars().all())
             for warning in warnings:
                 await session.delete(warning)
             
@@ -423,3 +473,38 @@ class AdminService:
             session.add(log)
             await session.commit()
 
+    async def _maybe_send_log(
+        self,
+        bot: Bot,
+        group_id: int,
+        *,
+        admin_id: int,
+        target_id: Optional[int],
+        action: str,
+        reason: Optional[str],
+    ) -> None:
+        try:
+            async with db.session() as session:
+                result = await session.execute(select(Group).where(Group.group_id == group_id))
+                group = result.scalar_one_or_none()
+                if not group or not getattr(group, "logs_enabled", False) or not getattr(group, "logs_chat_id", None):
+                    return
+                dest_chat_id = int(group.logs_chat_id)
+                thread_id = int(group.logs_thread_id) if getattr(group, "logs_thread_id", None) else None
+
+            reason_line = f"\nReason: {escape(reason)}" if reason else ""
+            target_line = f"\nTarget: <code>{int(target_id)}</code>" if target_id is not None else ""
+            text = (
+                f"<b>Log</b>\n"
+                f"Group: <code>{int(group_id)}</code>\n"
+                f"Action: <code>{escape(action)}</code>\n"
+                f"Admin: <code>{int(admin_id)}</code>"
+                f"{target_line}"
+                f"{reason_line}"
+            )
+            kwargs = {"disable_web_page_preview": True}
+            if thread_id:
+                kwargs["message_thread_id"] = thread_id
+            await bot.send_message(chat_id=dest_chat_id, text=text, parse_mode="HTML", **kwargs)
+        except Exception:
+            return

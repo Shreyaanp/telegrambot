@@ -58,6 +58,9 @@ class GroupService:
         antiflood_enabled: Optional[bool] = None,
         welcome_enabled: Optional[bool] = None,
         verification_enabled: Optional[bool] = None,
+        logs_enabled: Optional[bool] = None,
+        logs_chat_id: Optional[int] = None,
+        logs_thread_id: Optional[int] = None,
     ) -> Group:
         """Update one or more settings for a group."""
         async with db.session() as session:
@@ -82,6 +85,17 @@ class GroupService:
                 group.welcome_enabled = welcome_enabled
             if verification_enabled is not None:
                 group.verification_enabled = verification_enabled
+            if logs_enabled is not None:
+                group.logs_enabled = logs_enabled
+                if not logs_enabled:
+                    group.logs_chat_id = None
+                    group.logs_thread_id = None
+            if logs_chat_id is not None:
+                group.logs_chat_id = logs_chat_id
+                group.logs_enabled = True
+            if logs_thread_id is not None:
+                group.logs_thread_id = logs_thread_id
+                group.logs_enabled = True
             
             await session.commit()
             await session.refresh(group)

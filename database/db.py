@@ -224,6 +224,7 @@ def _sqlite_migrate_schema(sync_conn):
     """
     try:
         _sqlite_ensure_group_columns(sync_conn)
+        _sqlite_ensure_permission_columns(sync_conn)
     except Exception as e:
         logger.warning(f"SQLite migration skipped/failed: {e}")
 
@@ -243,6 +244,9 @@ def _sqlite_ensure_group_columns(sync_conn):
         "antiflood_limit": "INTEGER DEFAULT 10",
         "lock_links": "BOOLEAN DEFAULT 0",
         "lock_media": "BOOLEAN DEFAULT 0",
+        "logs_enabled": "BOOLEAN DEFAULT 0",
+        "logs_chat_id": "INTEGER",
+        "logs_thread_id": "INTEGER",
         "rules_text": "TEXT",
         "added_at": "DATETIME",
     }
@@ -253,3 +257,19 @@ def _sqlite_ensure_group_columns(sync_conn):
             continue
         logger.info(f"SQLite migrate: adding groups.{name}")
         sync_conn.execute(text(f"ALTER TABLE groups ADD COLUMN {name} {ddl}"))
+
+
+def _sqlite_ensure_permission_columns(sync_conn):
+    expected = {
+        "can_manage_settings": "BOOLEAN DEFAULT 0",
+        "can_manage_locks": "BOOLEAN DEFAULT 0",
+        "can_manage_roles": "BOOLEAN DEFAULT 0",
+        "can_view_status": "BOOLEAN DEFAULT 0",
+        "can_view_logs": "BOOLEAN DEFAULT 0",
+    }
+    cols = {row[1] for row in sync_conn.execute(text("PRAGMA table_info(permissions)")).fetchall()}
+    for name, ddl in expected.items():
+        if name in cols:
+            continue
+        logger.info(f"SQLite migrate: adding permissions.{name}")
+        sync_conn.execute(text(f"ALTER TABLE permissions ADD COLUMN {name} {ddl}"))

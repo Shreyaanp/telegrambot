@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from aiogram import Bot
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, ChatPermissions
 
 from bot.config import Config
 from bot.services.mercle_sdk import MercleSDK
@@ -596,13 +596,13 @@ class VerificationService:
                 await bot.restrict_chat_member(
                     chat_id=group_id,
                     user_id=telegram_id,
-                    permissions={
-                        "can_send_messages": False,
-                        "can_send_media_messages": False,
-                        "can_send_polls": False,
-                        "can_send_other_messages": False,
-                        "can_add_web_page_previews": False,
-                    }
+                    permissions=ChatPermissions(
+                        can_send_messages=False,
+                        can_send_media_messages=False,
+                        can_send_polls=False,
+                        can_send_other_messages=False,
+                        can_add_web_page_previews=False,
+                    ),
                 )
                 logger.info(f"Muted user {telegram_id} in group {group_id}")
         except Exception as e:
