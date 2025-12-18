@@ -1,0 +1,46 @@
+# Launch Checklist / TODO (tracked)
+
+This file is a working checklist of what’s done and what’s left before launch. It is not “design”; it’s execution tracking.
+
+## Done
+- [x] Move DB runtime to Postgres-only (`DATABASE_URL` required) and remove SQLite dependency.
+- [x] Remove runtime SQLite migration/back-compat wrapper; schema is managed by Alembic (startup requires `alembic_version`).
+- [x] Add/ensure partial unique index `uq_pv_active` for active pending join verifications.
+- [x] Refresh `flow.md` to match current implementation.
+- [x] Add `.env.example` with required environment variables.
+- [x] Fix webhook deliverability: `telegram.mercle.ai` resolves to this server and `GET /health` returns `200`; Telegram updates arrive and are logged as `tg_update=...`.
+
+## Must Do Before Launch (high priority)
+- [x] Fix setup-card crash: `GroupWizardState` referenced before import in `bot/handlers/member_events.py`.
+- [x] Remove `/actions` UX dependency on inline mode (refactor `/actions` to be callback-only).
+- [x] Remove DM settings “Moderation” + “Advanced” screens (they were dead-ends).
+- [ ] Ensure the service survives reboot:
+  - [x] `systemctl enable telegrambot`
+  - [x] Restart smoke test: `systemctl restart telegrambot` + `GET https://telegram.mercle.ai/health` is `200` (allow ~15s warm-up)
+  - [ ] Reboot test (manual): reboot host and confirm service starts + `GET https://telegram.mercle.ai/health` is `200`
+- [x] Verify Mercle verification deep-link end-to-end on iOS + Android:
+  - [x] `https://telegram.mercle.ai/verify` loads publicly
+  - [x] iOS: “Open Mercle” launches app + completes verification
+  - [x] Android: “Open Mercle” launches app + completes verification
+  - [x] Session creation + polling outcomes (approved/rejected/expired)
+- [x] Reconcile user-facing command list vs actual handlers:
+  - [x] Add user `/status` and align Telegram command menu.
+
+## Should Do Before Launch (medium priority)
+- [x] Replace `create_all()` with an explicit Alembic migration workflow for Postgres (apply in deploy via `alembic upgrade head`).
+- [ ] Confirm join-gate prerequisites are enforced in practice:
+  - [x] Runtime preflight + admin log/DM when misconfigured
+  - [ ] `join_by_request` must be enabled in Telegram group settings
+  - [ ] bot must be admin + `Invite Users` must be granted
+  - [ ] Happy-path: pending created, user DM’d, approve after Mercle approval
+- [ ] Add basic operational health checks:
+  - [x] Webhook `/health` and `/status` verified behind auth (`ADMIN_API_TOKEN`)
+  - [ ] Logs destination test path verified
+- [x] Add rate-limit / backoff guardrails for Mercle polling under load.
+- [x] Update any remaining docs that still claim SQLite (e.g. `website/api.html`).
+
+## Nice To Have (post-launch)
+- [ ] Mini App settings UI (keep DM panels as fallback).
+- [ ] Persistent metrics (current metrics are in-memory and reset on restart).
+- [ ] Admin log viewer command in Telegram (current logs are stored + optional push-to-destination).
+- [ ] Unify parse modes (Markdown vs HTML) to reduce formatting edge-cases.

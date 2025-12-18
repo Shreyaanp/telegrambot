@@ -72,17 +72,17 @@
                     <li><strong>aiogram 3.6.0</strong> - Telegram Bot API framework</li>
                     <li><strong>FastAPI 0.111.0</strong> - Webhook server</li>
                     <li><strong>SQLAlchemy 2.0.25</strong> - Database ORM</li>
-                    <li><strong>SQLite</strong> - Database with WAL mode</li>
+                    <li><strong>PostgreSQL (asyncpg)</strong> - Database (configured via <code>DATABASE_URL</code>)</li>
                     <li><strong>Mercle SDK</strong> - Biometric verification API</li>
                 </ul>
                 
                 <h3>Key Features</h3>
                 <ul>
-                    <li>Plugin-based architecture for modularity</li>
+                    <li>Router-based handlers + service layer for modularity</li>
                     <li>Webhook mode for production deployment</li>
                     <li>Async/await throughout for performance</li>
                     <li>Service layer for business logic separation</li>
-                    <li>WAL mode SQLite for concurrent access</li>
+                    <li>Alembic migrations for schema management</li>
                 </ul>
             </section>
             
@@ -134,7 +134,7 @@
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  SQLite Database (WAL)                      │
+│                     PostgreSQL Database                     │
 │  users | groups | sessions | filters | locks | notes       │
 └─────────────────────────────────────────────────────────────┘
                          │
@@ -337,102 +337,27 @@ if (isAndroid) {
             
             <!-- Database -->
             <section id="database">
-                <h2>💾 Database Schema</h2>
-                
-                <h3>Core Tables</h3>
-                
-                <h4>users</h4>
-                <pre><code>CREATE TABLE users (
-    telegram_id INTEGER PRIMARY KEY,
-    username TEXT,
-    first_name TEXT,
-    last_name TEXT,
-    mercle_user_id TEXT UNIQUE NOT NULL,
-    verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);</code></pre>
-                
-                <h4>groups</h4>
-                <pre><code>CREATE TABLE groups (
-    group_id INTEGER PRIMARY KEY,
-    group_name TEXT,
-    verification_enabled BOOLEAN DEFAULT 1,
-    auto_verify_on_join BOOLEAN DEFAULT 1,
-    verification_timeout INTEGER DEFAULT 120,
-    kick_on_timeout BOOLEAN DEFAULT 1,
-    verification_location TEXT DEFAULT 'group',
-    welcome_message TEXT,
-    welcome_message_buttons TEXT,
-    goodbye_message TEXT,
-    goodbye_enabled BOOLEAN DEFAULT 0,
-    rules_text TEXT,
-    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);</code></pre>
-                
-                <h4>verification_sessions</h4>
-                <pre><code>CREATE TABLE verification_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_user_id INTEGER NOT NULL,
-    session_id TEXT UNIQUE NOT NULL,
-    status TEXT DEFAULT 'pending',
-    group_id INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP,
-    completed_at TIMESTAMP,
-    message_ids TEXT
-);</code></pre>
-                
-                <h3>Feature Tables</h3>
-                
-                <h4>filters</h4>
-                <pre><code>CREATE TABLE filters (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id INTEGER NOT NULL,
-    keyword TEXT NOT NULL,
-    response TEXT NOT NULL,
-    buttons TEXT,
-    created_by INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);</code></pre>
-                
-                <h4>locks</h4>
-                <pre><code>CREATE TABLE locks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id INTEGER NOT NULL,
-    lock_type TEXT NOT NULL,
-    enabled BOOLEAN DEFAULT 1
-);</code></pre>
-                
-                <h4>notes</h4>
-                <pre><code>CREATE TABLE notes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id INTEGER NOT NULL,
-    note_name TEXT NOT NULL,
-    content TEXT NOT NULL,
-    media_type TEXT,
-    media_file_id TEXT,
-    buttons TEXT,
-    created_by INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);</code></pre>
-                
-                <h4>admin_logs</h4>
-                <pre><code>CREATE TABLE admin_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id INTEGER NOT NULL,
-    admin_id INTEGER NOT NULL,
-    action TEXT NOT NULL,
-    target_user_id INTEGER,
-    reason TEXT,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);</code></pre>
-                
-                <h3>WAL Mode</h3>
-                <p>The database uses Write-Ahead Logging for better concurrency:</p>
-                <pre><code>PRAGMA journal_mode=WAL;
-PRAGMA synchronous=NORMAL;
-PRAGMA cache_size=-64000;
-PRAGMA temp_store=MEMORY;
-PRAGMA busy_timeout=5000;</code></pre>
+                <h2>💾 Database</h2>
+                <p>The production deployment uses <strong>PostgreSQL</strong> via async SQLAlchemy (<code>postgresql+asyncpg</code>).</p>
+
+                <h3>Schema &amp; Migrations</h3>
+                <ul>
+                    <li><strong>Schema is managed by Alembic</strong> (deploy runs <code>alembic upgrade head</code>)</li>
+                    <li>Canonical model definitions live in <code>database/models.py</code></li>
+                    <li>Operational flow is documented in <code>flow.md</code> (kept in sync with code)</li>
+                </ul>
+
+                <h3>Key Tables</h3>
+                <ul>
+                    <li><code>users</code> - globally verified users</li>
+                    <li><code>groups</code> - per-group configuration (verification, join gate, locks, logs, welcome, etc.)</li>
+                    <li><code>verification_sessions</code> - Mercle session polling state</li>
+                    <li><code>pending_join_verifications</code> - per-group join/post-join verification state machine</li>
+                    <li><code>config_link_tokens</code> / <code>verification_link_tokens</code> - deep-link tokens for DM flows</li>
+                    <li><code>dm_panel_state</code> / <code>group_wizard_state</code> - DM panel + setup wizard state</li>
+                    <li><code>group_user_state</code> - group-scoped user mapping (for @username resolution)</li>
+                    <li><code>warnings</code>, <code>whitelist</code>, <code>permissions</code>, <code>admin_logs</code>, <code>flood_tracker</code>, <code>notes</code>, <code>filters</code> - moderation + content features</li>
+                </ul>
             </section>
             
             <!-- Deployment -->
@@ -450,15 +375,19 @@ PRAGMA busy_timeout=5000;</code></pre>
                 
                 <h3>Systemd Service</h3>
                 <pre><code>[Unit]
-Description=Mercle Telegram Bot
-After=network.target
+Description=Telegram Verification Bot (Webhook)
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
 
 [Service]
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/telegrambot
-Environment="PYTHONPATH=/home/ubuntu/telegrambot"
-ExecStart=/usr/bin/python3 webhook_server.py
+Environment="PATH=/home/ubuntu/telegrambot/venv/bin"
+EnvironmentFile=/home/ubuntu/telegrambot/.env
+ExecStartPre=/home/ubuntu/telegrambot/venv/bin/alembic upgrade head
+ExecStart=/home/ubuntu/telegrambot/venv/bin/uvicorn webhook_server:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=10
 
@@ -473,7 +402,10 @@ MERCLE_API_SECRET=your_api_secret
 MERCLE_APP_ID=your_app_id
 WEBHOOK_URL=https://telegram.mercle.ai
 WEBHOOK_PATH=/webhook/secure-random
-VERIFICATION_TIMEOUT=120</code></pre>
+DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/dbname
+ADMIN_API_TOKEN=optional_admin_token_for_/status
+VERIFICATION_TIMEOUT=300
+ACTION_ON_TIMEOUT=mute</code></pre>
             </section>
             
             <!-- GitHub -->
@@ -497,4 +429,3 @@ VERIFICATION_TIMEOUT=120</code></pre>
     <script src="/docs/js/search.js"></script>
 </body>
 </html>
-

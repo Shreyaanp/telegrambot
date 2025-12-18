@@ -17,6 +17,18 @@ class MercleSDK:
             "X-API-Key": api_key,
             "Content-Type": "application/json",
         }
+        self._client = httpx.AsyncClient(
+            headers=self.headers,
+            timeout=httpx.Timeout(30.0),
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+
+    async def close(self) -> None:
+        """Close underlying HTTP resources."""
+        try:
+            await self._client.aclose()
+        except Exception:
+            pass
     
     async def create_session(self, metadata: Optional[Dict] = None) -> Dict:
         """
@@ -34,13 +46,12 @@ class MercleSDK:
             payload["metadata"] = metadata
         
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(url, json=payload, headers=self.headers)
-                response.raise_for_status()
-                data = response.json()
-                
-                logger.info(f"Created Mercle session: {data.get('session_id')}")
-                return data
+            response = await self._client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            
+            logger.info(f"Created Mercle session: {data.get('session_id')}")
+            return data
         except httpx.HTTPError as e:
             logger.error(f"Failed to create Mercle session: {e}")
             raise
@@ -59,13 +70,12 @@ class MercleSDK:
         params = {"session_id": session_id}
         
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params, headers=self.headers)
-                response.raise_for_status()
-                data = response.json()
-                
-                logger.debug(f"Session {session_id} status: {data.get('status')}")
-                return data
+            response = await self._client.get(url, params=params, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+            
+            logger.debug(f"Session {session_id} status: {data.get('status')}")
+            return data
         except httpx.HTTPError as e:
             logger.error(f"Failed to check session status: {e}")
             raise
@@ -84,11 +94,9 @@ class MercleSDK:
         params = {"localized_user_id": localized_user_id}
         
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, params=params, headers=self.headers)
-                response.raise_for_status()
-                return response.json()
+            response = await self._client.get(url, params=params, timeout=10.0)
+            response.raise_for_status()
+            return response.json()
         except httpx.HTTPError as e:
             logger.error(f"Failed to get user info: {e}")
             raise
-

@@ -41,6 +41,53 @@ def create_join_request_handlers(container: ServiceContainer) -> Router:
         if not getattr(group, "join_gate_enabled", False):
             return
 
+        async def _maybe_send_admin_log(text: str) -> None:
+            try:
+                if not getattr(group, "logs_enabled", False) or not getattr(group, "logs_chat_id", None):
+                    return
+                dest_chat_id = int(group.logs_chat_id)
+                thread_id = int(group.logs_thread_id) if getattr(group, "logs_thread_id", None) else None
+                kwargs = {"disable_web_page_preview": True}
+                if thread_id:
+                    kwargs["message_thread_id"] = thread_id
+                await req.bot.send_message(chat_id=dest_chat_id, text=text, parse_mode="HTML", **kwargs)
+            except Exception:
+                return
+
+        # Preflight: join-gate requires the bot to be able to approve/decline join requests.
+        try:
+            bot_info = await req.bot.get_me()
+            bot_member = await req.bot.get_chat_member(group_id, bot_info.id)
+            if bot_member.status == "creator":
+                can_manage_join_requests = True
+            else:
+                can_manage_join_requests = bot_member.status == "administrator" and bool(getattr(bot_member, "can_invite_users", False))
+        except Exception:
+            can_manage_join_requests = False
+
+        if not can_manage_join_requests:
+            await _maybe_send_admin_log(
+                "<b>Join gate misconfigured</b>\n"
+                f"Group: <code>{group_id}</code>\n\n"
+                "Join gate is enabled, but I can't approve/decline join requests.\n"
+                "Fix: promote the bot to admin and enable <b>Invite Users</b>."
+            )
+            try:
+                if user_chat_id is not None:
+                    age = (datetime.utcnow() - join_request_at).total_seconds()
+                    if age <= JOIN_REQUEST_DM_WINDOW_SECONDS:
+                        await req.bot.send_message(
+                            chat_id=int(user_chat_id),
+                            text=(
+                                f"<b>{group_title}</b> requires verification, but the bot is currently misconfigured.\n\n"
+                                "Please contact the group admins to fix join-gate permissions, then try again."
+                            ),
+                            parse_mode="HTML",
+                        )
+            except Exception:
+                pass
+            return
+
         # Keep behavior predictable: if verification is off, just approve.
         if not getattr(group, "verification_enabled", True):
             try:

@@ -197,6 +197,12 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         else:
             await message.reply("Use <code>/checkperms</code> or <code>/menu</code> in this group.", parse_mode="HTML")
 
+    @router.message(Command("status"))
+    async def cmd_user_status(message: Message):
+        if message.chat.type != "private":
+            return
+        await show_dm_status(message.bot, container, user_id=message.from_user.id)
+
     @router.message(Command("verify"))
     async def cmd_verify(message: Message):
         user_id = message.from_user.id
@@ -271,6 +277,8 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             await show_dm_help(callback.bot, container, user_id=callback.from_user.id)
         elif action == "home":
             await show_dm_home(callback.bot, container, user_id=callback.from_user.id)
+        elif action == "status":
+            await show_dm_status(callback.bot, container, user_id=callback.from_user.id)
         elif action == "verify":
             if await container.user_manager.is_verified(callback.from_user.id):
                 await callback.message.answer("✅ You are already verified.", parse_mode="HTML")
@@ -535,6 +543,7 @@ def dm_home_keyboard(bot_username: str) -> InlineKeyboardMarkup:
     if add_link:
         rows.append([InlineKeyboardButton(text="Add to Group", url=add_link)])
     rows.append([InlineKeyboardButton(text="Help", callback_data="dm:help")])
+    rows.append([InlineKeyboardButton(text="Status", callback_data="dm:status")])
     rows.append([InlineKeyboardButton(text="Verify", callback_data="dm:verify")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -556,6 +565,43 @@ def dm_help_keyboard(bot_username: str) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="Add to Group", url=add_link)])
     rows.append([InlineKeyboardButton(text="Back", callback_data="dm:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def dm_status_text(*, is_verified: bool, mercle_user_id: str | None) -> str:
+    if is_verified:
+        mid = f"<code>{mercle_user_id}</code>" if mercle_user_id else "n/a"
+        return (
+            "<b>Status</b>\n"
+            "✅ Verified\n\n"
+            f"Mercle ID: {mid}\n\n"
+            "This verification is global: you won’t need to verify again in other groups."
+        )
+    return (
+        "<b>Status</b>\n"
+        "❌ Not verified\n\n"
+        "Tap <b>Verify</b> to start."
+    )
+
+
+def dm_status_keyboard(*, is_verified: bool) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if not is_verified:
+        rows.append([InlineKeyboardButton(text="Verify", callback_data="dm:verify")])
+    rows.append([InlineKeyboardButton(text="Back", callback_data="dm:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def show_dm_status(bot, container: ServiceContainer, user_id: int):
+    user = await container.user_manager.get_user(user_id)
+    is_verified = user is not None
+    text = dm_status_text(is_verified=is_verified, mercle_user_id=(user.mercle_user_id if user else None))
+    kb = dm_status_keyboard(is_verified=is_verified)
+    await container.panel_service.upsert_dm_panel(
+        bot=bot,
+        user_id=user_id,
+        panel_type="home",
+        text=text,
+        reply_markup=kb,
+    )
 
 
 async def show_dm_home(bot, container: ServiceContainer, user_id: int):
@@ -616,9 +662,7 @@ async def open_settings_panel(bot, container: ServiceContainer, admin_id: int, g
             [InlineKeyboardButton(text="Verification", callback_data=f"cfg:{group_id}:screen:verification")],
             [InlineKeyboardButton(text="Anti-spam", callback_data=f"cfg:{group_id}:screen:antispam")],
             [InlineKeyboardButton(text="Locks", callback_data=f"cfg:{group_id}:screen:locks")],
-            [InlineKeyboardButton(text="Moderation", callback_data=f"cfg:{group_id}:screen:moderation")],
             [InlineKeyboardButton(text="Logs", callback_data=f"cfg:{group_id}:screen:logs")],
-            [InlineKeyboardButton(text="Advanced", callback_data=f"cfg:{group_id}:screen:advanced")],
             [InlineKeyboardButton(text="Close", callback_data=f"cfg:{group_id}:close")],
         ]
     )
@@ -734,13 +778,51 @@ async def handle_wizard_choice(bot, container: ServiceContainer, admin_id: int, 
 async def open_settings_screen(bot, container: ServiceContainer, admin_id: int, group_id: int, screen: str):
     group = await container.group_service.get_or_create_group(group_id)
     if screen == "verification":
+        join_by_request: bool | None = None
+        can_invite_users: bool | None = None
+        try:
+            chat = await bot.get_chat(group_id)
+            join_by_request = True if getattr(chat, "join_by_request", None) is True else False
+        except Exception:
+            join_by_request = None
+
+        try:
+            bot_info = await bot.get_me()
+            bot_member = await bot.get_chat_member(group_id, bot_info.id)
+            if bot_member.status == "creator":
+                can_invite_users = True
+            elif bot_member.status == "administrator":
+                can_invite_users = bool(getattr(bot_member, "can_invite_users", False))
+            else:
+                can_invite_users = False
+        except Exception:
+            can_invite_users = None
+
+        def _flag(ok: bool | None) -> str:
+            if ok is True:
+                return "✅"
+            if ok is False:
+                return "❌"
+            return "❔"
+
         gate = "On ✅" if getattr(group, "join_gate_enabled", False) else "Off"
         text = (
             f"<b>Verification</b> • {group.group_name or group_id}\n\n"
             f"Require verification: {'On ✅' if group.verification_enabled else 'Off'}\n"
-            f"Join gate (requires join requests): {gate}\n\n"
-            "Choose:"
+            f"Join requests: {_flag(join_by_request)}  Invite users: {_flag(can_invite_users)}\n"
+            f"Join gate (requires join requests): {gate}"
         )
+
+        warnings: list[str] = []
+        if getattr(group, "join_gate_enabled", False):
+            if join_by_request is not True:
+                warnings.append("⚠️ Join requests are off; join gate won’t run.")
+            if can_invite_users is False:
+                warnings.append("⚠️ Bot missing Invite Users; join gate can’t approve/decline.")
+        if warnings:
+            text += "\n\n" + "\n".join(warnings)
+
+        text += "\n\nChoose:"
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [

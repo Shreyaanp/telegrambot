@@ -12,6 +12,7 @@ from aiogram.types import ChatPermissions
 
 from bot.utils.permissions import can_user, is_user_admin, has_role_permission, is_bot_admin, can_restrict_members, can_delete_messages, can_pin_messages
 from database.db import db
+from database.models import GroupWizardState
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -420,8 +421,6 @@ async def _send_or_update_setup_card(bot, container: ServiceContainer, group_id:
         message_id = sent.message_id
 
     # Persist message id for later edits
-    from database.models import GroupWizardState
-
     async with db.session() as session:
         result = await session.execute(select(GroupWizardState).where(GroupWizardState.group_id == group_id))
         state = result.scalar_one_or_none()

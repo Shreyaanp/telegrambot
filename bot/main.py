@@ -61,7 +61,8 @@ class TelegramBot:
         try:
             # Initialize database
             logger.info("📊 Initializing database...")
-            await db.create_tables()
+            await db.connect()
+            await db.require_schema()
             logger.info("✅ Database initialized")
             
             # Initialize service container
@@ -162,7 +163,9 @@ class TelegramBot:
                 commands=[
                     BotCommand(command="start", description="Home"),
                     BotCommand(command="help", description="Help"),
+                    BotCommand(command="status", description="Your verification status"),
                     BotCommand(command="verify", description="Verify with Mercle"),
+                    BotCommand(command="menu", description="Settings (admins)"),
                 ],
                 scope=BotCommandScopeAllPrivateChats(),
             )

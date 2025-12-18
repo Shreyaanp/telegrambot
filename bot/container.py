@@ -111,4 +111,12 @@ class ServiceContainer:
     
     async def cleanup(self):
         """Cleanup hook for future resources (kept for symmetry)."""
+        try:
+            await self.verification_service.shutdown()
+        except Exception:
+            pass
+        try:
+            await self.mercle_sdk.close()
+        except Exception:
+            pass
         logger.info("Service container cleanup complete")

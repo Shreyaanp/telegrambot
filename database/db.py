@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy import event, text
+from sqlalchemy import text
 from database.models import Base
 from dotenv import load_dotenv
 
@@ -20,7 +20,9 @@ class Database:
     
     def __init__(self, database_url: str | None = None):
         """Initialize database connection."""
-        self.database_url = database_url or os.getenv("DATABASE_URL") or "sqlite+aiosqlite:///bot_db.sqlite"
+        # Production uses Postgres (asyncpg). We intentionally do not default to SQLite.
+        # Keep import-time safe; validate on connect().
+        self.database_url = database_url or os.getenv("DATABASE_URL") or ""
         self.engine = None
         self.session_factory = None
         
@@ -29,33 +31,19 @@ class Database:
         if self.engine is not None and self.session_factory is not None:
             return
 
-        logger.info(f"Connecting to database: {_redact_url(self.database_url)}")
+        if not self.database_url:
+            raise RuntimeError(
+                "DATABASE_URL is required (expected e.g. postgresql+asyncpg://user:pass@host:5432/dbname)"
+            )
 
-        connect_args = {}
-        if self.database_url.startswith("sqlite"):
-            connect_args = {"check_same_thread": False}
+        logger.info(f"Connecting to database: {_redact_url(self.database_url)}")
 
         self.engine = create_async_engine(
             self.database_url,
             echo=False,
             future=True,
             pool_pre_ping=True,
-            connect_args=connect_args,
         )
-
-        if self.database_url.startswith("sqlite"):
-            # Enable WAL mode and optimizations
-            @event.listens_for(self.engine.sync_engine, "connect")
-            def set_sqlite_pragma(dbapi_conn, connection_record):
-                cursor = dbapi_conn.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA synchronous=NORMAL")
-                cursor.execute("PRAGMA cache_size=-64000")
-                cursor.execute("PRAGMA temp_store=MEMORY")
-                cursor.execute("PRAGMA busy_timeout=5000")
-                cursor.execute("PRAGMA foreign_keys=ON")
-                cursor.close()
-                logger.debug("SQLite WAL mode and optimizations enabled")
         
         # Create session factory
         self.session_factory = async_sessionmaker(
@@ -69,7 +57,7 @@ class Database:
         logger.info("Database connection established")
     
     async def create_tables(self):
-        """Create all database tables (create-from-scratch schema; no runtime migrations)."""
+        """Create all database tables (development convenience)."""
         if self.engine is None:
             await self.connect()
 
@@ -77,6 +65,24 @@ class Database:
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all, checkfirst=True)
         logger.info("Database tables created successfully")
+
+    async def require_schema(self) -> None:
+        """
+        Ensure the database schema exists.
+
+        Production expects schema migrations to be applied via Alembic (out of band):
+            `alembic upgrade head`
+        """
+        if self.engine is None:
+            await self.connect()
+
+        try:
+            async with self.session() as session:
+                await session.execute(text("SELECT version_num FROM alembic_version LIMIT 1"))
+        except Exception as e:
+            raise RuntimeError(
+                "Database schema is not initialized. Run `alembic upgrade head` against DATABASE_URL."
+            ) from e
     
     async def drop_tables(self):
         """Drop all database tables (use with caution!)."""

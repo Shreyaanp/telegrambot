@@ -1,5 +1,5 @@
 """Database package - models and connection management."""
-from database.db import Database, get_database, init_database, close_database
+from database.db import Database, db
 from database.models import (
     Base,
     User,
@@ -14,9 +14,7 @@ from database.models import (
 
 __all__ = [
     "Database",
-    "get_database",
-    "init_database",
-    "close_database",
+    "db",
     "Base",
     "User",
     "Group",

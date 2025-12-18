@@ -81,10 +81,10 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
     """
     router = Router()
     
-    # ========== INLINE MODE: PREFILL COMMANDS ==========
+    # ========== INLINE MODE: OPTIONAL PREFILL COMMANDS ==========
     #
-    # Used by /actions buttons via switch_inline_query_current_chat to "prefill" commands.
-    # Requires enabling inline mode in @BotFather for the bot.
+    # Optional convenience for admins to generate clickable prefilled commands via inline queries.
+    # Requires enabling inline mode in @BotFather, but the bot works without it.
     @router.inline_query()
     async def inline_prefill(inline_query: InlineQuery):
         raw = (inline_query.query or "").strip()
@@ -206,7 +206,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
     @router.message(Command("actions"))
     async def cmd_actions(message: Message):
         """
-        Show inline admin actions for the replied user.
+        Show admin actions for the replied user.
         
         Usage: reply to a user's message with /actions
         """
@@ -233,15 +233,18 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="Kick…", switch_inline_query_current_chat=f"kick {target_id} "),
-                    InlineKeyboardButton(text="Ban…", switch_inline_query_current_chat=f"ban {target_id} "),
+                    InlineKeyboardButton(text="Warn", callback_data=f"act:warn:{target_id}:0"),
+                    InlineKeyboardButton(text="Kick…", callback_data=f"act:confirm_kick:{target_id}:0"),
+                    InlineKeyboardButton(text="Ban…", callback_data=f"act:confirm_ban:{target_id}:0"),
                 ],
                 [
-                    InlineKeyboardButton(text="Mute…", switch_inline_query_current_chat=f"mute {target_id} 10m "),
-                    InlineKeyboardButton(text="Unmute", switch_inline_query_current_chat=f"unmute {target_id}"),
+                    InlineKeyboardButton(text="Mute 10m", callback_data=f"act:mute:{target_id}:600"),
+                    InlineKeyboardButton(text="Mute 1h", callback_data=f"act:mute:{target_id}:3600"),
+                    InlineKeyboardButton(text="Unmute", callback_data=f"act:unmute:{target_id}:0"),
                 ],
                 [
-                    InlineKeyboardButton(text="Warn…", switch_inline_query_current_chat=f"warn {target_id} "),
+                    InlineKeyboardButton(text="Tempban 1h", callback_data=f"act:tempban:{target_id}:3600"),
+                    InlineKeyboardButton(text="Tempban 24h", callback_data=f"act:tempban:{target_id}:86400"),
                 ],
                 [
                     InlineKeyboardButton(text="Purge…", callback_data=f"act:purge_menu:{target_id}:0"),
@@ -707,7 +710,6 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
     async def cmd_status(message: Message):
         """Admin-only status summary."""
         if message.chat.type not in ["group", "supergroup"]:
-            await message.reply("Run /status in a group.", parse_mode="HTML")
             return
         if not await can_user(message.bot, message.chat.id, message.from_user.id, "status"):
             await message.reply("Not allowed.", parse_mode="HTML")
@@ -1063,7 +1065,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
     @router.callback_query(lambda c: c.data and c.data.startswith("act:"))
     async def admin_action_callback(callback: CallbackQuery):
         """
-        Handle inline admin actions invoked from /actions.
+        Handle admin actions invoked from /actions.
         Format: act:<action>:<target_id>:<duration_seconds>
         """
         data = callback.data.split(":")
@@ -1256,10 +1258,20 @@ async def send_perm_check(bot: Bot, chat_id: int, admin_id: int, reply_to: Messa
     restrict = "✅" if getattr(bot_member, "can_restrict_members", False) else "❌"
     delete = "✅" if getattr(bot_member, "can_delete_messages", False) else "❌"
     pin = "✅" if getattr(bot_member, "can_pin_messages", False) else "◻️"
+    invite = "✅" if (bot_member.status == "creator" or getattr(bot_member, "can_invite_users", False)) else "❌"
+
+    try:
+        chat = await bot.get_chat(chat_id)
+        join_by_request = getattr(chat, "join_by_request", None)
+        join_requests = "✅" if join_by_request is True else "❌"
+    except Exception:
+        join_requests = "❔"
+
     text = (
         "<b>Permissions</b>\n"
         f"Restrict: {restrict}  Delete: {delete}  Pin: {pin}\n"
-        "Fix: promote bot + enable missing perms."
+        f"Join requests: {join_requests}  Invite users: {invite}\n\n"
+        "Fix: promote bot + enable missing perms. Join gate needs Join requests + Invite users."
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[

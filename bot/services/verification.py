@@ -1,6 +1,7 @@
 """Verification service - simplified and user-friendly."""
 import asyncio
 import logging
+import random
 from datetime import datetime, timedelta
 from typing import Optional
 from aiogram import Bot
@@ -52,6 +53,16 @@ class VerificationService:
         self.metrics = metrics_service
         self.pending = pending_verification_service
         self.active_verifications = {}  # session_id -> asyncio.Task
+        self._status_semaphore = asyncio.Semaphore(20)
+
+    async def shutdown(self) -> None:
+        """Cancel in-flight polling tasks (best-effort)."""
+        tasks = list(self.active_verifications.values())
+        self.active_verifications.clear()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
     
     async def start_verification(
         self,
@@ -337,23 +348,56 @@ class VerificationService:
         """
         Poll Mercle SDK for verification status.
         
-        This runs in the background and checks every 3 seconds.
+        This runs in the background and polls with backoff to reduce load under spikes.
         """
-        timeout = timeout_seconds
-        poll_interval = 3  # Check every 3 seconds
-        max_polls = timeout // poll_interval
+        loop = asyncio.get_running_loop()
+        start_t = loop.time()
+        deadline_t = start_t + max(1, int(timeout_seconds))
+        base_interval = 3.0
+        max_interval = 15.0
+        consecutive_errors = 0
         
         try:
             logger.info(f"Polling verification for session {session_id}")
             
-            for i in range(max_polls):
-                await asyncio.sleep(poll_interval)
-                
-                # Check session status from Mercle
-                status_response = await self.mercle_sdk.check_status(session_id)
+            poll_num = 0
+            while loop.time() < deadline_t:
+                poll_num += 1
+
+                # Adaptive polling: fast at the start, slower later.
+                elapsed = loop.time() - start_t
+                interval = base_interval
+                if elapsed > 60:
+                    interval = 5.0
+                if elapsed > 180:
+                    interval = 10.0
+
+                # Backoff on transient errors.
+                if consecutive_errors:
+                    interval = min(max_interval, interval * (2 ** min(consecutive_errors, 3)))
+
+                # Small jitter to avoid stampedes.
+                jitter = random.uniform(-0.2, 0.2) * interval
+                sleep_for = max(0.5, interval + jitter)
+                sleep_for = min(sleep_for, max(0.0, deadline_t - loop.time()))
+                if sleep_for:
+                    await asyncio.sleep(sleep_for)
+
+                # Check session status from Mercle (bounded concurrency).
+                try:
+                    async with self._status_semaphore:
+                        status_response = await self.mercle_sdk.check_status(session_id)
+                    consecutive_errors = 0
+                except Exception:
+                    consecutive_errors += 1
+                    try:
+                        await self.metrics.incr_api_error("mercle_status")
+                    except Exception:
+                        pass
+                    continue
+
                 status = status_response.get("status")
-                
-                logger.debug(f"Session {session_id} status: {status} (poll {i+1}/{max_polls})")
+                logger.debug(f"Session {session_id} status: {status} (poll {poll_num})")
                 
                 if status == "approved":
                     # Success! User verified
@@ -414,6 +458,10 @@ class VerificationService:
             
             # Timeout reached without completion
             logger.warning(f"Verification timeout for session {session_id}")
+            try:
+                await self.metrics.incr_verification("timed_out")
+            except Exception:
+                pass
             await self._handle_timeout(
                 bot,
                 session_id,

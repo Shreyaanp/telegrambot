@@ -17,6 +17,9 @@ class Config:
     
     # Telegram Bot
     bot_token: str
+
+    # Database
+    database_url: str
     
     # Mercle SDK
     mercle_api_url: str
@@ -31,6 +34,9 @@ class Config:
     # Webhook (for production)
     webhook_path: str = "/webhook"
     webhook_url: str = ""
+
+    # Web admin endpoints (optional)
+    admin_api_token: str = ""
     
     # App URLs
     mercle_ios_url: str = "https://apps.apple.com/ng/app/mercle/id6751991316"
@@ -69,9 +75,14 @@ class Config:
         mercle_api_key = os.getenv("MERCLE_API_KEY")
         if not mercle_api_key:
             raise RuntimeError("MERCLE_API_KEY environment variable is required")
+
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise RuntimeError("DATABASE_URL environment variable is required")
         
         return cls(
             bot_token=bot_token,
+            database_url=database_url,
             mercle_api_url=mercle_api_url,
             mercle_api_key=mercle_api_key,
             mercle_api_secret=os.getenv("MERCLE_API_SECRET", ""),
@@ -80,6 +91,7 @@ class Config:
             action_on_timeout=os.getenv("ACTION_ON_TIMEOUT", "kick"),
             webhook_path=os.getenv("WEBHOOK_PATH", "/webhook"),
             webhook_url=os.getenv("WEBHOOK_URL", ""),
+            admin_api_token=os.getenv("ADMIN_API_TOKEN", ""),
             auto_delete_verification_messages=os.getenv("AUTO_DELETE_MESSAGES", "true").lower() == "true",
             send_welcome_message=os.getenv("SEND_WELCOME_MESSAGE", "true").lower() == "true",
         )

@@ -139,10 +139,12 @@
         const sessionId = params.get('session_id');
         const appName = params.get('app_name') || 'Telegram Verification Bot';
         const appDomain = params.get('app_domain') || 'telegram.mercle.ai';
+        const base64Qr = params.get('base64_qr') || '';
 
         log('📊 Session ID: ' + sessionId);
         log('📊 App Name: ' + appName);
         log('📊 App Domain: ' + appDomain);
+        if (base64Qr) log('📊 base64_qr: (present)');
 
         // ================================================================
         // BUILD DEEP LINKS
@@ -152,6 +154,10 @@
             app_name: appName,
             app_domain: appDomain
         });
+
+        if (base64Qr) {
+            deepLinkParams.set('base64_qr', base64Qr);
+        }
         
         const directLink = `mercle://scan-authenticate?${deepLinkParams.toString()}`;
         const intentUrl = `intent://scan-authenticate?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end`;
@@ -253,7 +259,12 @@
         // ================================================================
         // AUTO-START (ISSUE #2 FIXED - TRY BOTH METHODS!)
         // ================================================================
-        if (isMobile) {
+        if (!sessionId) {
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('title').textContent = 'Invalid Link';
+            document.getElementById('status').textContent = 'Missing session_id.';
+            document.getElementById('fallback').style.display = 'flex';
+        } else if (isMobile) {
             document.getElementById('status').textContent = 'Launching Mercle app...';
             
             // Try Intent URL first for Android
