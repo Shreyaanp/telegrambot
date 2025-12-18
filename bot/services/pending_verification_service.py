@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import random
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -19,6 +21,11 @@ _STARTING_SENTINEL = "starting"
 
 class PendingVerificationService:
     """DB-backed pending join verification records and expiry processing."""
+
+    def __init__(self) -> None:
+        # In-memory throttle to avoid writing GroupUserState on every single message.
+        # Key: (group_id, telegram_id) -> last_touch_monotonic_seconds
+        self._touch_throttle: dict[tuple[int, int], float] = {}
 
     async def _safe_remove_prompt(self, bot: Bot, pending: PendingJoinVerification, *, fallback_text: str | None = None) -> None:
         if not pending.prompt_message_id:
@@ -125,6 +132,41 @@ class PendingVerificationService:
                     row.first_verified_seen_at = now
                 row.last_seen_at = now
                 row.last_verification_session_id = mercle_session_id or row.last_verification_session_id
+
+    async def touch_group_user_throttled(
+        self,
+        group_id: int,
+        telegram_id: int,
+        *,
+        throttle_seconds: int = 900,
+        username: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> None:
+        """
+        Best-effort throttle wrapper for `touch_group_user()` to reduce DB writes from high-volume chats.
+        """
+        throttle_seconds = max(30, min(int(throttle_seconds or 900), 3600))
+        key = (int(group_id), int(telegram_id))
+        now = time.monotonic()
+        last = self._touch_throttle.get(key)
+        if last is not None and (now - last) < throttle_seconds:
+            return
+        self._touch_throttle[key] = now
+        # Bound memory usage in long-running processes.
+        if len(self._touch_throttle) > 50_000:
+            self._touch_throttle.clear()
+
+        await self.touch_group_user(
+            group_id,
+            telegram_id,
+            username=username,
+            first_name=first_name,
+            last_name=last_name,
+            source=source,
+            increment_join=False,
+        )
 
     async def set_prompt_message_id(self, pending_id: int, message_id: int):
         async with db.session() as session:
@@ -304,6 +346,134 @@ class PendingVerificationService:
             row.status = status
             row.decided_by = decided_by
             row.decided_at = now
+
+    async def mark_rules_accepted(self, pending_id: int, telegram_id: int) -> bool:
+        """
+        Mark rules accepted for a pending verification (DM flow).
+
+        Returns True if accepted (or already accepted); False if invalid/expired/not owned.
+        """
+        now = datetime.utcnow()
+        async with db.session() as session:
+            result = await session.execute(
+                select(PendingJoinVerification).where(PendingJoinVerification.id == int(pending_id))
+            )
+            row = result.scalar_one_or_none()
+            if (
+                not row
+                or int(row.telegram_id) != int(telegram_id)
+                or row.status != "pending"
+                or row.expires_at < now
+            ):
+                return False
+            if getattr(row, "rules_accepted_at", None) is not None:
+                return True
+            row.rules_accepted_at = now
+            return True
+
+    async def ensure_captcha(self, pending_id: int, telegram_id: int, *, style: str) -> tuple[str, str] | None:
+        """
+        Ensure a captcha is present for this pending verification.
+
+        Supported styles:
+          - button: choose a color word
+          - math: simple addition
+        """
+        now = datetime.utcnow()
+        style = str(style or "").strip() or "button"
+        if style not in ("button", "math"):
+            style = "button"
+
+        async with db.session() as session:
+            result = await session.execute(
+                select(PendingJoinVerification).where(PendingJoinVerification.id == int(pending_id))
+            )
+            row = result.scalar_one_or_none()
+            if (
+                not row
+                or int(row.telegram_id) != int(telegram_id)
+                or row.status != "pending"
+                or row.expires_at < now
+            ):
+                return None
+
+            existing_kind = str(getattr(row, "captcha_kind", "") or "")
+            existing_expected = str(getattr(row, "captcha_expected", "") or "")
+            if existing_kind and existing_expected and existing_kind.split(":", 1)[0] == style:
+                return existing_kind, existing_expected
+
+            # Reset captcha state (style change or missing fields).
+            row.captcha_attempts = 0
+            row.captcha_solved_at = None
+
+            if style == "math":
+                a = random.randint(2, 9)
+                b = random.randint(2, 9)
+                row.captcha_kind = f"math:{a}:{b}"
+                row.captcha_expected = str(a + b)
+                return str(row.captcha_kind), str(row.captcha_expected)
+
+            # style == "button"
+            colors = ["blue", "green", "red", "yellow"]
+            expected = random.choice(colors)
+            row.captcha_kind = "button"
+            row.captcha_expected = expected
+            return str(row.captcha_kind), str(row.captcha_expected)
+
+    async def submit_captcha(
+        self,
+        pending_id: int,
+        telegram_id: int,
+        *,
+        answer: str,
+        max_attempts: int,
+    ) -> dict[str, int | str] | None:
+        """
+        Submit a captcha answer for a pending verification.
+
+        Returns dict with:
+          - status: solved|wrong|failed|already_solved|missing
+          - attempts: current attempts
+          - remaining: attempts left
+        """
+        now = datetime.utcnow()
+        max_attempts = max(1, min(int(max_attempts or 3), 10))
+        answer = str(answer or "").strip().lower()
+
+        async with db.session() as session:
+            result = await session.execute(
+                select(PendingJoinVerification).where(PendingJoinVerification.id == int(pending_id))
+            )
+            row = result.scalar_one_or_none()
+            if (
+                not row
+                or int(row.telegram_id) != int(telegram_id)
+                or row.status != "pending"
+                or row.expires_at < now
+            ):
+                return None
+
+            attempts = int(getattr(row, "captcha_attempts", 0) or 0)
+            if getattr(row, "captcha_solved_at", None) is not None:
+                remaining = max(0, max_attempts - attempts)
+                return {"status": "already_solved", "attempts": attempts, "remaining": remaining}
+
+            expected = str(getattr(row, "captcha_expected", "") or "").strip().lower()
+            if not expected:
+                remaining = max(0, max_attempts - attempts)
+                return {"status": "missing", "attempts": attempts, "remaining": remaining}
+
+            if answer and answer == expected:
+                row.captcha_solved_at = now
+                remaining = max(0, max_attempts - attempts)
+                return {"status": "solved", "attempts": attempts, "remaining": remaining}
+
+            attempts = attempts + 1
+            row.captcha_attempts = attempts
+            remaining = max(0, max_attempts - attempts)
+            if attempts >= max_attempts:
+                return {"status": "failed", "attempts": attempts, "remaining": 0}
+            return {"status": "wrong", "attempts": attempts, "remaining": remaining}
 
     async def find_expired(self) -> list[PendingJoinVerification]:
         now = datetime.utcnow()

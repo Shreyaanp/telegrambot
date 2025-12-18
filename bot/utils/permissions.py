@@ -4,6 +4,7 @@ from typing import Optional
 from functools import wraps
 from aiogram.types import Message, CallbackQuery
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramNotFound
 from database.db import db
 from database.models import Permission, GroupUserState
 from sqlalchemy import select
@@ -38,6 +39,14 @@ async def is_user_admin(bot: Bot, chat_id: int, user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(chat_id, user_id)
         return member.status in ["creator", "administrator"]
+    except (TelegramForbiddenError, TelegramNotFound) as e:
+        # Common cases: bot kicked from chat, chat/user not accessible.
+        logger.info(f"Admin check unavailable for chat={chat_id} user={user_id}: {e}")
+        return False
+    except TelegramBadRequest as e:
+        # Example: "chat not found" for stale/invalid ids.
+        logger.info(f"Admin check failed for chat={chat_id} user={user_id}: {e}")
+        return False
     except Exception as e:
         logger.error(f"Error checking admin status: {e}")
         return False
@@ -58,6 +67,12 @@ async def is_bot_admin(bot: Bot, chat_id: int) -> bool:
         bot_info = await bot.get_me()
         member = await bot.get_chat_member(chat_id, bot_info.id)
         return member.status in ["administrator"]
+    except (TelegramForbiddenError, TelegramNotFound) as e:
+        logger.info(f"Bot admin check unavailable for chat={chat_id}: {e}")
+        return False
+    except TelegramBadRequest as e:
+        logger.info(f"Bot admin check failed for chat={chat_id}: {e}")
+        return False
     except Exception as e:
         logger.error(f"Error checking bot admin status: {e}")
         return False
@@ -81,6 +96,9 @@ async def can_restrict_members(bot: Bot, chat_id: int, user_id: int) -> bool:
             return True
         if member.status == "administrator":
             return member.can_restrict_members
+        return False
+    except (TelegramForbiddenError, TelegramNotFound, TelegramBadRequest) as e:
+        logger.info(f"Restrict permission check failed for chat={chat_id} user={user_id}: {e}")
         return False
     except Exception as e:
         logger.error(f"Error checking restrict permission: {e}")
@@ -153,6 +171,9 @@ async def can_delete_messages(bot: Bot, chat_id: int, user_id: int) -> bool:
         if member.status == "administrator":
             return member.can_delete_messages
         return False
+    except (TelegramForbiddenError, TelegramNotFound, TelegramBadRequest) as e:
+        logger.info(f"Delete permission check failed for chat={chat_id} user={user_id}: {e}")
+        return False
     except Exception as e:
         logger.error(f"Error checking delete permission: {e}")
         return False
@@ -166,6 +187,9 @@ async def can_pin_messages(bot: Bot, chat_id: int, user_id: int) -> bool:
             return True
         if member.status == "administrator":
             return getattr(member, "can_pin_messages", False)
+        return False
+    except (TelegramForbiddenError, TelegramNotFound, TelegramBadRequest) as e:
+        logger.info(f"Pin permission check failed for chat={chat_id} user={user_id}: {e}")
         return False
     except Exception as e:
         logger.error(f"Error checking pin permission: {e}")
@@ -246,7 +270,7 @@ def require_role_or_admin(action: str):
                 return
             if not await is_user_admin(message.bot, message.chat.id, message.from_user.id):
                 if not await has_role_permission(message.chat.id, message.from_user.id, action):
-                    await message.reply("❌ Not allowed.")
+                    await message.reply(f"❌ Not allowed. You need to be a Telegram admin or have a role with `{action}` permission.")
                     return
             if not await is_bot_admin(message.bot, message.chat.id):
                 await message.reply("❌ I need to be an admin to do this.")
@@ -280,7 +304,9 @@ def require_restrict_permission(func=None, *, action: str = "kick"):
 
         if not await can_restrict_members(message.bot, message.chat.id, message.from_user.id):
             if not await has_role_permission(message.chat.id, message.from_user.id, action):
-                await message.reply("❌ Not allowed.")
+                await message.reply(
+                    f"❌ Not allowed. You need Telegram permission to restrict members or a role with `{action}` permission."
+                )
                 return
 
         if not await is_bot_admin(message.bot, message.chat.id):
@@ -309,7 +335,7 @@ def require_telegram_admin(func):
     return wrapper
 
 
-async def extract_user_and_reason(message: Message) -> tuple[Optional[int], Optional[str]]:
+async def extract_user_and_reason(message: Message, *, user_arg_index: int = 1) -> tuple[Optional[int], Optional[str]]:
     """
     Extract user ID and reason from a command message.
     
@@ -326,23 +352,27 @@ async def extract_user_and_reason(message: Message) -> tuple[Optional[int], Opti
     """
     user_id = None
     reason = None
+
+    user_arg_index = max(1, int(user_arg_index))
     
     # Check if replying to a message
     if message.reply_to_message:
-        user_id = message.reply_to_message.from_user.id
-        # Rest of command is reason
-        parts = message.text.split(maxsplit=1)
-        reason = parts[1] if len(parts) > 1 else None
-        return user_id, reason
+        tokens = (message.text or "").split()
+        reason = " ".join(tokens[user_arg_index:]).strip() or None
+        if not message.reply_to_message.from_user:
+            return None, reason
+        if getattr(message.reply_to_message.from_user, "is_bot", False):
+            return None, reason
+        return int(message.reply_to_message.from_user.id), reason
     
     # Parse command arguments
-    parts = message.text.split(maxsplit=2)
-    if len(parts) < 2:
+    tokens = (message.text or "").split()
+    if len(tokens) <= user_arg_index:
         return None, None
     
-    # parts[0] is command, parts[1] is user, parts[2] is reason (if exists)
-    user_arg = parts[1]
-    reason = parts[2] if len(parts) > 2 else None
+    # tokens[0] is command, tokens[user_arg_index] is user, tokens[user_arg_index+1:] is reason
+    user_arg = tokens[user_arg_index]
+    reason = " ".join(tokens[user_arg_index + 1 :]).strip() or None
     
     # Check if it's a mention by username
     if user_arg.startswith("@"):
@@ -371,9 +401,9 @@ async def extract_user_and_reason(message: Message) -> tuple[Optional[int], Opti
             logger.debug(f"GroupUserState lookup failed for @{username}: {e}")
         # Optional: try getChat if bot has dialog with the user (best effort)
         try:
-            chat_obj = await message.bot.get_chat(username)
-            if chat_obj and chat_obj.id:
-                return chat_obj.id, reason
+            chat_obj = await message.bot.get_chat(f"@{username}")
+            if chat_obj and getattr(chat_obj, "type", None) == "private" and chat_obj.id:
+                return int(chat_obj.id), reason
         except Exception as e:
             logger.debug(f"get_chat fallback failed for @{username}: {e}")
         # Cannot reliably resolve non-admin usernames without a reply or ID

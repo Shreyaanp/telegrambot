@@ -1,5 +1,6 @@
 """Admin command handlers - kick, ban, warn, whitelist, settings."""
 import logging
+from datetime import datetime, timedelta
 from html import escape
 from aiogram import Router
 from aiogram.filters import Command
@@ -33,7 +34,7 @@ from aiogram import Bot
 from bot.utils.permissions import can_pin_messages
 from database.models import Permission
 from database.db import db
-from database.models import User, VerificationSession, PendingJoinVerification, Group
+from database.models import User, VerificationSession, PendingJoinVerification, Group, GroupUserState
 from sqlalchemy import select, func
 
 logger = logging.getLogger(__name__)
@@ -225,8 +226,12 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             await message.reply("❌ This command only works in groups.")
             return
 
-        # Allow Telegram admins OR role users who can warn/kick.
-        if not (await can_user(message.bot, message.chat.id, message.from_user.id, "warn") or await can_user(message.bot, message.chat.id, message.from_user.id, "kick")):
+        # Allow Telegram admins OR role users who can warn/kick/ban.
+        if not (
+            await can_user(message.bot, message.chat.id, message.from_user.id, "warn")
+            or await can_user(message.bot, message.chat.id, message.from_user.id, "kick")
+            or await can_user(message.bot, message.chat.id, message.from_user.id, "ban")
+        ):
             await message.reply("❌ Not allowed.")
             return
 
@@ -237,9 +242,13 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         if not message.reply_to_message:
             await message.reply("Reply to a user's message with /actions to manage them.")
             return
-        
+
+        if not message.reply_to_message.from_user or message.reply_to_message.from_user.is_bot:
+            await message.reply("❌ Reply to a real user's message (not a bot/system message).")
+            return
+
         target_id = message.reply_to_message.from_user.id
-        target_name = message.reply_to_message.from_user.full_name if message.reply_to_message.from_user else str(target_id)
+        target_name = message.reply_to_message.from_user.full_name
         text = f"<b>Actions</b>\nTarget: {target_name} (<code>{target_id}</code>)"
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -541,6 +550,11 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         if not user_id:
             # Check own warnings
             user_id = message.from_user.id
+        elif int(user_id) != int(message.from_user.id):
+            # Only moderators/admins can view other users' warnings.
+            if not await can_user(message.bot, message.chat.id, message.from_user.id, "warn"):
+                await message.reply("❌ Not allowed.", parse_mode="HTML")
+                return
         
         warnings = await container.admin_service.get_warnings(
             group_id=message.chat.id,
@@ -565,7 +579,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         
         warns_text += "💡 Use `/resetwarns` to clear warnings (admin only)"
         
-        await message.reply(warns_text)
+        await message.reply(warns_text, parse_mode="Markdown")
     
     @router.message(Command("resetwarns"))
     @require_admin
@@ -631,13 +645,16 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         action = parts[1].lower() if len(parts) > 1 else ""
         
         if action == "add":
-            user_id, reason = await extract_user_and_reason(message)
+            user_id, reason = await extract_user_and_reason(message, user_arg_index=2)
             
             if not user_id:
                 await message.reply(
                     "❌ **How to use /whitelist add:**\n\n"
                     "Reply to a user's message:\n"
-                    "`/whitelist add [reason]`"
+                    "`/whitelist add [reason]`\n\n"
+                    "Or provide a user:\n"
+                    "`/whitelist add @username [reason]`\n"
+                    "`/whitelist add <user_id> [reason]`"
                 )
                 return
             
@@ -659,13 +676,16 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
                 await message.reply("ℹ️ User is already whitelisted.")
         
         elif action == "remove":
-            user_id, _ = await extract_user_and_reason(message)
+            user_id, _ = await extract_user_and_reason(message, user_arg_index=2)
             
             if not user_id:
                 await message.reply(
                     "❌ **How to use /whitelist remove:**\n\n"
                     "Reply to a user's message:\n"
-                    "`/whitelist remove`"
+                    "`/whitelist remove`\n\n"
+                    "Or provide a user:\n"
+                    "`/whitelist remove @username`\n"
+                    "`/whitelist remove <user_id>`"
                 )
                 return
             
@@ -716,6 +736,318 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
                 await message.reply("❌ Not allowed.")
                 return
         await send_perm_check(message.bot, message.chat.id, message.from_user.id, reply_to=message)
+
+    @router.message(Command("fed"))
+    @require_role_or_admin("settings")
+    async def cmd_fed(message: Message):
+        """
+        Federation management (shared banlist across multiple groups).
+
+        Usage:
+          /fed                      -> show current federation
+          /fed create <name>        -> create federation and attach this group
+          /fed set <federation_id>  -> attach this group to an existing federation (owner-only)
+          /fed off                  -> detach this group (owner-only)
+        """
+        if message.chat.type not in ["group", "supergroup"]:
+            return
+
+        group_id = int(message.chat.id)
+        await container.group_service.register_group(group_id, message.chat.title)
+
+        parts = (message.text or "").split(maxsplit=2)
+        sub = parts[1].strip().lower() if len(parts) > 1 else ""
+
+        if not sub:
+            fid = await container.federation_service.get_group_federation_id(group_id)
+            if not fid:
+                await message.reply(
+                    "🌐 <b>Federation</b>: (none)\n\n"
+                    "Create one: <code>/fed create MyFed</code>\n"
+                    "Or attach: <code>/fed set 123</code>",
+                    parse_mode="HTML",
+                )
+                return
+            fed = await container.federation_service.get_federation(fid)
+            if not fed:
+                await message.reply(
+                    "🌐 <b>Federation</b>: (missing)\n\n"
+                    "Detach: <code>/fed off</code>",
+                    parse_mode="HTML",
+                )
+                return
+            groups = await container.federation_service.list_federation_groups(fid)
+            await message.reply(
+                "🌐 <b>Federation</b>\n"
+                f"id: <code>{fid}</code>\n"
+                f"name: <code>{escape(getattr(fed, 'name', '') or '')}</code>\n"
+                f"owner: <code>{int(getattr(fed, 'owner_id', 0) or 0)}</code>\n"
+                f"groups: <code>{len(groups)}</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        if sub in ("off", "detach", "leave"):
+            try:
+                await container.federation_service.set_group_federation(
+                    group_id=group_id,
+                    federation_id=None,
+                    actor_id=int(message.from_user.id),
+                )
+            except PermissionError as e:
+                await message.reply(f"❌ {escape(str(e))}", parse_mode="HTML")
+                return
+            await message.reply("✅ Federation detached for this group.", parse_mode="HTML")
+            return
+
+        if sub == "create":
+            name = parts[2].strip() if len(parts) > 2 else ""
+            if not name:
+                await message.reply("Usage: <code>/fed create MyFed</code>", parse_mode="HTML")
+                return
+            try:
+                fid = await container.federation_service.create_federation(name=name, owner_id=int(message.from_user.id))
+                await container.federation_service.set_group_federation(
+                    group_id=group_id,
+                    federation_id=fid,
+                    actor_id=int(message.from_user.id),
+                )
+            except ValueError as e:
+                await message.reply(f"❌ {escape(str(e))}", parse_mode="HTML")
+                return
+            await message.reply(
+                "✅ Federation created and attached.\n"
+                f"id: <code>{fid}</code>\n\n"
+                "Use <code>/fban</code> to ban across the federation.",
+                parse_mode="HTML",
+            )
+            return
+
+        if sub == "set":
+            arg = parts[2].strip() if len(parts) > 2 else ""
+            if not arg or not arg.isdigit():
+                await message.reply("Usage: <code>/fed set 123</code>", parse_mode="HTML")
+                return
+            fid = int(arg)
+            try:
+                await container.federation_service.set_group_federation(
+                    group_id=group_id,
+                    federation_id=fid,
+                    actor_id=int(message.from_user.id),
+                )
+            except ValueError as e:
+                await message.reply(f"❌ {escape(str(e))}", parse_mode="HTML")
+                return
+            except PermissionError as e:
+                await message.reply(f"❌ {escape(str(e))}", parse_mode="HTML")
+                return
+            await message.reply(f"✅ Attached this group to federation <code>{fid}</code>.", parse_mode="HTML")
+            return
+
+        await message.reply(
+            "Usage:\n"
+            "<code>/fed</code>\n"
+            "<code>/fed create MyFed</code>\n"
+            "<code>/fed set 123</code>\n"
+            "<code>/fed off</code>",
+            parse_mode="HTML",
+        )
+
+    @router.message(Command("fban"))
+    @require_role_or_admin("ban")
+    async def cmd_fban(message: Message):
+        """Federation ban (ban across all groups in the federation)."""
+        if message.chat.type not in ["group", "supergroup"]:
+            return
+        group_id = int(message.chat.id)
+        fid = await container.federation_service.get_group_federation_id(group_id)
+        if not fid:
+            await message.reply("No federation for this group. Use <code>/fed create ...</code>.", parse_mode="HTML")
+            return
+
+        user_id, reason = await extract_user_and_reason(message)
+        if not user_id:
+            await message.reply("Reply to a user, or pass an id: <code>/fban 123 [reason]</code>", parse_mode="HTML")
+            return
+        if await is_user_admin(message.bot, group_id, int(user_id)):
+            await message.reply("❌ Can't federation-ban a Telegram admin.", parse_mode="HTML")
+            return
+
+        await container.federation_service.ban_user(
+            federation_id=fid,
+            telegram_id=int(user_id),
+            banned_by=int(message.from_user.id),
+            reason=reason,
+        )
+
+        groups = await container.federation_service.list_federation_groups(fid)
+        ok = 0
+        fail = 0
+        for g in groups:
+            gid = int(g["group_id"])
+            try:
+                await message.bot.ban_chat_member(chat_id=gid, user_id=int(user_id))
+                ok += 1
+            except Exception:
+                fail += 1
+
+        try:
+            await container.admin_service.log_custom_action(
+                message.bot,
+                group_id,
+                actor_id=int(message.from_user.id),
+                target_id=int(user_id),
+                action="fban",
+                reason=reason or f"Federation ban (fed={fid})",
+            )
+        except Exception:
+            pass
+
+        await container.metrics_service.incr_admin_action("fban", group_id)
+        await message.reply(
+            f"🚫 Federation banned <code>{int(user_id)}</code> (fed <code>{fid}</code>).\n"
+            f"Applied: <code>{ok}</code> ok, <code>{fail}</code> failed.",
+            parse_mode="HTML",
+        )
+
+    @router.message(Command("funban"))
+    @require_role_or_admin("ban")
+    async def cmd_funban(message: Message):
+        """Federation unban (remove from federation banlist and unban in all federation groups)."""
+        if message.chat.type not in ["group", "supergroup"]:
+            return
+        group_id = int(message.chat.id)
+        fid = await container.federation_service.get_group_federation_id(group_id)
+        if not fid:
+            await message.reply("No federation for this group.", parse_mode="HTML")
+            return
+
+        user_id, _reason = await extract_user_and_reason(message)
+        if not user_id:
+            await message.reply("Reply to a user, or pass an id: <code>/funban 123</code>", parse_mode="HTML")
+            return
+
+        removed = await container.federation_service.unban_user(federation_id=fid, telegram_id=int(user_id))
+
+        groups = await container.federation_service.list_federation_groups(fid)
+        ok = 0
+        fail = 0
+        for g in groups:
+            gid = int(g["group_id"])
+            try:
+                await message.bot.unban_chat_member(chat_id=gid, user_id=int(user_id))
+                ok += 1
+            except Exception:
+                fail += 1
+
+        try:
+            await container.admin_service.log_custom_action(
+                message.bot,
+                group_id,
+                actor_id=int(message.from_user.id),
+                target_id=int(user_id),
+                action="funban",
+                reason=f"Federation unban (fed={fid})",
+            )
+        except Exception:
+            pass
+
+        await container.metrics_service.incr_admin_action("funban", group_id)
+        await message.reply(
+            f"✅ Federation unban <code>{int(user_id)}</code> (fed <code>{fid}</code>)\n"
+            f"Removed from list: <code>{'yes' if removed else 'no'}</code>\n"
+            f"Applied: <code>{ok}</code> ok, <code>{fail}</code> failed.",
+            parse_mode="HTML",
+        )
+
+    @router.message(Command("raid"))
+    @require_role_or_admin("settings")
+    async def cmd_raid(message: Message):
+        """
+        Enable/disable anti-raid lockdown mode.
+
+        Usage:
+          /raid               -> show status
+          /raid 15            -> enable for 15 minutes
+          /raid 15m           -> enable for 15 minutes
+          /raid off           -> disable
+        """
+        if message.chat.type not in ["group", "supergroup"]:
+            return
+
+        group_id = int(message.chat.id)
+        await container.group_service.register_group(group_id, message.chat.title)
+
+        parts = (message.text or "").split(maxsplit=1)
+        arg = parts[1].strip().lower() if len(parts) > 1 else ""
+
+        if not arg:
+            group = await container.group_service.get_or_create_group(group_id)
+            until = getattr(group, "raid_mode_until", None)
+            if until and until > datetime.utcnow():
+                remaining = max(0, int((until - datetime.utcnow()).total_seconds()))
+                mins = max(1, (remaining + 59) // 60)
+                await message.reply(
+                    f"🛡️ <b>Raid mode</b>: On\nRemaining: <code>{mins}</code> min",
+                    parse_mode="HTML",
+                )
+                return
+            await message.reply(
+                "🛡️ <b>Raid mode</b>: Off\n\n"
+                "Enable: <code>/raid 15</code>\n"
+                "Disable: <code>/raid off</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        if arg in ("off", "0", "stop", "disable"):
+            await container.group_service.update_setting(group_id, raid_mode_enabled=False)
+            try:
+                await container.admin_service.log_custom_action(
+                    message.bot,
+                    group_id,
+                    actor_id=int(message.from_user.id),
+                    target_id=None,
+                    action="raid_off",
+                    reason="Raid mode disabled",
+                )
+            except Exception:
+                pass
+            await message.reply("🛡️ Raid mode disabled.", parse_mode="HTML")
+            return
+
+        token = arg.split()[0]
+        if token.endswith("m") and token[:-1].isdigit():
+            minutes = int(token[:-1])
+        elif token.isdigit():
+            minutes = int(token)
+        else:
+            await message.reply(
+                "Usage:\n"
+                "<code>/raid 15</code> (minutes)\n"
+                "<code>/raid off</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        minutes = max(1, min(int(minutes), 7 * 24 * 60))
+        await container.group_service.update_setting(group_id, raid_mode_enabled=True, raid_mode_minutes=minutes)
+        try:
+            await container.admin_service.log_custom_action(
+                message.bot,
+                group_id,
+                actor_id=int(message.from_user.id),
+                target_id=None,
+                action="raid_on",
+                reason=f"Enabled for {minutes} minutes",
+            )
+        except Exception:
+            pass
+        await message.reply(
+            f"🛡️ Raid mode enabled for <code>{minutes}</code> minutes.\n"
+            "New joins/join requests will be blocked (unless verified/whitelisted).",
+            parse_mode="HTML",
+        )
 
     @router.message(Command("status"))
     async def cmd_status(message: Message):
@@ -903,7 +1235,11 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         except Exception:
             logs_enabled = False
 
-        ack = "✅ Report sent to admins." if logs_enabled else "✅ Report recorded (logs are off for this group)."
+        ack = (
+            "✅ Report sent to admins."
+            if logs_enabled
+            else "✅ Report recorded. Admins: enable Logs in <code>/menu</code> → Logs."
+        )
         try:
             await message.reply(ack, parse_mode="HTML")
         except Exception:
@@ -1131,18 +1467,44 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             if not roles:
                 await message.reply("ℹ️ No roles assigned in this group.")
                 return
+            username_by_id: dict[int, str] = {}
+            try:
+                ids = [int(r.telegram_id) for r in roles]
+                async with db.session() as session:
+                    result = await session.execute(
+                        select(GroupUserState.telegram_id, GroupUserState.username).where(
+                            GroupUserState.group_id == message.chat.id,
+                            GroupUserState.telegram_id.in_(ids),
+                        )
+                    )
+                    for tid, uname in result.all():
+                        if tid is None or not uname:
+                            continue
+                        username_by_id[int(tid)] = str(uname)
+            except Exception:
+                username_by_id = {}
+
             text = "🧑‍💼 **Roles**\n\n"
             for r in roles[:15]:
-                text += f"- `{r.telegram_id}` as *{r.role}*\n"
+                uid = int(r.telegram_id)
+                uname = username_by_id.get(uid)
+                who = f"@{uname} (`{uid}`)" if uname else f"`{uid}`"
+                text += f"- {who} as *{r.role}*\n"
             if len(roles) > 15:
                 text += f"...and {len(roles)-15} more."
             await message.reply(text, parse_mode="Markdown")
             return
         
         action = parts[1].lower()
-        if action == "add" and len(parts) >= 4:
-            user_id, _ = await extract_user_and_reason(message)
-            role = parts[3].lower() if len(parts) >= 4 else "moderator"
+        if action == "add":
+            # /roles add @user moderator
+            # (reply) /roles add moderator
+            if message.reply_to_message and message.reply_to_message.from_user:
+                user_id = int(message.reply_to_message.from_user.id)
+                role = parts[2].lower() if len(parts) >= 3 else "moderator"
+            else:
+                user_id, _ = await extract_user_and_reason(message, user_arg_index=2)
+                role = parts[3].lower() if len(parts) >= 4 else "moderator"
             if not user_id:
                 await message.reply("Reply to the user or provide their ID for /roles add.")
                 return
@@ -1154,7 +1516,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             )
             await message.reply(f"✅ Assigned role *{perm.role}* to `{user_id}`.", parse_mode="Markdown")
         elif action == "show":
-            user_id, _ = await extract_user_and_reason(message)
+            user_id, _ = await extract_user_and_reason(message, user_arg_index=2)
             if not user_id:
                 await message.reply("Reply to the user or provide their ID for /roles show.")
                 return
@@ -1164,13 +1526,32 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
                 return
             flags = container.roles_service.format_flags(perm)
             await message.reply(f"🧑‍💼 Role for `{user_id}`: *{perm.role}*\n{flags}", parse_mode="Markdown")
-        elif action == "set" and len(parts) >= 5:
-            user_id, _ = await extract_user_and_reason(message)
-            if not user_id:
-                await message.reply("Reply to the user or provide their ID for /roles set.")
-                return
-            perm_key = parts[3].lower()
-            val = parts[4].lower()
+        elif action == "set":
+            # /roles set @user kick on
+            # (reply) /roles set kick on
+            if message.reply_to_message and message.reply_to_message.from_user:
+                user_id = int(message.reply_to_message.from_user.id)
+                if len(parts) < 4:
+                    await message.reply(
+                        "Usage:\n"
+                        "`/roles set @user <perm> on|off`\n"
+                        "(reply) `/roles set <perm> on|off`",
+                        parse_mode="Markdown",
+                    )
+                    return
+                perm_key = parts[2].lower()
+                val = parts[3].lower()
+            else:
+                if len(parts) < 5:
+                    await message.reply("Usage: `/roles set @user <perm> on|off`", parse_mode="Markdown")
+                    return
+                user_id, _ = await extract_user_and_reason(message, user_arg_index=2)
+                if not user_id:
+                    await message.reply("Reply to the user or provide their ID for /roles set.")
+                    return
+                perm_key = parts[3].lower()
+                val = parts[4].lower()
+
             if val not in ("on", "off"):
                 await message.reply("Value must be `on` or `off`.")
                 return
@@ -1192,7 +1573,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             flags = container.roles_service.format_flags(perm) if perm else ""
             await message.reply(f"✅ Updated `{perm_key}` for `{user_id}`.\n{flags}", parse_mode="Markdown")
         elif action == "remove":
-            user_id, _ = await extract_user_and_reason(message)
+            user_id, _ = await extract_user_and_reason(message, user_arg_index=2)
             if not user_id:
                 await message.reply("Reply to the user or provide their ID for /roles remove.")
                 return
@@ -1284,9 +1665,11 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         # Permission checks: telegram admin OR custom role
         is_admin = await is_user_admin(callback.bot, chat_id, actor_id)
         if not is_admin:
-            needed = "kick" if action in ("kick", "ban", "tempban", "mute", "unmute", "confirm_kick", "confirm_ban") else "warn"
-            if action in ("purge_menu", "confirm_purge", "purge"):
+            needed = "warn"
+            if action in ("kick", "confirm_kick", "mute", "unmute", "purge_menu", "confirm_purge", "purge"):
                 needed = "kick"
+            if action in ("ban", "confirm_ban", "tempban"):
+                needed = "ban"
             if not await has_role_permission(chat_id, actor_id, needed):
                 await callback.answer("Not allowed", show_alert=True)
                 return
@@ -1300,6 +1683,11 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             duration = int(duration_str)
         except ValueError:
             await callback.answer("Invalid target.", show_alert=True)
+            return
+
+        bot_me = await callback.bot.get_me()
+        if int(target_id) == int(bot_me.id):
+            await callback.answer("Not allowed (can't target the bot).", show_alert=True)
             return
 
         if action == "close":
@@ -1343,7 +1731,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
 
         # Actions requiring restrict need bot + actor capability
         if action in ("kick", "ban", "tempban", "mute", "unmute"):
-            if not await can_restrict_members(callback.bot, chat_id, (await callback.bot.get_me()).id):
+            if not await can_restrict_members(callback.bot, chat_id, int(bot_me.id)):
                 await callback.answer("I need Restrict members.", show_alert=True)
                 return
 

@@ -7,6 +7,7 @@ from aiogram.types import ChatPermissions
 from html import escape
 from sqlalchemy import select, func, and_
 
+from bot.utils.chat_permissions import get_chat_default_permissions, muted_permissions
 from database.db import db
 from database.models import Warning, AdminLog, Group
 
@@ -210,7 +211,7 @@ class AdminService:
             await bot.restrict_chat_member(
                 chat_id=group_id,
                 user_id=user_id,
-                permissions=ChatPermissions(can_send_messages=False),
+                permissions=muted_permissions(),
                 until_date=until_date
             )
             
@@ -260,19 +261,11 @@ class AdminService:
         """
         try:
             # Unmute the user (restore all permissions)
+            perms = await get_chat_default_permissions(bot, int(group_id))
             await bot.restrict_chat_member(
                 chat_id=group_id,
                 user_id=user_id,
-                permissions=ChatPermissions(
-                    can_send_messages=True,
-                    can_send_media_messages=True,
-                    can_send_polls=True,
-                    can_send_other_messages=True,
-                    can_add_web_page_previews=True,
-                    can_change_info=False,
-                    can_invite_users=True,
-                    can_pin_messages=False
-                )
+                permissions=perms,
             )
             
             # Log the action

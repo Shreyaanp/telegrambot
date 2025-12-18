@@ -22,6 +22,8 @@ from bot.services.broadcast_service import BroadcastService
 from bot.services.sequence_service import SequenceService
 from bot.services.rules_service import RulesService
 from bot.services.ticket_service import TicketService
+from bot.services.dm_subscriber_service import DmSubscriberService
+from bot.services.federation_service import FederationService
 from bot.services.token_service import TokenService
 from bot.services.panel_service import PanelService
 from bot.services.pending_verification_service import PendingVerificationService
@@ -53,6 +55,8 @@ class ServiceContainer:
     sequence_service: SequenceService
     rules_service: RulesService
     ticket_service: TicketService
+    dm_subscriber_service: DmSubscriberService
+    federation_service: FederationService
     token_service: TokenService
     panel_service: PanelService
     pending_verification_service: PendingVerificationService
@@ -80,6 +84,8 @@ class ServiceContainer:
         sequence_service = SequenceService(jobs=jobs_service)
         rules_service = RulesService()
         ticket_service = TicketService()
+        dm_subscriber_service = DmSubscriberService()
+        federation_service = FederationService()
         pending_verification_service = PendingVerificationService()
         verification_service = VerificationService(
             config,
@@ -125,6 +131,8 @@ class ServiceContainer:
             sequence_service=sequence_service,
             rules_service=rules_service,
             ticket_service=ticket_service,
+            dm_subscriber_service=dm_subscriber_service,
+            federation_service=federation_service,
             token_service=token_service,
             panel_service=panel_service,
             pending_verification_service=pending_verification_service,

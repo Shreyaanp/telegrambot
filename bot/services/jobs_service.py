@@ -94,7 +94,14 @@ class JobsService:
 
             return claimed
 
-    async def reschedule(self, job_id: int, *, run_at: datetime, last_error: str | None = None) -> None:
+    async def reschedule(
+        self,
+        job_id: int,
+        *,
+        run_at: datetime,
+        last_error: str | None = None,
+        payload_patch: dict[str, Any] | None = None,
+    ) -> None:
         async with db.session() as session:
             job = await session.get(Job, int(job_id))
             if not job:
@@ -105,6 +112,16 @@ class JobsService:
             job.locked_by = None
             if last_error is not None:
                 job.last_error = last_error[:4000]
+            if payload_patch:
+                raw = getattr(job, "payload", "") or "{}"
+                try:
+                    data = json.loads(raw)
+                except Exception:
+                    data = {}
+                if not isinstance(data, dict):
+                    data = {}
+                data.update(payload_patch)
+                job.payload = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
             job.updated_at = datetime.utcnow()
 
     async def mark_done(self, job_id: int) -> None:
@@ -132,4 +149,3 @@ class JobsService:
         async with db.session() as session:
             result = await session.execute(select(func.count()).select_from(Job).where(Job.status == "pending"))
             return int(result.scalar() or 0)
-

@@ -1,106 +1,25 @@
-# Launch Checklist / TODO (tracked)
+# telegrambot — TODO (from code + logs scan)
 
-This file is a working checklist of what’s done and what’s left before launch. It is not “design”; it’s execution tracking.
+## P0 — stability (fix/verify before serious testing)
+- [ ] Live-test: post-join verification “unmute” restores media permissions (photos/docs/etc).
+- [ ] Live-test: admin `/actions` + `/unmute` can’t target the bot (replying to bot messages should be blocked).
+- [ ] Live-test: moderation commands work with `@username` (fallback `getChat(@username)`), otherwise show a clear “need reply or user id” message.
+- [ ] Investigate/handle webhook update crashes caused by Telegram “chat not found” (seen during `/start cfg_*`): treat as a handled/expected error, not a server error.
+- [ ] Confirm Mercle identity-link conflicts are handled cleanly (no DB IntegrityError; user sees “account already linked” message).
 
-## Done
-- [x] Move DB runtime to Postgres-only (`DATABASE_URL` required) and remove SQLite dependency.
-- [x] Remove runtime SQLite migration/back-compat wrapper; schema is managed by Alembic (startup requires `alembic_version`).
-- [x] Add/ensure partial unique index `uq_pv_active` for active pending join verifications.
-- [x] Refresh `flow.md` to match current implementation.
-- [x] Add `.env.example` with required environment variables.
-- [x] Fix webhook deliverability: `telegram.mercle.ai` resolves to this server and `GET /health` returns `200`; Telegram updates arrive and are logged as `tg_update=...`.
+## P1 — correctness + UX polish
+- [ ] Make join prompt / verification messages less noisy and more human (short text, clear CTA, avoid repeating “verify to chat”).
+- [ ] Ensure “locks” and “antiflood” behaviors are consistent and configurable (`silent_automations`, warning text, mute duration).
+- [ ] Ensure custom roles are easy to use: add a short “how to grant roles” help (`/roles` usage + what `/mycommands` shows).
+- [ ] Reduce log noise further (expected Telegram errors: kicked/forbidden/chat not found → debug/info, not ERROR).
 
-## Must Do Before Launch (high priority)
-- [x] Fix setup-card crash: `GroupWizardState` referenced before import in `bot/handlers/member_events.py`.
-- [x] Remove `/actions` UX dependency on inline mode (refactor `/actions` to be callback-only).
-- [x] Remove DM settings “Moderation” + “Advanced” screens (they were dead-ends).
-- [ ] Ensure the service survives reboot:
-  - [x] `systemctl enable telegrambot`
-  - [x] Restart smoke test: `systemctl restart telegrambot` + `GET https://telegram.mercle.ai/health` is `200` (allow ~15s warm-up)
-  - [ ] Reboot test (manual): reboot host and confirm service starts + `GET https://telegram.mercle.ai/health` is `200`
-- [x] Verify Mercle verification deep-link end-to-end on iOS + Android:
-  - [x] `https://telegram.mercle.ai/verify` loads publicly
-  - [x] iOS: “Open Mercle” launches app + completes verification
-  - [x] Android: “Open Mercle” launches app + completes verification
-  - [x] Session creation + polling outcomes (approved/rejected/expired)
-- [x] Reconcile user-facing command list vs actual handlers:
-  - [x] Add user `/status` and align Telegram command menu.
+## P2 — ops + repo hygiene
+- [ ] Ensure the systemd service survives reboot: `systemctl enable telegrambot` + reboot test.
+- [ ] Remove tracked SQLite/log artifacts from git (SQLite is no longer used): `bot_db.sqlite`, `bot.db`, `bot.log`.
 
-## Should Do Before Launch (medium priority)
-- [x] Replace `create_all()` with an explicit Alembic migration workflow for Postgres (apply in deploy via `alembic upgrade head`).
-- [ ] Confirm join-gate prerequisites are enforced in practice:
-  - [x] Runtime preflight + admin log/DM when misconfigured
-  - [ ] `join_by_request` must be enabled in Telegram group settings
-  - [ ] bot must be admin + `Invite Users` must be granted
-  - [ ] Happy-path: pending created, user DM’d, approve after Mercle approval
-- [ ] Add basic operational health checks:
-  - [x] Webhook `/health` and `/status` verified behind auth (`ADMIN_API_TOKEN`)
-  - [x] Logs destination test path implemented (DM settings + Mini App “Send test log”)
-- [x] Add rate-limit / backoff guardrails for Mercle polling under load.
-- [x] Update any remaining docs that still claim SQLite (e.g. `website/api.html`).
-
-## Nice To Have (post-launch)
-- [x] Mini App settings UI (v1: `/app` + `/api/app/*`; keep DM panels as fallback).
-- [x] Persistent metrics (stored in `metric_counters`, survives restarts).
-- [x] Admin log viewer command in Telegram (`/modlog`).
-- [ ] Unify parse modes (Markdown vs HTML) to reduce formatting edge-cases.
-
-## Roadmap (best-in-class features)
-
-### 1) Join + onboarding gates
-- [x] Verify-to-speak (post-join restrict → verify → unrestrict).
-- [x] Verify-to-join (join request gate using `ChatJoinRequest.user_chat_id`).
-- [x] Whitelist/trusted bypass.
-- [ ] Captcha challenges (multiple styles).
-- [ ] Rules acceptance step during verification/onboarding.
-- [ ] Account-age / join-quality heuristics (configurable).
-
-### 2) Anti-spam + anti-raid protection
-- [x] Locks (links/media).
-- [x] Blocklists (filters: reply/delete/warn).
-- [x] Antiflood (rate limiting → mute).
-- [ ] Silent automations (optional “no noisy messages” mode).
-- [ ] Anti-raid “join-wave” defense / lockdown mode.
-- [ ] Global spam DB integration (e.g. CAS).
-
-### 3) Moderation workflows
-- [x] Fast restriction commands (kick/ban/mute/unmute/purge).
-- [x] Warnings with escalation (`warn_limit`, `/warns`, `/resetwarns`).
-- [x] Admin action logging (DB + optional push to logs destination).
-- [x] User reports (`/report`, reply-only; forwards to logs destination if configured).
-- [ ] Anonymous admin handling (reliable permission checks).
-
-### 4) Automation + marketing + support
-- [x] Triggers (filters + notes).
-- [ ] Rules engine (trigger + conditions + actions; deterministic first, optional intent later).
-  - [x] Define DB schema + migrations (`rules`, `rule_actions`) with ordering + enable flags.
-  - [x] Implement evaluator (priority order + `stop_processing`) for group messages (DM rules later).
-  - [x] Actions v1: reply, delete, warn, mute (Mini App UI).
-  - [x] Actions v2: start sequence, create ticket, notify logs.
-  - [ ] Intent detection (optional): keyword/regex first, ML/LLM as fallback only when uncertain.
-- [ ] Broadcasts (group first, then DM subscribers).
-  - [x] DB schema + migrations (`broadcasts`, `broadcast_targets`, `jobs`) + status tracking.
-  - [x] Background sender (jobs worker) with basic `RetryAfter` reschedule.
-  - [x] Mini App v1: send announcement to one or more groups (queued broadcast).
-  - [x] Scheduling v1: `delay_seconds` + per-group broadcast history (Mini App).
-  - [ ] Improve rate limiting + retry/backoff (avoid Telegram 429 storms).
-  - [ ] DM subscribers: track `dm_deliverable` + opt-out; mark undeliverable on failures.
-- [ ] Sequences (drip campaigns).
-  - [x] DB schema + migrations (`sequences`, `sequence_steps`, `sequence_runs`, `sequence_run_steps`).
-  - [x] Background scheduler/runner (jobs worker + `sequence_step`).
-  - [x] Mini App v1: onboarding DM after verification (per-group).
-  - [x] Add a real sequences editor (multiple steps, preview, enable/disable) for onboarding.
-- [ ] Support tickets (DM intake + optional forum-topic bridge).
-  - [x] Decide destination (v1): use the group's logs destination for staff notifications.
-  - [x] DB schema + migrations (`tickets`, `support_link_tokens`).
-  - [x] User flow v1: `/ticket` in group → DM intake (`/start sup_<token>`) → ticket created + sent to logs.
-  - [ ] Upgrade to forum-topic tickets (create topic, relay both ways, close/reopen, macros).
-- [ ] Mini App admin console (settings + rules + broadcasts + tickets).
-  - [x] Settings UI (v1).
-  - [x] Rules editor + test console.
-  - [x] Broadcast composer + scheduling (v1: delay minutes + history list).
-  - [x] Ticket queue (v1 read-only: recent open tickets).
-
-### 5) Analytics + multi-group moderation
-- [ ] Analytics dashboard + engagement metrics.
-- [ ] Federation/shared banlists.
+## Manual regression checklist (quick)
+- [ ] Bot added to group → setup card appears; `/checkperms` matches expected bot perms.
+- [ ] Join (unverified user) → restricted + prompt posted; DM deep-link opens panel; Mercle verify → user can speak + send media.
+- [ ] Join gate (join requests) → DM sent via `user_chat_id`; verify → approve request; expiry → decline.
+- [ ] `/report` (reply) → admin log entry created and forwarded to logs destination (if configured).
+- [ ] `/actions` (reply) → kick/ban/mute/unmute/warn flows work; no action on bots.

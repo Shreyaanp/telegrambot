@@ -237,6 +237,19 @@
         </div>
       </div>
 
+      <div id="analytics" class="card" style="display:none">
+        <div class="row">
+          <div class="label">
+            <div class="k">Analytics</div>
+            <div class="d">Read-only operational stats for this group</div>
+          </div>
+          <div class="actions">
+            <button id="analyticsRefreshBtn" class="btn secondary" style="width:auto">Refresh</button>
+          </div>
+        </div>
+        <div id="analytics_list" class="checklist"></div>
+      </div>
+
       <div id="settings" class="card" style="display:none">
         <div class="row">
           <div class="label">
@@ -275,6 +288,49 @@
 
         <div class="row">
           <div class="label">
+            <div class="k">Rules acceptance</div>
+            <div class="d">Require users to accept /rules in DM before verifying</div>
+          </div>
+          <div id="require_rules_acceptance" class="toggle" data-on="false"></div>
+        </div>
+
+        <div class="row">
+          <div class="label">
+            <div class="k">Captcha</div>
+            <div class="d">Quick human check in DM before Mercle starts</div>
+          </div>
+          <div id="captcha_enabled" class="toggle" data-on="false"></div>
+        </div>
+
+        <div id="captcha_style_row" class="row" style="display:none">
+          <div class="label">
+            <div class="k">Captcha style</div>
+            <div class="d">Button or math</div>
+          </div>
+          <select id="captcha_style">
+            <option value="button">Button</option>
+            <option value="math">Math</option>
+          </select>
+        </div>
+
+        <div id="captcha_max_attempts_row" class="row" style="display:none">
+          <div class="label">
+            <div class="k">Captcha max attempts</div>
+            <div class="d">1–10</div>
+          </div>
+          <input id="captcha_max_attempts" type="number" min="1" max="10" step="1" value="3" />
+        </div>
+
+        <div class="row">
+          <div class="label">
+            <div class="k">Block no-username</div>
+            <div class="d">Kick/decline unverified users without an @username</div>
+          </div>
+          <div id="block_no_username" class="toggle" data-on="false"></div>
+        </div>
+
+        <div class="row">
+          <div class="label">
             <div class="k">Antiflood</div>
             <div class="d">Mute users who spam messages quickly</div>
           </div>
@@ -287,6 +343,30 @@
             <div class="d">Messages per minute</div>
           </div>
           <input id="antiflood_limit" type="number" min="1" step="1" />
+        </div>
+
+        <div class="row">
+          <div class="label">
+            <div class="k">Silent automations</div>
+            <div class="d">No “muted/warned” messages in chat (actions still apply + are logged)</div>
+          </div>
+          <div id="silent_automations" class="toggle" data-on="false"></div>
+        </div>
+
+        <div class="row">
+          <div class="label">
+            <div class="k">Raid mode</div>
+            <div class="d" id="raid_mode_desc">Block new joins temporarily</div>
+          </div>
+          <div id="raid_mode_enabled" class="toggle" data-on="false"></div>
+        </div>
+
+        <div class="row">
+          <div class="label">
+            <div class="k">Raid duration (minutes)</div>
+            <div class="d">1–10080 (7 days)</div>
+          </div>
+          <input id="raid_mode_minutes" type="number" min="1" max="10080" value="15" />
         </div>
 
         <div class="row">
@@ -388,8 +468,25 @@
         <div class="row">
           <div class="label">
             <div class="k">Announcement</div>
-            <div class="d">Send a message to one or more groups you can manage (queued + delivered by the bot)</div>
+            <div class="d">Send a message to groups or to opted-in DM subscribers (queued + delivered by the bot)</div>
           </div>
+        </div>
+        <div class="row">
+          <div class="label">
+            <div class="k">Audience</div>
+            <div class="d">Groups (post in chat) or DM subscribers (direct message)</div>
+          </div>
+          <select id="broadcast_audience">
+            <option value="groups">Groups</option>
+            <option value="dm">DM subscribers</option>
+          </select>
+        </div>
+        <div id="broadcast_dm_row" class="row" style="display:none">
+          <div class="label">
+            <div class="k">DM subscribers</div>
+            <div class="d">Deliverable now: <span id="broadcast_dm_count">…</span>. Max recipients is a safety cap.</div>
+          </div>
+          <input id="broadcast_max_targets" type="number" min="1" max="20000" value="5000" />
         </div>
 	        <div class="row">
 	          <textarea id="broadcast_text" placeholder="Write your announcement…"></textarea>
@@ -412,7 +509,7 @@
             <option value="">Plain</option>
           </select>
         </div>
-        <div class="row" style="flex-direction:column; align-items:stretch">
+        <div id="broadcast_targets_row" class="row" style="flex-direction:column; align-items:stretch">
           <div class="label" style="margin-bottom:6px">
             <div class="k">Targets</div>
             <div class="d">Choose where to post this announcement</div>
@@ -424,7 +521,8 @@
           <div id="broadcast_targets" class="checklist"></div>
 	        </div>
 	        <button id="broadcastBtn" class="btn">Send to selected</button>
-	
+
+        <div id="broadcast_history_section">
 	        <div style="height:14px"></div>
 	        <div class="row" style="justify-content:space-between; align-items:center">
 	          <div class="label" style="margin:0">
@@ -434,6 +532,7 @@
 	          <button id="broadcastHistoryBtn" class="btn secondary" style="width:auto">Refresh</button>
 	        </div>
 	        <div id="broadcast_history" class="checklist"></div>
+        </div>
 	      </div>
 
 	      <div id="rules" class="card" style="display:none">
@@ -570,6 +669,16 @@
         });
       }
 
+      function updateCaptchaUI() {
+        const enabledEl = $("captcha_enabled");
+        const styleRow = $("captcha_style_row");
+        const maxRow = $("captcha_max_attempts_row");
+        if (!enabledEl || !styleRow || !maxRow) return;
+        const enabled = enabledEl.getAttribute("data-on") === "true";
+        styleRow.style.display = enabled ? "flex" : "none";
+        maxRow.style.display = enabled ? "flex" : "none";
+      }
+
       async function api(path, body) {
         const res = await fetch(path, {
           method: "POST",
@@ -649,6 +758,7 @@
         if (!state.selected) return;
 
         $("preflight").style.display = "block";
+        $("analytics").style.display = "block";
         $("settings").style.display = "block";
         $("onboarding").style.display = "block";
         $("buttons").style.display = "block";
@@ -668,8 +778,22 @@
         $("verification_timeout").value = String(s.verification_timeout || 300);
         $("action_on_timeout").value = s.action_on_timeout || "mute";
         $("join_gate_enabled").setAttribute("data-on", (!!s.join_gate_enabled).toString());
+        $("require_rules_acceptance").setAttribute("data-on", (!!s.require_rules_acceptance).toString());
+        $("captcha_enabled").setAttribute("data-on", (!!s.captcha_enabled).toString());
+        $("captcha_style").value = String(s.captcha_style || "button");
+        $("captcha_max_attempts").value = String(s.captcha_max_attempts || 3);
+        $("block_no_username").setAttribute("data-on", (!!s.block_no_username).toString());
         $("antiflood_enabled").setAttribute("data-on", (!!s.antiflood_enabled).toString());
         $("antiflood_limit").value = String(s.antiflood_limit || 10);
+        $("silent_automations").setAttribute("data-on", (!!s.silent_automations).toString());
+        $("raid_mode_enabled").setAttribute("data-on", (!!s.raid_mode_enabled).toString());
+        const rem = Number(s.raid_mode_remaining_seconds || 0);
+        if (rem > 0) {
+          $("raid_mode_minutes").value = String(Math.max(1, Math.ceil(rem / 60)));
+          $("raid_mode_desc").textContent = `Active (${Math.max(1, Math.ceil(rem / 60))}m remaining)`;
+        } else {
+          $("raid_mode_desc").textContent = "Block new joins temporarily";
+        }
         $("lock_links").setAttribute("data-on", (!!s.lock_links).toString());
         $("lock_media").setAttribute("data-on", (!!s.lock_media).toString());
         $("logs_mode").value = "";
@@ -678,6 +802,8 @@
 	        const dest = logsEnabled ? `Chat ${s.logs_chat_id}${s.logs_thread_id ? " • thread " + s.logs_thread_id : ""}` : "Off";
 	        $("logs_current").textContent = dest;
 	        $("logsTestBtn").disabled = !logsEnabled;
+
+        updateCaptchaUI();
 
         const ob = state.selected.onboarding || {};
         $("onboarding_enabled").setAttribute("data-on", (!!ob.enabled).toString());
@@ -693,6 +819,7 @@
         loadOnboardingDetail(gid).catch((e) => setError(String(e.message || e)));
         loadRules(gid).catch((e) => setError(String(e.message || e)));
         loadTickets(gid).catch((e) => setError(String(e.message || e)));
+        loadAnalytics(gid).catch((e) => setError(String(e.message || e)));
 	        loadBroadcastHistory(gid).catch((e) => setError(String(e.message || e)));
       }
 
@@ -701,6 +828,54 @@
         const data = await api("/api/app/bootstrap", { initData });
         state.groups = data.groups || [];
         renderGroups();
+      }
+
+      function formatCounts(obj) {
+        if (!obj) return "0";
+        const entries = Object.entries(obj).filter(([, v]) => Number(v) > 0);
+        if (!entries.length) return "0";
+        return entries
+          .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(", ");
+      }
+
+      function renderAnalytics(res) {
+        const wrap = $("analytics_list");
+        if (!wrap) return;
+        wrap.innerHTML = "";
+
+        const items = [
+          { k: "Pending joins", d: formatCounts(res.pending_join_verifications) },
+          { k: "Verification sessions", d: formatCounts(res.verification_sessions) },
+          { k: "Warnings (total)", d: String(res.warnings_total ?? 0) },
+          { k: "Admin actions (24h)", d: formatCounts(res.admin_actions_24h) },
+        ];
+        const fedId = res.federation_id ? String(res.federation_id) : "Off";
+        items.push({ k: "Federation", d: res.federation_id ? `${fedId} • bans: ${res.federation_bans ?? 0}` : "Off" });
+        if (res.as_of) items.push({ k: "As of", d: String(res.as_of) });
+
+        for (const it of items) {
+          const row = document.createElement("div");
+          row.className = "check";
+          const left = document.createElement("div");
+          left.className = "label";
+          const k = document.createElement("div");
+          k.className = "k";
+          k.textContent = it.k;
+          const d = document.createElement("div");
+          d.className = "d";
+          d.textContent = it.d;
+          left.appendChild(k);
+          left.appendChild(d);
+          row.appendChild(left);
+          wrap.appendChild(row);
+        }
+      }
+
+      async function loadAnalytics(groupId) {
+        const res = await api(`/api/app/group/${groupId}/analytics`, { initData });
+        renderAnalytics(res);
       }
 
       async function save() {
@@ -714,8 +889,16 @@
           verification_timeout: Number($("verification_timeout").value || 300),
           action_on_timeout: $("action_on_timeout").value,
           join_gate_enabled: $("join_gate_enabled").getAttribute("data-on") === "true",
+          require_rules_acceptance: $("require_rules_acceptance").getAttribute("data-on") === "true",
+          captcha_enabled: $("captcha_enabled").getAttribute("data-on") === "true",
+          captcha_style: $("captcha_style").value || "button",
+          captcha_max_attempts: Number($("captcha_max_attempts").value || 3),
+          block_no_username: $("block_no_username").getAttribute("data-on") === "true",
           antiflood_enabled: $("antiflood_enabled").getAttribute("data-on") === "true",
           antiflood_limit: Number($("antiflood_limit").value || 10),
+          silent_automations: $("silent_automations").getAttribute("data-on") === "true",
+          raid_mode_enabled: $("raid_mode_enabled").getAttribute("data-on") === "true",
+          raid_mode_minutes: Number($("raid_mode_minutes").value || 15),
           lock_links: $("lock_links").getAttribute("data-on") === "true",
           lock_media: $("lock_media").getAttribute("data-on") === "true",
           logs_mode: $("logs_mode").value || null,
@@ -869,6 +1052,30 @@
         renderOnboardingSteps();
       }
 
+      async function refreshDmSubscribersCount() {
+        const el = $("broadcast_dm_count");
+        if (!el) return;
+        el.textContent = "…";
+        try {
+          const res = await api("/api/app/dm/subscribers", { initData });
+          el.textContent = String(res.deliverable ?? "0");
+        } catch (_) {
+          el.textContent = "—";
+        }
+      }
+
+      function updateBroadcastAudienceUI() {
+        const aud = ($("broadcast_audience") && $("broadcast_audience").value) ? $("broadcast_audience").value : "groups";
+        const isDm = aud === "dm";
+
+        if ($("broadcast_targets_row")) $("broadcast_targets_row").style.display = isDm ? "none" : "flex";
+        if ($("broadcast_history_section")) $("broadcast_history_section").style.display = isDm ? "none" : "block";
+        if ($("broadcast_dm_row")) $("broadcast_dm_row").style.display = isDm ? "flex" : "none";
+        if ($("broadcastBtn")) $("broadcastBtn").textContent = isDm ? "Send DM broadcast" : "Send to selected";
+
+        if (isDm) refreshDmSubscribersCount();
+      }
+
 		      async function sendBroadcast() {
 		        if (!state.selected) return;
 		        setError("");
@@ -884,6 +1091,38 @@
 	        }
 	        const delay_seconds = Math.min(7 * 24 * 3600, Math.floor(delay_minutes * 60));
 	        const parse_mode = $("broadcast_parse_mode").value || null;
+
+          const audience = $("broadcast_audience") ? ($("broadcast_audience").value || "groups") : "groups";
+          if (audience === "dm") {
+            const max_targets = Number($("broadcast_max_targets").value || 5000);
+            if (!Number.isFinite(max_targets) || max_targets <= 0) {
+              setError("Max targets must be a positive number.");
+              return;
+            }
+
+            const when = delay_seconds > 0 ? `in ${delay_minutes} minute(s)` : "now";
+            const ok = window.confirm(`Send this DM announcement ${when} to up to ${Math.floor(max_targets)} subscriber(s)?`);
+            if (!ok) return;
+
+            const res = await api(`/api/app/broadcast/dm`, {
+              initData,
+              text,
+              delay_seconds,
+              parse_mode,
+              disable_web_page_preview: true,
+              max_targets: Math.floor(max_targets),
+            });
+            $("broadcast_text").value = "";
+            if (tg && tg.showPopup) {
+              tg.showPopup({
+                title: "Queued",
+                message: `DM broadcast queued (id ${res.broadcast_id}). Targets: ${res.total_targets}.`,
+                buttons: [{ type: "ok" }],
+              });
+            }
+            return;
+          }
+
 	        const targets = Array.from(
 	          document.querySelectorAll("#broadcast_targets input[type=checkbox]:checked")
 	        ).map((el) => Number(el.dataset.gid));
@@ -1145,11 +1384,20 @@
 
         toggleEl("verification_enabled");
         toggleEl("join_gate_enabled");
+        toggleEl("require_rules_acceptance");
+        toggleEl("captcha_enabled");
+        toggleEl("block_no_username");
         toggleEl("antiflood_enabled");
+        toggleEl("silent_automations");
+        toggleEl("raid_mode_enabled");
         toggleEl("lock_links");
 	        toggleEl("lock_media");
 	        toggleEl("onboarding_enabled");
 	        renderOnboardingSteps();
+
+        $("captcha_enabled").addEventListener("click", () => updateCaptchaUI());
+        $("captcha_style").addEventListener("change", () => updateCaptchaUI());
+        updateCaptchaUI();
 
         function onRuleActionChange() {
           const t = $("rule_action_type").value;
@@ -1180,6 +1428,7 @@
 	        $("saveBtn").addEventListener("click", () => save().catch((e) => setError(String(e.message || e))));
         $("reloadBtn").addEventListener("click", () => bootstrap().catch((e) => setError(String(e.message || e))));
         $("broadcastBtn").addEventListener("click", () => sendBroadcast().catch((e) => setError(String(e.message || e))));
+        $("broadcast_audience").addEventListener("change", () => updateBroadcastAudienceUI());
         $("broadcastAllBtn").addEventListener("click", () => {
           state.broadcast_targets = state.groups.map((g) => Number(g.group_id));
           renderBroadcastTargets(state.selected ? state.selected.group_id : 0);
@@ -1199,8 +1448,13 @@
           if (!state.selected) return;
           loadTickets(state.selected.group_id).catch((e) => setError(String(e.message || e)));
         });
+        $("analyticsRefreshBtn").addEventListener("click", () => {
+          if (!state.selected) return;
+          loadAnalytics(state.selected.group_id).catch((e) => setError(String(e.message || e)));
+        });
 
         bootstrap().catch((e) => setError(String(e.message || e)));
+        updateBroadcastAudienceUI();
       }
     </script>
   </body>

@@ -14,6 +14,7 @@ from bot.services.group_service import GroupService
 from bot.services.metrics_service import MetricsService
 from bot.services.pending_verification_service import PendingVerificationService
 from bot.services.sequence_service import SequenceService
+from bot.utils.chat_permissions import get_chat_default_permissions, muted_permissions
 from bot.utils.qr_generator import generate_qr_code, decode_base64_qr
 from bot.utils.messages import (
     verification_prompt_message,
@@ -405,7 +406,34 @@ class VerificationService:
                 if status == "approved":
                     # Success! User verified
                     mercle_user_id = status_response.get("localized_user_id")
-                    await self._handle_success(
+                    if not mercle_user_id:
+                        # Unexpected response shape; treat as failure rather than leaving the user stuck.
+                        await self._handle_failure(
+                            bot,
+                            session_id,
+                            chat_id,
+                            group_id,
+                            telegram_id,
+                            action_on_timeout,
+                            send_followup=(panel_message_id is None),
+                            panel_message_id=panel_message_id,
+                            pending_kind=pending_kind,
+                        )
+                        if pending_id and self.pending:
+                            await self.pending.decide(pending_id, status="rejected", decided_by=telegram_id)
+                            pending = await self.pending.get_pending(pending_id)
+                            if pending:
+                                await self.pending.edit_or_delete_group_prompt(bot, pending, "🚫 Rejected")
+                            try:
+                                kind = getattr(pending, "kind", None) if pending else None
+                                if (pending_kind == "join_request" or kind == "join_request") and group_id:
+                                    await bot.decline_chat_join_request(chat_id=int(group_id), user_id=int(telegram_id))
+                            except Exception:
+                                pass
+                        await self.metrics.incr_verification("rejected")
+                        return
+
+                    ok = await self._handle_success(
                         bot,
                         session_id,
                         telegram_id,
@@ -416,6 +444,23 @@ class VerificationService:
                         panel_message_id=panel_message_id,
                         pending_kind=pending_kind,
                     )
+                    if not ok:
+                        # Mercle approved, but we couldn't link the identity to this Telegram user (unique constraint).
+                        if group_id and pending_kind != "join_request":
+                            await self._handle_group_action(bot, int(group_id), int(telegram_id), action_on_timeout)
+                        if pending_id and self.pending:
+                            await self.pending.decide(pending_id, status="rejected", decided_by=telegram_id)
+                            pending = await self.pending.get_pending(pending_id)
+                            if pending:
+                                await self.pending.edit_or_delete_group_prompt(bot, pending, "🚫 Verification conflict")
+                            try:
+                                kind = getattr(pending, "kind", None) if pending else None
+                                if (pending_kind == "join_request" or kind == "join_request") and group_id:
+                                    await bot.decline_chat_join_request(chat_id=int(group_id), user_id=int(telegram_id))
+                            except Exception:
+                                pass
+                        await self.metrics.incr_verification("link_conflict")
+                        return
                     if pending_id and self.pending:
                         await self.pending.decide(pending_id, status="approved", decided_by=telegram_id)
                         pending = await self.pending.get_pending(pending_id)
@@ -510,7 +555,7 @@ class VerificationService:
         send_followup: bool = True,
         panel_message_id: Optional[int] = None,
         pending_kind: Optional[str] = None,
-    ):
+    ) -> bool:
         """Handle successful verification."""
         try:
             logger.info(f"✅ Verification successful for user {telegram_id}")
@@ -523,15 +568,62 @@ class VerificationService:
             if send_followup and self.config.auto_delete_verification_messages and session_obj and session_obj.message_ids:
                 await self._delete_messages(bot, chat_id, session_obj.message_ids)
             
-            # Create/update user in database
-            await self.user_manager.create_user(
-                telegram_id=telegram_id,
-                mercle_user_id=mercle_user_id,
-                username=username
-            )
-            
-            # Update session status
-            await self.user_manager.update_session_status(session_id, "approved")
+            # Create/update user in database. If the Mercle identity is already linked to another
+            # Telegram account (unique constraint), treat the verification as rejected for this user.
+            user = None
+            identity_link_conflict = False
+            try:
+                user = await self.user_manager.create_user(
+                    telegram_id=telegram_id,
+                    mercle_user_id=mercle_user_id,
+                    username=username,
+                )
+                if user is None:
+                    identity_link_conflict = True
+            except Exception as e:
+                # DB issues should not prevent a verified user from being unmuted/approved.
+                logger.error(f"Failed to persist verified user: {e}", exc_info=True)
+
+            if identity_link_conflict:
+                try:
+                    await self.user_manager.update_session_status(session_id, "rejected")
+                except Exception:
+                    pass
+
+                conflict_text_md = (
+                    "❌ Verification could not be linked to this Telegram account.\n\n"
+                    "This usually means the Mercle account you used is already linked to a different Telegram account.\n"
+                    "Please verify using your own Mercle account, or contact an admin."
+                )
+                conflict_text_html = (
+                    "<b>Verification</b>\n"
+                    "❌ Can't link this Mercle account to your Telegram.\n\n"
+                    "This Mercle account may already be linked to a different Telegram account.\n"
+                    "Please verify using your own Mercle account, or contact an admin."
+                )
+                if send_followup:
+                    try:
+                        await bot.send_message(chat_id=chat_id, text=conflict_text_md, parse_mode="Markdown")
+                    except Exception:
+                        pass
+                elif panel_message_id:
+                    try:
+                        await bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=panel_message_id,
+                            text=conflict_text_html,
+                            parse_mode="HTML",
+                            disable_web_page_preview=True,
+                        )
+                    except Exception:
+                        pass
+                return False
+
+            # Update session status (best-effort).
+            try:
+                await self.user_manager.update_session_status(session_id, "approved")
+            except Exception:
+                pass
 
             # Trigger per-group onboarding sequences (best-effort).
             if group_id and self.sequences:
@@ -543,16 +635,11 @@ class VerificationService:
             # If this was for a group, unmute the user (skip for join-request gating; user isn't a member yet).
             if group_id and pending_kind != "join_request":
                 try:
+                    perms = await get_chat_default_permissions(bot, int(group_id))
                     await bot.restrict_chat_member(
                         chat_id=group_id,
                         user_id=telegram_id,
-                        permissions={
-                            "can_send_messages": True,
-                            "can_send_media_messages": True,
-                            "can_send_polls": True,
-                            "can_send_other_messages": True,
-                            "can_add_web_page_previews": True,
-                        }
+                        permissions=perms,
                     )
                     logger.info(f"Unmuted user {telegram_id} in group {group_id}")
                 except Exception as e:
@@ -564,15 +651,24 @@ class VerificationService:
                     [InlineKeyboardButton(text="📥 Download Mercle (iOS)", url=self.config.mercle_ios_url)],
                     [InlineKeyboardButton(text="📥 Download Mercle (Android)", url=self.config.mercle_android_url)],
                 ]
-                await bot.send_message(chat_id=chat_id, text=success_msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard), parse_mode="Markdown")
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=success_msg,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard),
+                    parse_mode="Markdown",
+                )
             elif panel_message_id:
                 try:
-                    await bot.edit_message_text(chat_id=chat_id, message_id=panel_message_id, text="✅ Verified.", parse_mode="HTML")
+                    await bot.edit_message_text(
+                        chat_id=chat_id, message_id=panel_message_id, text="✅ Verified.", parse_mode="HTML"
+                    )
                 except Exception:
                     pass
-            
+
+            return True
         except Exception as e:
             logger.error(f"Error handling verification success: {e}", exc_info=True)
+            return True
     
     async def _handle_failure(
         self,
@@ -681,13 +777,7 @@ class VerificationService:
                 await bot.restrict_chat_member(
                     chat_id=group_id,
                     user_id=telegram_id,
-                    permissions=ChatPermissions(
-                        can_send_messages=False,
-                        can_send_media_messages=False,
-                        can_send_polls=False,
-                        can_send_other_messages=False,
-                        can_add_web_page_previews=False,
-                    ),
+                    permissions=muted_permissions(),
                 )
                 logger.info(f"Muted user {telegram_id} in group {group_id}")
         except Exception as e:

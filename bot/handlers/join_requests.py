@@ -88,6 +88,79 @@ def create_join_request_handlers(container: ServiceContainer) -> Router:
                 pass
             return
 
+        # Federation ban: decline join requests for banned users (applies even if verification is off).
+        try:
+            fed_id = getattr(group, "federation_id", None)
+            if fed_id and await container.federation_service.is_banned(federation_id=int(fed_id), telegram_id=user_id):
+                try:
+                    await req.bot.decline_chat_join_request(chat_id=group_id, user_id=user_id)
+                except Exception:
+                    pass
+                try:
+                    bot_me = await req.bot.get_me()
+                    await container.admin_service.log_custom_action(
+                        req.bot,
+                        group_id,
+                        actor_id=int(bot_me.id),
+                        target_id=int(user_id),
+                        action="fed_ban_decline",
+                        reason=f"Federation ban (fed={int(fed_id)})",
+                    )
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+
+        # Join-quality heuristic: optionally block users without a Telegram @username (unless whitelisted/verified).
+        if bool(getattr(group, "block_no_username", False)) and not (user.username or "").strip():
+            is_verified = False
+            try:
+                if await container.whitelist_service.is_whitelisted(group_id, user_id):
+                    await req.bot.approve_chat_join_request(chat_id=group_id, user_id=user_id)
+                    return
+            except Exception:
+                pass
+            try:
+                is_verified = await container.user_manager.is_verified(user_id)
+            except Exception:
+                is_verified = False
+
+            # Allow globally verified users to proceed even without a username,
+            # but still require verification before approving the join request.
+            if not is_verified:
+                try:
+                    await req.bot.decline_chat_join_request(chat_id=group_id, user_id=user_id)
+                except Exception:
+                    pass
+                try:
+                    bot_me = await req.bot.get_me()
+                    await container.admin_service.log_custom_action(
+                        req.bot,
+                        group_id,
+                        actor_id=int(bot_me.id),
+                        target_id=int(user_id),
+                        action="block_no_username",
+                        reason="Declined join request: user has no @username (join-quality rule)",
+                    )
+                except Exception:
+                    pass
+                try:
+                    if user_chat_id is not None:
+                        age = (datetime.utcnow() - join_request_at).total_seconds()
+                        if age <= JOIN_REQUEST_DM_WINDOW_SECONDS:
+                            await req.bot.send_message(
+                                chat_id=int(user_chat_id),
+                                text=(
+                                    f"<b>{group_title}</b> requires an @username to join.\n\n"
+                                    "Add a username in Telegram settings, then request to join again."
+                                ),
+                                parse_mode="HTML",
+                            )
+                except Exception:
+                    pass
+                return
+
         # Keep behavior predictable: if verification is off, just approve.
         if not getattr(group, "verification_enabled", True):
             try:
@@ -95,6 +168,56 @@ def create_join_request_handlers(container: ServiceContainer) -> Router:
             except Exception:
                 pass
             return
+
+        # Anti-raid: if raid mode is active, decline untrusted join requests.
+        raid_until = getattr(group, "raid_mode_until", None)
+        if raid_until and raid_until > datetime.utcnow():
+            is_verified = False
+            try:
+                if await container.whitelist_service.is_whitelisted(group_id, user_id):
+                    await req.bot.approve_chat_join_request(chat_id=group_id, user_id=user_id)
+                    return
+            except Exception:
+                pass
+            try:
+                is_verified = await container.user_manager.is_verified(user_id)
+            except Exception:
+                is_verified = False
+
+            # Allow globally verified users to proceed during raid mode,
+            # but still require verification before approving the join request.
+            if not is_verified:
+                try:
+                    await req.bot.decline_chat_join_request(chat_id=group_id, user_id=user_id)
+                except Exception:
+                    pass
+                try:
+                    bot_me = await req.bot.get_me()
+                    await container.admin_service.log_custom_action(
+                        req.bot,
+                        group_id,
+                        actor_id=int(bot_me.id),
+                        target_id=int(user_id),
+                        action="raid_decline",
+                        reason="Raid mode active: declined join request",
+                    )
+                except Exception:
+                    pass
+                try:
+                    if user_chat_id is not None:
+                        age = (datetime.utcnow() - join_request_at).total_seconds()
+                        if age <= JOIN_REQUEST_DM_WINDOW_SECONDS:
+                            await req.bot.send_message(
+                                chat_id=int(user_chat_id),
+                                text=(
+                                    f"<b>{group_title}</b> is temporarily in raid mode.\n\n"
+                                    "Please try joining again later."
+                                ),
+                                parse_mode="HTML",
+                            )
+                except Exception:
+                    pass
+                return
 
         # Record that we saw this user for this group (even before they join).
         await container.pending_verification_service.touch_group_user(
@@ -107,16 +230,9 @@ def create_join_request_handlers(container: ServiceContainer) -> Router:
             increment_join=False,
         )
 
-        # Whitelist / already verified -> approve immediately.
+        # Whitelist bypass.
         try:
             if await container.whitelist_service.is_whitelisted(group_id, user_id):
-                await req.bot.approve_chat_join_request(chat_id=group_id, user_id=user_id)
-                return
-        except Exception:
-            pass
-
-        try:
-            if await container.user_manager.is_verified(user_id):
                 await req.bot.approve_chat_join_request(chat_id=group_id, user_id=user_id)
                 return
         except Exception:

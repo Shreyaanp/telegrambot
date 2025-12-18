@@ -30,6 +30,8 @@ File: `webhook_server.py`
   - `POST /api/app/group/{group_id}/logs/test`: sends a “test log” message to the configured logs destination.
   - `POST /api/app/group/{group_id}/broadcast`: validates `initData` + permissions and queues (or schedules via `delay_seconds`) an announcement broadcast to that group.
   - `POST /api/app/broadcast`: validates `initData` and queues (or schedules via `delay_seconds`) an announcement broadcast to multiple groups the user can manage.
+  - `POST /api/app/dm/subscribers`: returns the current deliverable DM subscriber count (opted-in).
+  - `POST /api/app/broadcast/dm`: queues (or schedules via `delay_seconds`) an announcement DM broadcast to deliverable, non-opted-out DM subscribers.
   - `POST /api/app/group/{group_id}/broadcasts`: lists recent broadcasts that targeted this group (Mini App history).
   - `POST /api/app/group/{group_id}/onboarding`: configures the first step of a per-group onboarding DM sequence (legacy v1).
   - `POST /api/app/group/{group_id}/onboarding/get`: fetches the onboarding steps list for this group (Mini App editor).
@@ -39,6 +41,7 @@ File: `webhook_server.py`
   - `POST /api/app/group/{group_id}/rules/create`: creates a simple rule (contains/regex → reply/delete/warn/mute/log/start_sequence/create_ticket).
   - `POST /api/app/group/{group_id}/rules/delete`: deletes a rule.
   - `POST /api/app/group/{group_id}/tickets`: lists recent tickets for that group (Mini App queue view).
+  - `POST /api/app/group/{group_id}/analytics`: read-only group analytics (pending joins, verification sessions, warnings, admin actions, federation summary).
 - Admin token transport:
   - `Authorization: Bearer <token>`, or `X-Admin-Token: <token>`, or `?token=<token>`
 
@@ -55,15 +58,21 @@ File: `bot/main.py`
   - `bot/handlers/join_requests.py` (join-gate verification via join requests)
   - `bot/handlers/rbac_help.py` (`/mycommands`)
   - `bot/handlers/message_handlers.py` (locks/antiflood/filters/notes triggers)
-- Sets Telegram command menus (scoped for private / groups / group-admins) via `set_my_commands(...)`.
+- Sets Telegram command menus (Telegram scopes only; cannot be customized per custom role) via `set_my_commands(...)`:
+  - Private chats: `/start`, `/help`, `/status`, `/verify`, `/menu`, `/subscribe`, `/unsubscribe`
+  - Group chats (everyone): `/help`, `/rules`, `/report`, `/ticket`, `/mycommands`
+  - Group chat admins (Telegram admins only): `/menu`, `/actions`, `/checkperms`, `/status`, `/modlog`, `/raid`, `/fed`, `/fban`, `/funban`, `/mycommands`, `/kick`, `/ban`, `/unban`, `/mute`, `/unmute`, `/warn`, `/roles`, `/whitelist`, `/lock`, `/unlock`
 - If `WEBHOOK_URL` is set, the bot also sets a global chat menu button pointing to `<WEBHOOK_URL>/app` (Mini App settings UI).
 
 ### Logging (what you will and won’t see)
 - `bot/main.py` logs to stdout and `bot.log` (and under systemd you can always use `journalctl -u telegrambot -f`).
 - `webhook_server.py` logs a safe per-update summary:
   - commands are logged as `cmd=/...`
+  - callback queries are logged as `data=...` (truncated) so button flows can be debugged
+  - join requests include `user_chat_id=...` so join-gate DM eligibility is visible
+  - chat member updates include `actor`, `target`, and `old->new` status transitions
   - private non-command messages log only `text_len=...`
-  - raw user message text is never logged; non-command group messages are not logged
+  - raw user message text is never logged; non-command group messages log only metadata (`ct=...` and `text_len=...`)
 
 ### Periodic cleanup
 File: `bot/main.py`
@@ -78,6 +87,7 @@ File: `bot/main.py`
 - Runs a small DB-backed jobs worker loop (every ~2s when idle) for async features like broadcasts.
 - Jobs are stored in `jobs` and the first implemented job is `broadcast_send`.
 - Sequences also use jobs (`sequence_step`) for delayed sends.
+- On Telegram rate limits (`RetryAfter` / 429), jobs are rescheduled with jitter + exponential backoff to avoid “429 storms”.
 
 ## Database (tables + what they mean)
 File: `database/models.py` (migrated via Alembic)
@@ -90,7 +100,9 @@ Runtime:
 ### Global verification
 - `users` (`User`)
   - `telegram_id` (PK), `mercle_user_id` (unique), username/names, `verified_at`
-  - Once present, the user is treated as globally “verified” across all groups.
+  - Global Mercle identity cache (who has verified at least once).
+  - If a Mercle identity is already linked to a different Telegram account, the bot treats that verification as rejected (gate remains enforced).
+  - Group access is still enforced via per-join verification flows (unless whitelisted or verification is disabled for that group).
 
 ### Mercle verification sessions (polling state)
 - `verification_sessions` (`VerificationSession`)
@@ -108,6 +120,9 @@ Runtime:
   - Broadcast campaign record + progress counts (includes `scheduled_at` for delayed sends).
 - `broadcast_targets` (`BroadcastTarget`)
   - Per-chat delivery state for a broadcast (`pending|sent|failed`).
+- `dm_subscribers` (`DmSubscriber`)
+  - Tracks DM deliverability + opt-out for DM broadcasts (DM interactions create/update rows).
+  - Key fields: `telegram_id`, `opted_out`, `deliverable`, `fail_count`, `last_error`, timestamps (`last_seen_at`, `last_ok_at`, `last_fail_at`).
 
 ### Sequences (drip/onboarding)
 - `sequences` (`Sequence`)
@@ -125,16 +140,27 @@ Runtime:
 - `rule_actions` (`RuleAction`)
   - Ordered actions for a rule (current actions used: `reply|delete|warn|mute|log|start_sequence|create_ticket`).
 
+### Federations (shared banlists)
+- `federations` (`Federation`)
+  - Federation record (shared moderation scope) with `name` and `owner_id`.
+- `federation_bans` (`FederationBan`)
+  - Federation ban entries (`federation_id`, `telegram_id`, `reason`, `banned_by`, `banned_at`).
+- `groups.federation_id`
+  - Each group can be attached to at most one federation; banned users are blocked on join and join-requests.
+
 ### Per-group configuration
 - `groups` (`Group`)
   - Verification: `verification_enabled`, `verification_timeout`, `kick_unverified`
+  - Verification gates: `require_rules_acceptance`, `captcha_enabled`, `captcha_style`, `captcha_max_attempts`
+  - Join-quality: `block_no_username`
   - Join gate: `join_gate_enabled`
   - Anti-flood: `antiflood_enabled`, `antiflood_limit`
   - Locks: `lock_links`, `lock_media`
   - Logs: `logs_enabled`, `logs_chat_id`, `logs_thread_id`
   - Welcome/Goodbye: `welcome_enabled`, `welcome_message`, `goodbye_enabled`, `goodbye_message`
   - Rules: `rules_text`
-  - Moderation: `warn_limit`
+  - Moderation: `warn_limit`, `silent_automations`, `raid_mode_until`
+  - Federation: `federation_id`
 
 ### RBAC (custom roles per group)
 - `permissions` (`Permission`)
@@ -148,6 +174,7 @@ Runtime:
   - `kind`: `post_join` (default) or `join_request` (join-gate)
   - `status`: `pending`, `approved`, `rejected`, `timed_out`, `cancelled`
   - `expires_at`, `prompt_message_id`, `dm_message_id`, `mercle_session_id`, `decided_by`, `decided_at`
+  - DM gates state: `rules_accepted_at`, `captcha_kind`, `captcha_expected`, `captcha_attempts`, `captcha_solved_at`
   - Join-request DM support: `user_chat_id`, `join_request_at`
 
 Important invariant:
@@ -204,19 +231,30 @@ File: `bot/handlers/commands.py`
 ### `/verify`
 - Starts Mercle verification in the current chat (DM recommended).
 
+### `/subscribe` / `/unsubscribe` (DM)
+- Opt-in/out of DM announcement broadcasts.
+- `/stop` is an alias for `/unsubscribe`.
+- DM broadcasts include an “Unsubscribe” inline button (`dm:unsub`).
+
+### `/close` (DM)
+- Closes your currently active support ticket (if any).
+
 ### `/start cfg_<token>` (open group settings in DM)
 - Token is consumed (one-time). If invalid/expired → “Link expired. Run /menu again in the group.”
 
 ### `/start ver_<token>` (open DM join verification panel)
 - Validates the token + pending row is still `pending` and not expired.
-- Does NOT consume the token at open-time; it shows a panel:
+- Does NOT consume the token at open-time; it shows a panel and may enforce optional DM gates before “Confirm” appears:
+  - Rules acceptance (if enabled and `rules_text` is set): “✅ I accept” (`ver:<pending_id>:rules_accept`)
+  - Captcha (if enabled): choices (`ver:<pending_id>:cap_<answer>`) for `button` or `math`
   - “✅ Confirm” (`ver:<pending_id>:confirm`)
-  - “Cancel” (`ver:<pending_id>:cancel`)
+  - “Cancel” (`ver:<pending_id>:cancel`) (closes the DM panel; pending remains active until expiry)
 
 ### `ver:<pending_id>:confirm`
 - Idempotency:
   - If pending is already terminal or expired, the callback is a no-op (user sees “expired”).
   - Double-tap Confirm is prevented by a DB “starting” sentinel.
+- Confirm is blocked until any configured DM gates (rules/captcha) are satisfied.
 - Marks verification tokens “used” for that pending id, then starts Mercle verification “in-place” by editing the same DM message (`VerificationService.start_verification_panel(...)`).
 - If Mercle session creation fails, the “starting” sentinel is cleared best-effort so the user can retry.
 
@@ -256,10 +294,12 @@ File: `bot/handlers/member_events.py`
 File: `bot/handlers/member_events.py`
 On member join:
 1) Writes/updates `group_user_state` (`last_source="join"`).
-2) If verification disabled → allow and send welcome (if configured).
-3) If whitelisted in this group → allow and send welcome.
-4) If globally verified → allow, mark group-user verified-seen, send welcome.
-5) Else:
+2) If group is in a federation and the user is federation-banned → bot bans the user (best-effort) and returns.
+3) If raid mode is active (`groups.raid_mode_until > now`) and the user is not whitelisted/verified → bot kicks (ban+unban) and returns.
+4) If `groups.block_no_username` is enabled and the user has no `@username` and is not whitelisted/verified → bot kicks (ban+unban) and returns.
+5) If verification disabled → allow and send welcome (if configured).
+6) If whitelisted in this group → allow and send welcome.
+7) Else:
    - bot must be admin with Restrict
    - creates/reuses a `pending_join_verifications(kind="post_join")`
    - restricts the user from sending
@@ -271,6 +311,9 @@ Admin override buttons:
 - Require `can_user(...,"verify")`.
 - Approve: unrestrict + mark pending approved + delete/clear prompt + welcome.
 - Reject: ban+unban (kick) + mark pending rejected + delete/clear prompt.
+
+Promotion escape hatch:
+- If a pending/restricted user is promoted to Telegram admin, the bot cancels any active pending verification for them and best-effort restores send permissions.
 
 Why “delete/clear” exists:
 - `deleteMessage` can fail (e.g., bot permissions, message older than ~48 hours). The implementation falls back to clearing buttons (edit reply markup) and optionally editing the text.
@@ -286,10 +329,13 @@ Guardrail:
 - If join gate is enabled but the bot can’t approve/decline join requests, the handler logs a “misconfigured” alert to the configured logs destination (if enabled) and (best-effort) DMs the user to contact admins, then returns without creating a pending.
 
 On join request (only if `groups.join_gate_enabled == True`):
-1) If verification disabled → approve join request.
-2) Updates `group_user_state` (`last_source="join_request"`).
-3) If whitelisted or globally verified → approve join request.
-4) Else:
+1) If group is in a federation and the user is federation-banned → bot declines the join request and returns.
+2) If `groups.block_no_username` is enabled and the user has no `@username` and is not whitelisted/verified → bot declines the join request and returns (best-effort DM to user).
+3) If verification disabled → approve join request.
+4) Updates `group_user_state` (`last_source="join_request"`).
+5) If raid mode is active (`groups.raid_mode_until > now`) and the user is not whitelisted/verified → decline join request (best-effort DM to try later).
+6) If whitelisted → approve join request.
+7) Else:
    - creates/reuses a `pending_join_verifications(kind="join_request")`
    - DMs the user a “Verify to Join” button using `chat_join_request.user_chat_id`
      - hard requirement: if `user_chat_id` is missing or the 5-minute join-request DM window is missed, the bot declines the request
@@ -304,15 +350,18 @@ Cleanup:
 ### Leave (goodbye)
 File: `bot/handlers/member_events.py`
 - Sends goodbye message if enabled/configured.
+- If the leaving user had an active pending verification, it’s marked `cancelled` and the group prompt is removed best-effort.
 
 ### Message enforcement (locks / anti-flood / filters / notes)
 File: `bot/handlers/message_handlers.py`
 - Runs only in groups/supergroups, ignores bots, and ignores `/commands`.
+- Updates `group_user_state` on messages (throttled) to improve `@username` → `user_id` resolution later.
 - Locks:
-  - `lock_links`: deletes messages that look like links (entity-based URL detection + URL regex).
-  - `lock_media`: deletes media messages (photo/video/document/etc).
+  - `lock_links`: deletes messages/captions that look like links (entity-based URL detection + URL regex).
+  - `lock_media`: deletes media messages (photo/video/document/sticker/poll/etc).
 - Anti-flood:
-  - Uses `flood_tracker` with a 60s rolling window; if `antiflood_enabled` and `message_count > antiflood_limit`, the bot mutes the user for 5 minutes, deletes the triggering message, and posts a warning.
+  - Uses `flood_tracker` with a 60s rolling window; if `antiflood_enabled` and `message_count > antiflood_limit`, the bot mutes the user for 5 minutes and deletes the triggering message.
+  - If `groups.silent_automations` is off, it also posts a warning message in chat.
 - Rules engine (v1):
   - Evaluates enabled rules in `rules` (trigger `message_group`) before filters/notes; actions can reply/delete/warn/mute/log/start_sequence/create_ticket and may stop further processing.
 - Filters:
@@ -326,7 +375,7 @@ File: `bot/handlers/message_handlers.py`
 File: `bot/handlers/rbac_help.py`
 - `/mycommands` (group-only) prints a role-aware list based on:
   - Telegram admin status OR
-  - `permissions` flags (settings/status/warn/kick/locks/roles)
+  - `permissions` flags (settings/status/logs/warn/kick/ban/verify/locks)
 
 ### Diagnostics
 File: `bot/handlers/admin_commands.py`
@@ -343,8 +392,12 @@ File: `bot/handlers/admin_commands.py`
   - `@username` via group admins list → `group_user_state` → best-effort `get_chat`
 - Other moderation helpers:
   - `/report` (reply): sends a user report to the configured logs destination (if enabled) and stores it in `admin_logs`
+  - `/raid`: enables/disables raid mode (lockdown) to block untrusted new joins temporarily
+  - `/fed`: federation attach/detach for this group (shared moderation scope)
+  - `/fban` and `/funban`: ban/unban a user across all groups in the federation
   - `/ticket`: opens a DM support intake flow and creates a `tickets` row (requires logs destination enabled for the group)
-  - `/warns` and `/resetwarns` (warnings)
+    - If the logs destination is a forum and the bot can manage topics, it creates a dedicated topic per ticket and relays messages both ways.
+  - `/warns` (self; moderators can view others) and `/resetwarns` (admins) (warnings)
   - `/whitelist` (bypass verification per-group)
   - `/modlog` (admins/log viewers): view recent `admin_logs` (`/modlog [limit]`, `/modlog action <x>`, `/modlog admin <id>`, etc.)
   - `/pin` and `/unpin`
@@ -383,3 +436,4 @@ File: `bot/handlers/content_commands.py`
   - Join gate (join requests) is the only implemented mode that prevents a user from entering/reading the group before verification.
 - Bots cannot enable “join requests” in the group settings; admins must enable it in Telegram.
 - Bots cannot enumerate all members; `@username` moderation only works for users the bot has observed (join/join-request/DM verify).
+- Anonymous admins (“Remain anonymous”) send messages without a stable user identity (`from_user` may be missing), so admin commands are rejected with a prompt to disable anonymity.

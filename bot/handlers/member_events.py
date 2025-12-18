@@ -4,13 +4,14 @@ import asyncio
 from datetime import datetime, timedelta
 from aiogram import Router
 from aiogram.types import ChatMemberUpdated, CallbackQuery
-from aiogram.filters import ChatMemberUpdatedFilter, MEMBER, RESTRICTED, LEFT, KICKED
+from aiogram.filters import ChatMemberUpdatedFilter, MEMBER, RESTRICTED, LEFT, KICKED, ADMINISTRATOR, CREATOR
 
 from bot.container import ServiceContainer
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import ChatPermissions
 
 from bot.utils.permissions import can_user, is_user_admin, has_role_permission, is_bot_admin, can_restrict_members, can_delete_messages, can_pin_messages
+from bot.utils.chat_permissions import get_chat_default_permissions
 from database.db import db
 from database.models import GroupWizardState
 from sqlalchemy import select
@@ -31,6 +32,41 @@ def create_member_handlers(container: ServiceContainer) -> Router:
         Router with registered handlers
     """
     router = Router()
+
+    @router.chat_member(ChatMemberUpdatedFilter(member_status_changed=(MEMBER | RESTRICTED) >> (ADMINISTRATOR | CREATOR)))
+    async def on_member_promoted(event: ChatMemberUpdated):
+        """
+        If a previously restricted/pending user is promoted to admin, stop verification enforcement.
+
+        This prevents the UX where a newly promoted admin can't speak/use commands because they were in a pending gate.
+        """
+        user = event.new_chat_member.user
+        if user.is_bot:
+            return
+
+        group_id = int(event.chat.id)
+        user_id = int(user.id)
+
+        # Cancel any active pending verification and remove the prompt (best-effort).
+        try:
+            pending = await container.pending_verification_service.get_active_for_user(group_id, user_id)
+            if pending:
+                bot_me = await event.bot.get_me()
+                await container.pending_verification_service.decide(int(pending.id), status="cancelled", decided_by=int(bot_me.id))
+                await container.pending_verification_service.delete_group_prompt(event.bot, pending)
+        except Exception:
+            pass
+
+        # Best-effort: restore send permissions (may fail for admins; that's fine).
+        try:
+            perms = await get_chat_default_permissions(event.bot, group_id)
+            await event.bot.restrict_chat_member(
+                chat_id=group_id,
+                user_id=user_id,
+                permissions=perms,
+            )
+        except Exception:
+            pass
 
     async def _send_welcome(bot, group_id: int, user) -> None:
         try:
@@ -103,6 +139,97 @@ def create_member_handlers(container: ServiceContainer) -> Router:
         
         # Load group settings
         group = await container.group_service.get_or_create_group(group_id)
+
+        # Federation ban: block user if the group is part of a federation and the user is banned there.
+        try:
+            fed_id = getattr(group, "federation_id", None)
+            if fed_id and await container.federation_service.is_banned(federation_id=int(fed_id), telegram_id=user_id):
+                try:
+                    bot_me = await event.bot.get_me()
+                    await event.bot.ban_chat_member(chat_id=group_id, user_id=user_id)
+                    await container.admin_service.log_custom_action(
+                        event.bot,
+                        group_id,
+                        actor_id=int(bot_me.id),
+                        target_id=int(user_id),
+                        action="fed_ban_block",
+                        reason=f"Federation ban (fed={int(fed_id)})",
+                    )
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+
+        # Anti-raid: if raid mode is active, block untrusted new joins.
+        raid_until = getattr(group, "raid_mode_until", None)
+        if raid_until and raid_until > datetime.utcnow():
+            try:
+                if await container.whitelist_service.is_whitelisted(group_id, user_id):
+                    await _send_welcome(event.bot, group_id, new_member)
+                    return
+            except Exception:
+                pass
+
+            is_verified = False
+            try:
+                is_verified = await container.user_manager.is_verified(user_id)
+            except Exception:
+                is_verified = False
+
+            # Treat globally verified users as trusted enough to enter during raid mode,
+            # but still require the group's join verification to speak.
+            if not is_verified:
+                try:
+                    bot_me = await event.bot.get_me()
+                    await event.bot.ban_chat_member(chat_id=group_id, user_id=user_id)
+                    await event.bot.unban_chat_member(chat_id=group_id, user_id=user_id)
+                    await container.admin_service.log_custom_action(
+                        event.bot,
+                        group_id,
+                        actor_id=int(bot_me.id),
+                        target_id=int(user_id),
+                        action="raid_kick",
+                        reason="Raid mode active: blocked new join",
+                    )
+                except Exception:
+                    pass
+                return
+
+        # Join-quality heuristic: optionally block users without a Telegram @username (unless whitelisted/verified).
+        if bool(getattr(group, "block_no_username", False)) and not (username or "").strip():
+            try:
+                if await container.whitelist_service.is_whitelisted(group_id, user_id):
+                    await _send_welcome(event.bot, group_id, new_member)
+                    return
+            except Exception:
+                pass
+
+            is_verified = False
+            try:
+                is_verified = await container.user_manager.is_verified(user_id)
+            except Exception:
+                is_verified = False
+
+            # Allow globally verified users to proceed even without a username,
+            # but still require the group's join verification to speak.
+            if not is_verified:
+                try:
+                    bot_me = await event.bot.get_me()
+                    await event.bot.ban_chat_member(chat_id=group_id, user_id=user_id)
+                    await event.bot.unban_chat_member(chat_id=group_id, user_id=user_id)
+                    await container.admin_service.log_custom_action(
+                        event.bot,
+                        group_id,
+                        actor_id=int(bot_me.id),
+                        target_id=int(user_id),
+                        action="block_no_username",
+                        reason="Blocked new join: user has no @username (join-quality rule)",
+                    )
+                except Exception:
+                    pass
+                return
+
         if not group.verification_enabled:
             logger.info(f"Verification disabled for group {group_id}; allowing user {user_id}")
             await _send_welcome(event.bot, group_id, new_member)
@@ -116,15 +243,6 @@ def create_member_handlers(container: ServiceContainer) -> Router:
                 return
         except Exception:
             pass
-        
-        # Check if already verified globally
-        is_verified = await container.user_manager.is_verified(user_id)
-        
-        if is_verified:
-            logger.info(f"✅ User {user_id} is already verified globally, allowing access")
-            await container.pending_verification_service.mark_group_user_verified(group_id, user_id)
-            await _send_welcome(event.bot, group_id, new_member)
-            return
         
         try:
             # Verify bot has permissions before restricting
@@ -228,19 +346,11 @@ def create_member_handlers(container: ServiceContainer) -> Router:
 
         if action == "approve":
             try:
+                perms = await get_chat_default_permissions(callback.bot, group_id)
                 await callback.bot.restrict_chat_member(
                     chat_id=group_id,
                     user_id=int(pending.telegram_id),
-                    permissions=ChatPermissions(
-                        can_send_messages=True,
-                        can_send_media_messages=True,
-                        can_send_polls=True,
-                        can_send_other_messages=True,
-                        can_add_web_page_previews=True,
-                        can_change_info=False,
-                        can_invite_users=True,
-                        can_pin_messages=False,
-                    ),
+                    permissions=perms,
                 )
             except Exception:
                 await callback.answer("Failed.", show_alert=True)
@@ -284,6 +394,17 @@ def create_leave_handlers(container: ServiceContainer) -> Router:
         if user.is_bot:
             return
         group_id = event.chat.id
+
+        # If the user leaves while pending verification, cancel the pending and remove the prompt (best-effort).
+        try:
+            pending = await container.pending_verification_service.get_active_for_user(int(group_id), int(user.id))
+            if pending:
+                bot_me = await event.bot.get_me()
+                await container.pending_verification_service.decide(int(pending.id), status="cancelled", decided_by=int(bot_me.id))
+                await container.pending_verification_service.delete_group_prompt(event.bot, pending)
+        except Exception:
+            pass
+
         try:
             goodbye = await container.welcome_service.get_goodbye(group_id)
             if not goodbye:
@@ -313,11 +434,9 @@ def create_admin_join_handlers(container: ServiceContainer) -> Router:
     """
     router = Router()
     
-    @router.chat_member(
-        ChatMemberUpdatedFilter(
-            member_status_changed=LEFT >> MEMBER
-        )
-    )
+    # Important: Telegram sends updates about the bot itself as `my_chat_member`,
+    # not `chat_member`. This is what makes the setup card appear when the bot is added.
+    @router.my_chat_member(ChatMemberUpdatedFilter(member_status_changed=(LEFT | KICKED) >> (MEMBER | ADMINISTRATOR)))
     async def on_bot_added(event: ChatMemberUpdated):
         """
         When the bot is added to a group, post a setup card for admins.

@@ -2,6 +2,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
@@ -53,6 +54,12 @@ def _safe_command_summary(text: str) -> str | None:
         return "cmd=/start payload=other"
     return f"cmd={cmd}"
 
+def _truncate(s: str, *, max_len: int = 140) -> str:
+    s = (s or "").replace("\n", " ").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + "…"
+
 
 def _log_update_summary(update: Update) -> None:
     try:
@@ -68,7 +75,7 @@ def _log_update_summary(update: Update) -> None:
             text = getattr(msg, "text", None) or getattr(msg, "caption", None) or ""
             cmd_summary = _safe_command_summary(text)
 
-            # Avoid logging raw user text; log commands everywhere, and non-command only for private.
+            # Avoid logging raw user text; log commands everywhere. For non-command messages, log only metadata.
             if cmd_summary:
                 logger.info(
                     "tg_update=%s kind=%s chat=%s(%s) from=%s %s",
@@ -81,17 +88,79 @@ def _log_update_summary(update: Update) -> None:
                 )
                 return
 
-            if chat_type == "private":
-                logger.info(
-                    "tg_update=%s kind=%s chat=%s(private) from=%s text_len=%s",
-                    update.update_id,
-                    kind,
-                    chat_id,
-                    from_id,
-                    len(text),
-                )
-                return
+            try:
+                content_type = str(getattr(msg, "content_type", None) or "")
+            except Exception:
+                content_type = ""
 
+            logger.info(
+                "tg_update=%s kind=%s chat=%s(%s) from=%s ct=%s text_len=%s",
+                update.update_id,
+                kind,
+                chat_id,
+                chat_type,
+                from_id,
+                content_type or "unknown",
+                len(text),
+            )
+            return
+
+        if kind == "callback_query":
+            cb = update.callback_query
+            from_id = getattr(getattr(cb, "from_user", None), "id", None)
+            data = getattr(cb, "data", None) or ""
+            msg = getattr(cb, "message", None)
+            chat = getattr(msg, "chat", None)
+            chat_id = getattr(chat, "id", None)
+            chat_type = getattr(chat, "type", None)
+            logger.info(
+                "tg_update=%s kind=callback_query chat=%s(%s) from=%s data=%s",
+                update.update_id,
+                chat_id,
+                chat_type,
+                from_id,
+                _truncate(data),
+            )
+            return
+
+        if kind == "chat_join_request":
+            req = update.chat_join_request
+            chat = getattr(req, "chat", None)
+            chat_id = getattr(chat, "id", None)
+            chat_type = getattr(chat, "type", None)
+            from_user = getattr(req, "from_user", None)
+            from_id = getattr(from_user, "id", None)
+            user_chat_id = getattr(req, "user_chat_id", None)
+            logger.info(
+                "tg_update=%s kind=chat_join_request chat=%s(%s) from=%s user_chat_id=%s",
+                update.update_id,
+                chat_id,
+                chat_type,
+                from_id,
+                user_chat_id,
+            )
+            return
+
+        if kind in ("chat_member", "my_chat_member"):
+            ev = update.chat_member if kind == "chat_member" else update.my_chat_member
+            chat = getattr(ev, "chat", None)
+            chat_id = getattr(chat, "id", None)
+            chat_type = getattr(chat, "type", None)
+            user = getattr(getattr(ev, "from_user", None), "id", None)
+            old = getattr(getattr(ev, "old_chat_member", None), "status", None)
+            new = getattr(getattr(ev, "new_chat_member", None), "status", None)
+            target = getattr(getattr(getattr(ev, "new_chat_member", None), "user", None), "id", None)
+            logger.info(
+                "tg_update=%s kind=%s chat=%s(%s) actor=%s target=%s %s->%s",
+                update.update_id,
+                kind,
+                chat_id,
+                chat_type,
+                user,
+                target,
+                old,
+                new,
+            )
             return
 
         logger.info("tg_update=%s kind=%s", update.update_id, kind)
@@ -176,8 +245,16 @@ class _GroupSettingsUpdate(BaseModel):
     verification_timeout: int | None = None
     action_on_timeout: str | None = None  # kick|mute
     join_gate_enabled: bool | None = None
+    require_rules_acceptance: bool | None = None
+    captcha_enabled: bool | None = None
+    captcha_style: str | None = None  # button|math
+    captcha_max_attempts: int | None = None
+    block_no_username: bool | None = None
     antiflood_enabled: bool | None = None
     antiflood_limit: int | None = None
+    silent_automations: bool | None = None
+    raid_mode_enabled: bool | None = None
+    raid_mode_minutes: int | None = None
     lock_links: bool | None = None
     lock_media: bool | None = None
     logs_mode: str | None = None  # off|group
@@ -202,6 +279,19 @@ class _BroadcastMultiPayload(BaseModel):
     delay_seconds: int | None = 0
     parse_mode: str | None = "Markdown"  # Markdown|HTML|None
     disable_web_page_preview: bool | None = True
+
+
+class _BroadcastDmPayload(BaseModel):
+    initData: str
+    text: str
+    delay_seconds: int | None = 0
+    parse_mode: str | None = "Markdown"  # Markdown|HTML|None
+    disable_web_page_preview: bool | None = True
+    max_targets: int | None = 5000
+
+
+class _DmSubscribersPayload(BaseModel):
+    initData: str
 
 
 class _BroadcastHistoryPayload(BaseModel):
@@ -356,6 +446,7 @@ async def app_bootstrap(payload: _InitDataPayload):
 
     groups = await container.group_service.list_groups()
     allowed = []
+    now = datetime.utcnow()
     for group in groups[:200]:
         gid = int(group.group_id)
         try:
@@ -375,8 +466,21 @@ async def app_bootstrap(payload: _InitDataPayload):
                             "verification_timeout": int(getattr(group, "verification_timeout", 300) or 300),
                             "action_on_timeout": "kick" if bool(getattr(group, "kick_unverified", False)) else "mute",
                             "join_gate_enabled": bool(getattr(group, "join_gate_enabled", False)),
+                            "require_rules_acceptance": bool(getattr(group, "require_rules_acceptance", False)),
+                            "captcha_enabled": bool(getattr(group, "captcha_enabled", False)),
+                            "captcha_style": str(getattr(group, "captcha_style", "button") or "button"),
+                            "captcha_max_attempts": int(getattr(group, "captcha_max_attempts", 3) or 3),
+                            "block_no_username": bool(getattr(group, "block_no_username", False)),
                             "antiflood_enabled": bool(getattr(group, "antiflood_enabled", True)),
                             "antiflood_limit": int(getattr(group, "antiflood_limit", 10) or 10),
+                            "silent_automations": bool(getattr(group, "silent_automations", False)),
+                            "raid_mode_enabled": bool(getattr(group, "raid_mode_until", None) and getattr(group, "raid_mode_until") > now),
+                            "raid_mode_remaining_seconds": max(
+                                0,
+                                int((getattr(group, "raid_mode_until") - now).total_seconds()),
+                            )
+                            if getattr(group, "raid_mode_until", None) and getattr(group, "raid_mode_until") > now
+                            else 0,
                             "lock_links": bool(getattr(group, "lock_links", False)),
                             "lock_media": bool(getattr(group, "lock_media", False)),
                             "logs_enabled": bool(getattr(group, "logs_enabled", False)),
@@ -407,6 +511,11 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
     if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
         raise HTTPException(status_code=403, detail="not allowed")
 
+    if payload.require_rules_acceptance is True:
+        group = await container.group_service.get_or_create_group(gid)
+        if not (str(getattr(group, "rules_text", "") or "").strip()):
+            raise HTTPException(status_code=400, detail="rules_text is not set (use /setrules first)")
+
     # Join gate guardrails: enabling requires join requests + invite users.
     if payload.join_gate_enabled is True:
         preflight = await _bot_preflight(bot_obj.get_bot(), gid)
@@ -418,6 +527,16 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
     action_on_timeout = payload.action_on_timeout
     if action_on_timeout is not None and action_on_timeout not in ("kick", "mute"):
         raise HTTPException(status_code=400, detail="action_on_timeout must be kick|mute")
+
+    if payload.captcha_style is not None:
+        style = str(payload.captcha_style or "").strip() or "button"
+        if style not in ("button", "math"):
+            raise HTTPException(status_code=400, detail="captcha_style must be button|math")
+
+    if payload.captcha_max_attempts is not None:
+        mx = int(payload.captcha_max_attempts or 0)
+        if mx < 1 or mx > 10:
+            raise HTTPException(status_code=400, detail="captcha_max_attempts must be 1..10")
 
     logs_mode = payload.logs_mode
     if logs_mode is not None and logs_mode not in ("off", "group"):
@@ -434,8 +553,16 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
         verification_timeout=payload.verification_timeout,
         action_on_timeout=action_on_timeout,
         join_gate_enabled=payload.join_gate_enabled,
+        require_rules_acceptance=payload.require_rules_acceptance,
+        captcha_enabled=payload.captcha_enabled,
+        captcha_style=payload.captcha_style,
+        captcha_max_attempts=payload.captcha_max_attempts,
+        block_no_username=payload.block_no_username,
         antiflood_enabled=payload.antiflood_enabled,
         antiflood_limit=payload.antiflood_limit,
+        silent_automations=payload.silent_automations,
+        raid_mode_enabled=payload.raid_mode_enabled,
+        raid_mode_minutes=payload.raid_mode_minutes,
     )
 
     if payload.lock_links is not None or payload.lock_media is not None:
@@ -443,6 +570,7 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
 
     group = await container.group_service.get_or_create_group(gid)
     preflight = await _bot_preflight(bot_obj.get_bot(), gid)
+    now = datetime.utcnow()
 
     return {
         "group_id": gid,
@@ -452,8 +580,21 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
             "verification_timeout": int(getattr(group, "verification_timeout", 300) or 300),
             "action_on_timeout": "kick" if bool(getattr(group, "kick_unverified", False)) else "mute",
             "join_gate_enabled": bool(getattr(group, "join_gate_enabled", False)),
+            "require_rules_acceptance": bool(getattr(group, "require_rules_acceptance", False)),
+            "captcha_enabled": bool(getattr(group, "captcha_enabled", False)),
+            "captcha_style": str(getattr(group, "captcha_style", "button") or "button"),
+            "captcha_max_attempts": int(getattr(group, "captcha_max_attempts", 3) or 3),
+            "block_no_username": bool(getattr(group, "block_no_username", False)),
             "antiflood_enabled": bool(getattr(group, "antiflood_enabled", True)),
             "antiflood_limit": int(getattr(group, "antiflood_limit", 10) or 10),
+            "silent_automations": bool(getattr(group, "silent_automations", False)),
+            "raid_mode_enabled": bool(getattr(group, "raid_mode_until", None) and getattr(group, "raid_mode_until") > now),
+            "raid_mode_remaining_seconds": max(
+                0,
+                int((getattr(group, "raid_mode_until") - now).total_seconds()),
+            )
+            if getattr(group, "raid_mode_until", None) and getattr(group, "raid_mode_until") > now
+            else 0,
             "lock_links": bool(getattr(group, "lock_links", False)),
             "lock_media": bool(getattr(group, "lock_media", False)),
             "logs_enabled": bool(getattr(group, "logs_enabled", False)),
@@ -626,6 +767,83 @@ async def app_broadcast(payload: _BroadcastMultiPayload):
         "skipped_group_ids": skipped,
         "status": "queued",
         "delay_seconds": delay_seconds,
+    }
+
+
+async def _require_any_settings_access(bot_obj: TelegramBot, *, user_id: int, container) -> None:
+    groups = await container.group_service.list_groups()
+    for group in groups[:200]:
+        try:
+            if await can_user(bot_obj.get_bot(), int(group.group_id), int(user_id), "settings"):
+                return
+        except Exception:
+            continue
+    raise HTTPException(status_code=403, detail="not allowed")
+
+
+@app.post("/api/app/dm/subscribers")
+async def app_dm_subscribers(payload: _DmSubscribersPayload):
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    await _require_any_settings_access(bot_obj, user_id=user_id, container=container)
+
+    count = await container.dm_subscriber_service.count_deliverable()
+    return {"deliverable": int(count)}
+
+
+@app.post("/api/app/broadcast/dm")
+async def app_broadcast_dm(payload: _BroadcastDmPayload):
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    await _require_any_settings_access(bot_obj, user_id=user_id, container=container)
+
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is empty")
+    if len(text) > 4096:
+        raise HTTPException(status_code=400, detail="text is too long")
+
+    parse_mode = payload.parse_mode
+    if parse_mode is not None and parse_mode not in ("Markdown", "HTML"):
+        raise HTTPException(status_code=400, detail="parse_mode must be Markdown|HTML|null")
+
+    delay_seconds = int(payload.delay_seconds or 0)
+    if delay_seconds < 0:
+        raise HTTPException(status_code=400, detail="delay_seconds must be >= 0")
+    if delay_seconds > 7 * 24 * 3600:
+        raise HTTPException(status_code=400, detail="delay_seconds is too large (max 7 days)")
+
+    max_targets = int(payload.max_targets or 5000)
+    max_targets = max(1, min(max_targets, 20000))
+
+    try:
+        broadcast_id, total_targets = await container.broadcast_service.create_dm_broadcast(
+            created_by=user_id,
+            text=text,
+            delay_seconds=delay_seconds,
+            parse_mode=parse_mode,
+            disable_web_page_preview=bool(payload.disable_web_page_preview),
+            max_targets=max_targets,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    return {
+        "broadcast_id": int(broadcast_id),
+        "total_targets": int(total_targets),
+        "status": "queued",
+        "delay_seconds": delay_seconds,
+        "max_targets": max_targets,
     }
 
 
@@ -870,6 +1088,84 @@ async def app_list_tickets(group_id: int, payload: _TicketsListPayload):
 
     tickets = await container.ticket_service.list_tickets(group_id=gid, status=str(payload.status or "open"))
     return {"group_id": gid, "tickets": tickets}
+
+
+@app.post("/api/app/group/{group_id}/analytics")
+async def app_group_analytics(group_id: int, payload: _InitDataPayload):
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    gid = int(group_id)
+
+    if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    from sqlalchemy import select, func
+    from database.db import db
+    from database.models import (
+        Group,
+        PendingJoinVerification,
+        VerificationSession,
+        Warning,
+        AdminLog,
+        FederationBan,
+    )
+
+    now = datetime.utcnow()
+    since = now - timedelta(hours=24)
+
+    async with db.session() as session:
+        group = await session.get(Group, gid)
+
+        pv_rows = await session.execute(
+            select(PendingJoinVerification.status, func.count(PendingJoinVerification.id))
+            .where(PendingJoinVerification.group_id == gid)
+            .group_by(PendingJoinVerification.status)
+        )
+        pv_counts = {str(status): int(count) for status, count in pv_rows.all()}
+
+        vs_rows = await session.execute(
+            select(VerificationSession.status, func.count(VerificationSession.session_id))
+            .where(VerificationSession.group_id == gid)
+            .group_by(VerificationSession.status)
+        )
+        vs_counts = {str(status): int(count) for status, count in vs_rows.all()}
+
+        warn_total = (
+            await session.execute(select(func.count(Warning.id)).where(Warning.group_id == gid))
+        ).scalar_one_or_none() or 0
+
+        action_rows = await session.execute(
+            select(AdminLog.action, func.count(AdminLog.id))
+            .where(AdminLog.group_id == gid, AdminLog.timestamp >= since)
+            .group_by(AdminLog.action)
+        )
+        actions_24h = {str(action): int(count) for action, count in action_rows.all()}
+
+        fed_id = int(getattr(group, "federation_id", 0) or 0) if group else 0
+        fed_bans = 0
+        if fed_id:
+            fed_bans = (
+                await session.execute(
+                    select(func.count(FederationBan.id)).where(FederationBan.federation_id == fed_id)
+                )
+            ).scalar_one_or_none() or 0
+
+    return {
+        "group_id": gid,
+        "group_name": getattr(group, "group_name", None) if group else None,
+        "as_of": now.isoformat(),
+        "pending_join_verifications": pv_counts,
+        "verification_sessions": vs_counts,
+        "warnings_total": int(warn_total),
+        "admin_actions_24h": actions_24h,
+        "federation_id": fed_id or None,
+        "federation_bans": int(fed_bans),
+    }
 
 
 @app.post(config.webhook_path)

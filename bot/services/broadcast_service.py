@@ -7,11 +7,17 @@ from datetime import datetime, timedelta
 from typing import Iterable, Optional
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramRetryAfter
+from aiogram.exceptions import (
+    TelegramRetryAfter,
+    TelegramForbiddenError,
+    TelegramNotFound,
+    TelegramUnauthorizedError,
+)
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select, func
 
 from database.db import db
-from database.models import Broadcast, BroadcastTarget
+from database.models import Broadcast, BroadcastTarget, DmSubscriber
 from bot.services.jobs_service import JobsService
 
 
@@ -146,6 +152,81 @@ class BroadcastService:
         await self.jobs.enqueue("broadcast_send", {"broadcast_id": bid}, run_at=run_at)
         return bid
 
+    async def create_dm_broadcast(
+        self,
+        *,
+        created_by: int,
+        text: str,
+        delay_seconds: int = 0,
+        parse_mode: str | None = "Markdown",
+        disable_web_page_preview: bool = True,
+        max_targets: int = 5000,
+    ) -> tuple[int, int]:
+        """
+        Create a DM broadcast to all deliverable DM subscribers (not opted out).
+
+        Returns:
+            (broadcast_id, total_targets)
+        """
+        if not text or not text.strip():
+            raise ValueError("broadcast text is empty")
+        if len(text) > 4096:
+            raise ValueError("broadcast text is too long")
+
+        max_targets = max(1, min(int(max_targets or 5000), 20000))
+
+        now = datetime.utcnow()
+        delay_seconds = int(delay_seconds or 0)
+        delay_seconds = max(0, min(delay_seconds, 7 * 24 * 3600))
+        run_at = now + timedelta(seconds=delay_seconds)
+
+        async with db.session() as session:
+            subs_result = await session.execute(
+                select(DmSubscriber.telegram_id)
+                .where(DmSubscriber.deliverable.is_(True), DmSubscriber.opted_out.is_(False))
+                .order_by(DmSubscriber.last_seen_at.desc())
+                .limit(max_targets)
+            )
+            user_ids = [int(r[0]) for r in subs_result.all() if r and r[0] is not None]
+
+            if not user_ids:
+                raise ValueError("no DM subscribers yet")
+
+            broadcast = Broadcast(
+                created_by=int(created_by),
+                created_at=now,
+                scheduled_at=run_at,
+                status="pending",
+                started_at=None,
+                finished_at=None,
+                text=text,
+                parse_mode=parse_mode,
+                disable_web_page_preview=bool(disable_web_page_preview),
+                total_targets=len(user_ids),
+                sent_count=0,
+                failed_count=0,
+                last_error=None,
+            )
+            session.add(broadcast)
+            await session.flush()
+            bid = int(broadcast.id)
+
+            for uid in user_ids:
+                session.add(
+                    BroadcastTarget(
+                        broadcast_id=bid,
+                        chat_id=int(uid),
+                        status="pending",
+                        telegram_message_id=None,
+                        sent_at=None,
+                        error=None,
+                        created_at=now,
+                    )
+                )
+
+        await self.jobs.enqueue("broadcast_send", {"broadcast_id": bid}, run_at=run_at)
+        return bid, len(user_ids)
+
     async def run_send_job(self, bot: Bot, *, broadcast_id: int, batch_size: int = 5) -> BroadcastJobResult:
         """
         Send up to `batch_size` pending targets for a broadcast.
@@ -182,17 +263,31 @@ class BroadcastService:
                 return BroadcastJobResult(done=True, detail="no pending targets")
 
             for target in targets:
+                is_dm = int(target.chat_id) > 0
                 try:
+                    reply_markup = None
+                    if is_dm:
+                        reply_markup = InlineKeyboardMarkup(
+                            inline_keyboard=[[InlineKeyboardButton(text="Unsubscribe", callback_data="dm:unsub")]]
+                        )
                     msg = await bot.send_message(
                         chat_id=int(target.chat_id),
                         text=str(broadcast.text),
                         parse_mode=(str(broadcast.parse_mode) if broadcast.parse_mode else None),
                         disable_web_page_preview=bool(getattr(broadcast, "disable_web_page_preview", True)),
+                        reply_markup=reply_markup,
                     )
                     target.status = "sent"
                     target.telegram_message_id = int(getattr(msg, "message_id", 0) or 0) or None
                     target.sent_at = now
                     broadcast.sent_count = int(broadcast.sent_count or 0) + 1
+                    if is_dm:
+                        sub = await session.get(DmSubscriber, int(target.chat_id))
+                        if sub:
+                            sub.deliverable = True
+                            sub.last_ok_at = now
+                            sub.last_error = None
+                            sub.fail_count = 0
                 except TelegramRetryAfter as e:
                     broadcast.last_error = f"retry_after={int(e.retry_after)}"
                     return BroadcastJobResult(
@@ -205,6 +300,14 @@ class BroadcastService:
                     target.error = str(e)[:2000]
                     target.sent_at = now
                     broadcast.failed_count = int(broadcast.failed_count or 0) + 1
+                    if is_dm:
+                        sub = await session.get(DmSubscriber, int(target.chat_id))
+                        if sub:
+                            sub.last_fail_at = now
+                            sub.last_error = str(e)[:2000]
+                            sub.fail_count = int(getattr(sub, "fail_count", 0) or 0) + 1
+                            if isinstance(e, (TelegramForbiddenError, TelegramNotFound, TelegramUnauthorizedError)):
+                                sub.deliverable = False
 
             # Decide if we have more work.
             pending_count_result = await session.execute(

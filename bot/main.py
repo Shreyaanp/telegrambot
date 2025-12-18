@@ -1,6 +1,7 @@
 """Main bot entry point - unified for both polling and webhook modes."""
 import asyncio
 import logging
+import random
 import sys
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher
@@ -22,8 +23,10 @@ from bot.handlers.member_events import create_member_handlers, create_admin_join
 from bot.handlers.join_requests import create_join_request_handlers
 from bot.handlers.admin_commands import create_admin_handlers
 from bot.handlers.content_commands import create_content_handlers
+from bot.handlers.ticket_bridge import create_ticket_bridge_handlers
 from bot.handlers.message_handlers import create_message_handlers
 from bot.handlers.rbac_help import create_rbac_help_handlers
+from bot.middlewares.anonymous_admin_guard import AnonymousAdminGuardMiddleware
 from database.db import db
 
 # Configure logging
@@ -85,6 +88,7 @@ class TelegramBot:
             # Initialize dispatcher
             logger.info("📡 Initializing dispatcher...")
             self.dispatcher = Dispatcher()
+            self.dispatcher.message.middleware(AnonymousAdminGuardMiddleware())
             logger.info("✅ Dispatcher initialized")
             
             # Register handlers
@@ -95,6 +99,7 @@ class TelegramBot:
             leave_router = create_leave_handlers(self.container)
             admin_router = create_admin_handlers(self.container)
             content_router = create_content_handlers(self.container)
+            ticket_bridge_router = create_ticket_bridge_handlers(self.container)
             message_router = create_message_handlers(self.container)
             rbac_router = create_rbac_help_handlers(self.container)
             join_req_router = create_join_request_handlers(self.container)
@@ -102,6 +107,7 @@ class TelegramBot:
             self.dispatcher.include_router(command_router)
             self.dispatcher.include_router(admin_router)
             self.dispatcher.include_router(content_router)
+            self.dispatcher.include_router(ticket_bridge_router)
             self.dispatcher.include_router(member_router)
             self.dispatcher.include_router(admin_join_router)
             self.dispatcher.include_router(leave_router)
@@ -171,6 +177,8 @@ class TelegramBot:
                     BotCommand(command="status", description="Your verification status"),
                     BotCommand(command="verify", description="Verify with Mercle"),
                     BotCommand(command="menu", description="Settings (admins)"),
+                    BotCommand(command="subscribe", description="Get announcements in DM"),
+                    BotCommand(command="unsubscribe", description="Stop announcements in DM"),
                 ],
                 scope=BotCommandScopeAllPrivateChats(),
             )
@@ -178,11 +186,9 @@ class TelegramBot:
             # Keep group commands minimal for normal users.
             await self.bot.set_my_commands(
                 commands=[
-                    BotCommand(command="menu", description="Open settings in DM (admins)"),
-                    BotCommand(command="actions", description="Moderate (reply-first)"),
+                    BotCommand(command="help", description="Help"),
                     BotCommand(command="report", description="Report a message (reply)"),
                     BotCommand(command="ticket", description="Contact admins (support)"),
-                    BotCommand(command="checkperms", description="Check bot permissions (admins)"),
                     BotCommand(command="rules", description="Show group rules"),
                     BotCommand(command="mycommands", description="Show commands you can use"),
                 ],
@@ -197,13 +203,19 @@ class TelegramBot:
                     BotCommand(command="checkperms", description="Check bot permissions"),
                     BotCommand(command="status", description="Bot status (admin)"),
                     BotCommand(command="modlog", description="View admin logs"),
+                    BotCommand(command="raid", description="Raid mode on/off"),
+                    BotCommand(command="fed", description="Federation settings"),
+                    BotCommand(command="fban", description="Federation ban (reply)"),
+                    BotCommand(command="funban", description="Federation unban (reply)"),
                     BotCommand(command="mycommands", description="Show commands you can use"),
                     BotCommand(command="kick", description="Kick a user (reply)"),
                     BotCommand(command="ban", description="Ban a user (reply)"),
+                    BotCommand(command="unban", description="Unban a user (id)"),
                     BotCommand(command="mute", description="Mute a user (reply)"),
                     BotCommand(command="unmute", description="Unmute a user (reply)"),
                     BotCommand(command="warn", description="Warn a user (reply)"),
                     BotCommand(command="roles", description="Manage custom roles"),
+                    BotCommand(command="whitelist", description="Whitelist bypass (admins)"),
                     BotCommand(command="lock", description="Lock links/media"),
                     BotCommand(command="unlock", description="Unlock links/media"),
                 ],
@@ -295,12 +307,21 @@ class TelegramBot:
                             if result.done:
                                 await self.container.jobs_service.mark_done(job.id)
                             else:
-                                delay = int(result.retry_after_seconds or 1)
-                                delay = max(1, min(delay, 3600))
+                                rl = int(job.payload.get("rl") or 0)
+                                if result.retry_after_seconds is not None:
+                                    rl = min(rl + 1, 10)
+                                    base = max(1, int(result.retry_after_seconds))
+                                    extra = min(30, int(2 ** min(rl, 5)))
+                                    delay = base + extra + random.randint(0, 2)
+                                else:
+                                    rl = 0
+                                    delay = 1 + random.randint(0, 1)
+                                delay = max(1, min(int(delay), 3600))
                                 await self.container.jobs_service.reschedule(
                                     job.id,
                                     run_at=datetime.utcnow() + timedelta(seconds=delay),
                                     last_error=result.detail,
+                                    payload_patch={"rl": rl},
                                 )
                             continue
 
@@ -316,12 +337,21 @@ class TelegramBot:
                             if result.done:
                                 await self.container.jobs_service.mark_done(job.id)
                             else:
-                                delay = int(result.retry_after_seconds or 1)
-                                delay = max(1, min(delay, 3600))
+                                rl = int(job.payload.get("rl") or 0)
+                                if result.retry_after_seconds is not None:
+                                    rl = min(rl + 1, 10)
+                                    base = max(1, int(result.retry_after_seconds))
+                                    extra = min(30, int(2 ** min(rl, 5)))
+                                    delay = base + extra + random.randint(0, 2)
+                                else:
+                                    rl = 0
+                                    delay = 1 + random.randint(0, 1)
+                                delay = max(1, min(int(delay), 3600))
                                 await self.container.jobs_service.reschedule(
                                     job.id,
                                     run_at=datetime.utcnow() + timedelta(seconds=delay),
                                     last_error=result.detail,
+                                    payload_patch={"rl": rl},
                                 )
                             continue
 

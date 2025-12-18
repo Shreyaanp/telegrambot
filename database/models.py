@@ -26,18 +26,90 @@ class User(Base):
         return f"<User(telegram_id={self.telegram_id}, username={self.username})>"
 
 
+class DmSubscriber(Base):
+    """Users who can receive bot DMs (for marketing/support broadcasts)."""
+
+    __tablename__ = "dm_subscribers"
+
+    telegram_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    username = Column(String, nullable=True)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+
+    opted_out = Column(Boolean, nullable=False, default=False)
+    deliverable = Column(Boolean, nullable=False, default=True)
+
+    fail_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+
+    first_seen_at = Column(DateTime, default=datetime.utcnow)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_ok_at = Column(DateTime, nullable=True)
+    last_fail_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_dm_subscribers_delivery", "deliverable", "opted_out"),
+        Index("idx_dm_subscribers_last_seen", "last_seen_at"),
+    )
+
+    def __repr__(self):
+        return f"<DmSubscriber(telegram_id={self.telegram_id}, deliverable={self.deliverable}, opted_out={self.opted_out})>"
+
+
+class Federation(Base):
+    """Federations link multiple groups for shared moderation (ban once, apply everywhere)."""
+
+    __tablename__ = "federations"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    owner_id = Column(BigInteger, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    groups = relationship("Group", back_populates="federation")
+
+
+class FederationBan(Base):
+    """Federation ban list (fban)."""
+
+    __tablename__ = "federation_bans"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    federation_id = Column(BigInteger, ForeignKey("federations.id"), nullable=False)
+    telegram_id = Column(BigInteger, nullable=False)
+    reason = Column(Text, nullable=True)
+    banned_by = Column(BigInteger, nullable=False)
+    banned_at = Column(DateTime, default=datetime.utcnow)
+
+    federation = relationship("Federation")
+
+    __table_args__ = (
+        Index("idx_fed_bans_fed", "federation_id"),
+        Index("idx_fed_bans_user", "telegram_id"),
+        Index("uq_fed_ban", "federation_id", "telegram_id", unique=True),
+    )
+
+
 class Group(Base):
     """Group settings table - per-group configuration."""
     __tablename__ = "groups"
     
     group_id = Column(BigInteger, primary_key=True, autoincrement=False)
     group_name = Column(String, nullable=True)
+    federation_id = Column(BigInteger, ForeignKey("federations.id"), nullable=True)
     
     # Verification settings
     verification_enabled = Column(Boolean, default=True)
     verification_timeout = Column(Integer, default=300)  # 5 minutes
     kick_unverified = Column(Boolean, default=True)
     join_gate_enabled = Column(Boolean, default=False)  # If group uses join requests, only approve after verification
+    require_rules_acceptance = Column(Boolean, default=False, nullable=False)
+    captcha_enabled = Column(Boolean, default=False, nullable=False)
+    captcha_style = Column(String, default="button", nullable=False)
+    captcha_max_attempts = Column(Integer, default=3, nullable=False)
+    block_no_username = Column(Boolean, default=False, nullable=False)
     
     # Welcome/Goodbye
     welcome_enabled = Column(Boolean, default=True)
@@ -49,6 +121,8 @@ class Group(Base):
     warn_limit = Column(Integer, default=3)  # Kick after X warns
     antiflood_enabled = Column(Boolean, default=True)
     antiflood_limit = Column(Integer, default=10)  # Messages per minute
+    silent_automations = Column(Boolean, default=False)
+    raid_mode_until = Column(DateTime, nullable=True)
     lock_links = Column(Boolean, default=False)
     lock_media = Column(Boolean, default=False)
 
@@ -74,6 +148,7 @@ class Group(Base):
     filters = relationship("Filter", back_populates="group")
     admin_logs = relationship("AdminLog", back_populates="group")
     sequences = relationship("Sequence", back_populates="group")
+    federation = relationship("Federation", back_populates="groups")
     
     def __repr__(self):
         return f"<Group(group_id={self.group_id}, group_name={self.group_name})>"
@@ -347,6 +422,11 @@ class PendingJoinVerification(Base):
     expires_at = Column(DateTime, nullable=False)
     prompt_message_id = Column(BigInteger, nullable=True)
     dm_message_id = Column(BigInteger, nullable=True)
+    rules_accepted_at = Column(DateTime, nullable=True)
+    captcha_kind = Column(String, nullable=True)
+    captcha_expected = Column(String, nullable=True)
+    captcha_attempts = Column(Integer, default=0, nullable=False)
+    captcha_solved_at = Column(DateTime, nullable=True)
     mercle_session_id = Column(String, nullable=True)
     decided_by = Column(BigInteger, nullable=True)  # admin/user id who decided
     decided_at = Column(DateTime, nullable=True)
@@ -432,6 +512,22 @@ class Ticket(Base):
     __table_args__ = (
         Index("idx_ticket_group_status", "group_id", "status", "created_at"),
         Index("idx_ticket_user", "user_id", "created_at"),
+    )
+
+
+class TicketUserState(Base):
+    """Tracks the user's currently active ticket (for DM → staff relay)."""
+
+    __tablename__ = "ticket_user_state"
+
+    user_id = Column(BigInteger, primary_key=True, autoincrement=False)
+    ticket_id = Column(BigInteger, ForeignKey("tickets.id"), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    ticket = relationship("Ticket")
+
+    __table_args__ = (
+        Index("idx_ticket_user_state_ticket", "ticket_id"),
     )
 
 

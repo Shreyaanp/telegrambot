@@ -8,7 +8,7 @@ from bot.container import ServiceContainer
 from aiogram.enums import ContentType
 
 logger = logging.getLogger(__name__)
-_URL_RE = re.compile(r"(https?://|www\\.|t\\.me/)", re.IGNORECASE)
+_URL_RE = re.compile(r"(https?://|www\.|t\.me/)", re.IGNORECASE)
 
 
 def create_message_handlers(container: ServiceContainer) -> Router:
@@ -31,32 +31,56 @@ def create_message_handlers(container: ServiceContainer) -> Router:
         - Message filters
         - Hashtag notes (#notename)
         """
-        # Skip if from bot or in private chat
-        if message.from_user.is_bot or message.chat.type == "private":
+        # Skip private chats
+        if message.chat.type == "private":
+            return
+
+        group_id = message.chat.id
+        text = message.text or ""
+
+        # Enforce locks first (even for sender_chat / anonymous-admin style messages).
+        lock_links, _lock_media = await container.lock_service.get_locks(group_id)
+        is_anonymous_admin = (
+            message.from_user is None
+            and getattr(message, "sender_chat", None) is not None
+            and int(message.sender_chat.id) == int(message.chat.id)
+        )
+
+        if lock_links and not is_anonymous_admin:
+            has_url_entity = any(getattr(e, "type", None) in ("url", "text_link") for e in (message.entities or []))
+            looks_like_url = bool(_URL_RE.search(text))
+            if has_url_entity or looks_like_url:
+                try:
+                    await message.delete()
+                    return
+                except Exception as e:
+                    logger.debug(f"Failed to delete locked link message: {e}")
+
+        # Anonymous admin / channel-post style messages have no from_user; skip everything else safely.
+        if not message.from_user:
+            return
+
+        # Skip if from bot
+        if message.from_user.is_bot:
             return
 
         # Don't treat commands as regular text content (avoid antiflood/filters on /commands)
-        if message.text and message.text.startswith("/"):
+        if text.startswith("/"):
             return
         
-        group_id = message.chat.id
         user_id = message.from_user.id
-        text = message.text
-        
-        # Enforce locks: links
-        lock_links, lock_media = await container.lock_service.get_locks(group_id)
-        has_url_entity = any(getattr(e, "type", None) in ("url", "text_link") for e in (message.entities or []))
-        looks_like_url = bool(_URL_RE.search(text or ""))
-        if lock_links and (has_url_entity or looks_like_url):
-            try:
-                await message.delete()
-                return
-            except Exception as e:
-                logger.debug(f"Failed to delete locked link message: {e}")
-        
-        # Enforce media lock (non-text messages handled separately below)
-        if lock_media:
-            # If text contains media indicators, skip; media enforcement happens in another handler
+
+        # Keep a lightweight per-group username→id mapping for @username moderation flows.
+        try:
+            await container.pending_verification_service.touch_group_user_throttled(
+                group_id,
+                user_id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name,
+                last_name=message.from_user.last_name,
+                source="message",
+            )
+        except Exception:
             pass
         
         # ========== ANTI-FLOOD CHECK ==========
@@ -83,12 +107,19 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                 except:
                     pass
                 
-                # Warn them
-                await message.answer(
-                    f"🚫 {message.from_user.mention_html()} has been muted for 5 minutes due to flooding.\n\n"
-                    f"📊 Sent {msg_count} messages too quickly.",
-                    parse_mode="HTML"
-                )
+                silent = False
+                try:
+                    group = await container.group_service.get_or_create_group(group_id)
+                    silent = bool(getattr(group, "silent_automations", False))
+                except Exception:
+                    silent = False
+
+                if not silent:
+                    await message.answer(
+                        f"🚫 {message.from_user.mention_html()} has been muted for 5 minutes due to flooding.\n\n"
+                        f"📊 Sent {msg_count} messages too quickly.",
+                        parse_mode="HTML"
+                    )
                 
                 logger.warning(f"Muted user {user_id} for flooding in group {group_id}")
                 return
@@ -132,10 +163,18 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                         admin_id=message.bot.id,
                         reason=f"Triggered filter: {matched_filter.keyword}"
                     )
-                    await message.reply(
-                        f"⚠️ Warning: {matched_filter.response}",
-                        parse_mode="Markdown"
-                    )
+                    silent = False
+                    try:
+                        group = await container.group_service.get_or_create_group(group_id)
+                        silent = bool(getattr(group, "silent_automations", False))
+                    except Exception:
+                        silent = False
+
+                    if not silent:
+                        await message.reply(
+                            f"⚠️ Warning: {matched_filter.response}",
+                            parse_mode="Markdown"
+                        )
                 except Exception as e:
                     logger.error(f"Failed to warn user: {e}")
                 return
@@ -163,14 +202,78 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                         logger.info(f"Sent note '{note_name}' in group {group_id}")
                     except Exception as e:
                         logger.error(f"Failed to send note: {e}")
-    
-    @router.message(F.content_type.in_({ContentType.PHOTO, ContentType.VIDEO, ContentType.DOCUMENT, ContentType.ANIMATION, ContentType.AUDIO, ContentType.VOICE, ContentType.VIDEO_NOTE, ContentType.STICKER}))
+
+    @router.message(F.caption)
+    async def handle_caption_link_lock(message: Message):
+        """
+        Enforce link locks for captions (e.g. photo/video/document captions).
+        """
+        if message.chat.type == "private":
+            return
+        lock_links, _lock_media = await container.lock_service.get_locks(message.chat.id)
+        if not lock_links:
+            return
+        is_anonymous_admin = (
+            message.from_user is None
+            and getattr(message, "sender_chat", None) is not None
+            and int(message.sender_chat.id) == int(message.chat.id)
+        )
+        if is_anonymous_admin:
+            return
+        caption = message.caption or ""
+        has_url_entity = any(getattr(e, "type", None) in ("url", "text_link") for e in (message.caption_entities or []))
+        looks_like_url = bool(_URL_RE.search(caption))
+        if has_url_entity or looks_like_url:
+            try:
+                await message.delete()
+                logger.info(f"Deleted captioned media due to link lock in group {message.chat.id}")
+            except Exception as e:
+                logger.debug(f"Failed to delete locked caption link message: {e}")
+
+    @router.message(
+        F.content_type.in_(
+            {
+                ContentType.PHOTO,
+                ContentType.VIDEO,
+                ContentType.DOCUMENT,
+                ContentType.ANIMATION,
+                ContentType.AUDIO,
+                ContentType.VOICE,
+                ContentType.VIDEO_NOTE,
+                ContentType.STICKER,
+                ContentType.CONTACT,
+                ContentType.LOCATION,
+                ContentType.VENUE,
+                ContentType.POLL,
+                ContentType.DICE,
+            }
+        )
+    )
     async def handle_media_lock(message: Message):
         """
         Enforce media locks: delete media if lock_media is enabled.
         """
         if message.chat.type == "private":
             return
+        is_anonymous_admin = (
+            message.from_user is None
+            and getattr(message, "sender_chat", None) is not None
+            and int(message.sender_chat.id) == int(message.chat.id)
+        )
+        if is_anonymous_admin:
+            return
+        if message.from_user and not message.from_user.is_bot:
+            try:
+                await container.pending_verification_service.touch_group_user_throttled(
+                    int(message.chat.id),
+                    int(message.from_user.id),
+                    username=message.from_user.username,
+                    first_name=message.from_user.first_name,
+                    last_name=message.from_user.last_name,
+                    source="message",
+                )
+            except Exception:
+                pass
         _, lock_media = await container.lock_service.get_locks(message.chat.id)
         if lock_media:
             try:

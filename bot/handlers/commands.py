@@ -1,11 +1,14 @@
 """Command handlers for the bot - DM home, secure /menu binding, and deep-link flows."""
 from __future__ import annotations
 
+import html
 import logging
+import random
 from datetime import datetime, timedelta
 from typing import Optional
 
 from aiogram import F, Router
+from aiogram.enums import ContentType
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
@@ -79,6 +82,17 @@ def create_command_handlers(container: ServiceContainer) -> Router:
     async def show_link_expired(chat_id: int, bot):
         await bot.send_message(chat_id=chat_id, text="Link expired. Run /menu again in the group.", parse_mode="HTML")
 
+    async def _touch_dm_subscriber(user) -> None:
+        try:
+            await container.dm_subscriber_service.touch(
+                telegram_id=int(user.id),
+                username=getattr(user, "username", None),
+                first_name=getattr(user, "first_name", None),
+                last_name=getattr(user, "last_name", None),
+            )
+        except Exception:
+            return
+
     async def _get_active_logs_setup_group_id(user_id: int) -> Optional[int]:
         async with db.session() as session:
             result = await session.execute(
@@ -120,6 +134,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         if message.chat.type != "private":
             return
 
+        await _touch_dm_subscriber(message.from_user)
         user_id = message.from_user.id
         payload = None
         parts = (message.text or "").split(maxsplit=1)
@@ -270,19 +285,81 @@ def create_command_handlers(container: ServiceContainer) -> Router:
     @router.message(Command("help"))
     async def cmd_help(message: Message):
         if message.chat.type == "private":
+            await _touch_dm_subscriber(message.from_user)
             await show_dm_help(message.bot, container, user_id=message.from_user.id)
         else:
-            await message.reply("Use <code>/checkperms</code> or <code>/menu</code> in this group.", parse_mode="HTML")
+            await message.reply(
+                "<b>Help</b>\n\n"
+                "<b>Members</b>\n"
+                "• <code>/rules</code> — show group rules\n"
+                "• Reply <code>/report [reason]</code> — report to admins\n"
+                "• <code>/ticket</code> — contact admins (opens DM)\n\n"
+                "<b>Mods/Admins</b>\n"
+                "• <code>/mycommands</code> — commands you can use\n"
+                "• <code>/menu</code> — open settings in DM\n"
+                "• <code>/checkperms</code> — bot permissions + join-gate readiness",
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
 
     @router.message(Command("status"))
     async def cmd_user_status(message: Message):
         if message.chat.type != "private":
             return
+        await _touch_dm_subscriber(message.from_user)
         await show_dm_status(message.bot, container, user_id=message.from_user.id)
+
+    @router.message(Command("close"))
+    async def cmd_close(message: Message):
+        if message.chat.type != "private":
+            return
+        await _touch_dm_subscriber(message.from_user)
+        active = await container.ticket_service.get_active_ticket(user_id=int(message.from_user.id))
+        if not active:
+            await message.answer("No open ticket.", parse_mode="HTML")
+            return
+        ticket_id = int(active["id"])
+        await container.ticket_service.close_ticket(
+            bot=message.bot,
+            ticket_id=ticket_id,
+            closed_by_user_id=int(message.from_user.id),
+            notify_user=False,
+            close_topic=True,
+        )
+        await message.answer(f"✅ Ticket <code>#{ticket_id}</code> closed.", parse_mode="HTML")
+
+    @router.message(Command("unsubscribe"))
+    @router.message(Command("stop"))
+    async def cmd_unsubscribe(message: Message):
+        if message.chat.type != "private":
+            return
+        await _touch_dm_subscriber(message.from_user)
+        await container.dm_subscriber_service.set_opt_out(telegram_id=message.from_user.id, opted_out=True)
+        await message.answer(
+            "✅ Unsubscribed.\n\n"
+            "You won't receive announcements in DM.\n"
+            "Send <code>/subscribe</code> to opt back in.",
+            parse_mode="HTML",
+        )
+
+    @router.message(Command("subscribe"))
+    async def cmd_subscribe(message: Message):
+        if message.chat.type != "private":
+            return
+        await container.dm_subscriber_service.set_opt_out(telegram_id=message.from_user.id, opted_out=False)
+        await _touch_dm_subscriber(message.from_user)
+        await message.answer(
+            "✅ Subscribed.\n\n"
+            "You'll receive announcements in DM.\n"
+            "Send <code>/unsubscribe</code> to stop.",
+            parse_mode="HTML",
+        )
 
     @router.message(Command("verify"))
     async def cmd_verify(message: Message):
         user_id = message.from_user.id
+        if message.chat.type == "private":
+            await _touch_dm_subscriber(message.from_user)
         if await container.user_manager.is_verified(user_id):
             await message.answer("✅ You are already verified.", parse_mode="HTML")
             return
@@ -295,6 +372,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
 
     @router.message(F.chat.type == "private", F.forward_from_chat)
     async def dm_logs_setup_forward(message: Message):
+        await _touch_dm_subscriber(message.from_user)
         group_id = await _get_active_logs_setup_group_id(message.from_user.id)
         if not group_id:
             return
@@ -312,6 +390,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         if message.text and message.text.startswith("/"):
             return
 
+        await _touch_dm_subscriber(message.from_user)
         ticket_group_id = await _get_active_ticket_intake_group_id(message.from_user.id)
         if ticket_group_id:
             try:
@@ -321,6 +400,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                     user_id=int(message.from_user.id),
                     message=str(message.text or ""),
                 )
+                await container.ticket_service.set_active_ticket(user_id=int(message.from_user.id), ticket_id=int(ticket_id))
                 async with db.session() as session:
                     result = await session.execute(
                         select(DmPanelState).where(
@@ -332,8 +412,12 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                     state = result.scalar_one_or_none()
                     if state:
                         await session.delete(state)
-                await message.answer(f"✅ Ticket #{ticket_id} created. Our team will follow up in the logs.", parse_mode="HTML")
-                await show_dm_home(message.bot, container, user_id=message.from_user.id)
+                await message.answer(
+                    f"✅ Ticket <code>#{ticket_id}</code> created.\n\n"
+                    "Send messages here to add updates.\n"
+                    "Send <code>/close</code> to close the ticket.",
+                    parse_mode="HTML",
+                )
             except Exception as e:
                 await message.answer(f"❌ Could not create ticket: {e}", parse_mode="HTML")
                 await open_ticket_intake(message.bot, container, user_id=message.from_user.id, group_id=int(ticket_group_id))
@@ -372,10 +456,112 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             await open_settings_screen(message.bot, container, admin_id=message.from_user.id, group_id=group_id, screen="logs")
             return
 
+        # If the user has an active open ticket, relay this DM to staff.
+        try:
+            active = await container.ticket_service.get_active_ticket(user_id=int(message.from_user.id))
+        except Exception:
+            active = None
+
+        if active and active.get("status") == "open" and active.get("staff_chat_id") is not None:
+            staff_chat_id = int(active["staff_chat_id"])
+            thread_id = active.get("staff_thread_id")
+            if thread_id is None:
+                try:
+                    group = await container.group_service.get_or_create_group(int(active.get("group_id") or 0))
+                    thread_id = int(group.logs_thread_id) if getattr(group, "logs_thread_id", None) else None
+                except Exception:
+                    thread_id = None
+            kwargs = {}
+            if thread_id:
+                kwargs["message_thread_id"] = int(thread_id)
+            try:
+                await message.bot.forward_message(
+                    chat_id=staff_chat_id,
+                    from_chat_id=int(message.chat.id),
+                    message_id=int(message.message_id),
+                    **kwargs,
+                )
+                return
+            except Exception:
+                pass
+
         await show_dm_home(message.bot, container, user_id=message.from_user.id)
+
+    @router.message(F.chat.type == "private", F.content_type != ContentType.TEXT)
+    async def dm_fallback_nontext(message: Message):
+        # Ignore command-like captions
+        if message.caption and message.caption.strip().startswith("/"):
+            return
+
+        await _touch_dm_subscriber(message.from_user)
+
+        # If we're in ticket intake, create the ticket and then forward this message.
+        ticket_group_id = await _get_active_ticket_intake_group_id(message.from_user.id)
+        if ticket_group_id:
+            try:
+                caption = (message.caption or "").strip()
+                seed = caption if caption else f"[{str(message.content_type)}]"
+                ticket_id = await container.ticket_service.create_ticket(
+                    bot=message.bot,
+                    group_id=int(ticket_group_id),
+                    user_id=int(message.from_user.id),
+                    message=seed,
+                )
+                await container.ticket_service.set_active_ticket(user_id=int(message.from_user.id), ticket_id=int(ticket_id))
+                async with db.session() as session:
+                    result = await session.execute(
+                        select(DmPanelState).where(
+                            DmPanelState.telegram_id == message.from_user.id,
+                            DmPanelState.panel_type == "ticket_intake",
+                            DmPanelState.group_id == int(ticket_group_id),
+                        )
+                    )
+                    state = result.scalar_one_or_none()
+                    if state:
+                        await session.delete(state)
+                await message.answer(
+                    f"✅ Ticket <code>#{ticket_id}</code> created.\n\n"
+                    "Send messages here to add updates.\n"
+                    "Send <code>/close</code> to close the ticket.",
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                await message.answer(f"❌ Could not create ticket: {e}", parse_mode="HTML")
+                await open_ticket_intake(message.bot, container, user_id=message.from_user.id, group_id=int(ticket_group_id))
+                return
+
+        try:
+            active = await container.ticket_service.get_active_ticket(user_id=int(message.from_user.id))
+        except Exception:
+            active = None
+        if not active or active.get("status") != "open" or active.get("staff_chat_id") is None:
+            return
+
+        staff_chat_id = int(active["staff_chat_id"])
+        thread_id = active.get("staff_thread_id")
+        if thread_id is None:
+            try:
+                group = await container.group_service.get_or_create_group(int(active.get("group_id") or 0))
+                thread_id = int(group.logs_thread_id) if getattr(group, "logs_thread_id", None) else None
+            except Exception:
+                thread_id = None
+        kwargs = {}
+        if thread_id:
+            kwargs["message_thread_id"] = int(thread_id)
+        try:
+            await message.bot.forward_message(
+                chat_id=staff_chat_id,
+                from_chat_id=int(message.chat.id),
+                message_id=int(message.message_id),
+                **kwargs,
+            )
+        except Exception:
+            return
 
     @router.callback_query(lambda c: c.data and c.data.startswith("ticket:"))
     async def ticket_callbacks(callback: CallbackQuery):
+        if callback.message and callback.message.chat.type == "private":
+            await _touch_dm_subscriber(callback.from_user)
         parts = callback.data.split(":")
         await callback.answer()
         if len(parts) < 2:
@@ -403,14 +589,19 @@ def create_command_handlers(container: ServiceContainer) -> Router:
     @router.callback_query(lambda c: c.data and c.data.startswith("dm:"))
     async def dm_callbacks(callback: CallbackQuery):
         action = callback.data.split(":", 1)[1]
-        await callback.answer()
+        if callback.message and callback.message.chat.type == "private":
+            await _touch_dm_subscriber(callback.from_user)
         if action == "help":
+            await callback.answer()
             await show_dm_help(callback.bot, container, user_id=callback.from_user.id)
         elif action == "home":
+            await callback.answer()
             await show_dm_home(callback.bot, container, user_id=callback.from_user.id)
         elif action == "status":
+            await callback.answer()
             await show_dm_status(callback.bot, container, user_id=callback.from_user.id)
         elif action == "verify":
+            await callback.answer()
             if await container.user_manager.is_verified(callback.from_user.id):
                 await callback.message.answer("✅ You are already verified.", parse_mode="HTML")
                 return
@@ -420,11 +611,21 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 chat_id=callback.from_user.id,
                 username=callback.from_user.username,
             )
+        elif action == "unsub":
+            await container.dm_subscriber_service.set_opt_out(telegram_id=callback.from_user.id, opted_out=True)
+            try:
+                if callback.message:
+                    await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+            await callback.answer("Unsubscribed")
         else:
             await callback.answer("Not allowed", show_alert=True)
 
     @router.callback_query(lambda c: c.data and c.data.startswith("cfg:"))
     async def cfg_callbacks(callback: CallbackQuery):
+        if callback.message and callback.message.chat.type == "private":
+            await _touch_dm_subscriber(callback.from_user)
         parts = callback.data.split(":")
         if len(parts) < 3:
             await callback.answer("Not allowed", show_alert=True)
@@ -528,6 +729,10 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 await container.group_service.update_setting(group_id, antiflood_limit=limit, antiflood_enabled=True)
                 await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "antispam")
                 return
+            if key == "silent":
+                await container.group_service.update_setting(group_id, silent_automations=(val == "on"))
+                await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "antispam")
+                return
             if key == "lock_links":
                 await container.lock_service.set_lock(group_id, lock_links=(val == "on"))
                 await open_settings_screen(callback.bot, container, callback.from_user.id, group_id, "locks")
@@ -589,6 +794,8 @@ def create_command_handlers(container: ServiceContainer) -> Router:
 
     @router.callback_query(lambda c: c.data and c.data.startswith("ver:"))
     async def ver_callbacks(callback: CallbackQuery):
+        if callback.message and callback.message.chat.type == "private":
+            await _touch_dm_subscriber(callback.from_user)
         parts = callback.data.split(":")
         if len(parts) != 3:
             await callback.answer("Not allowed", show_alert=True)
@@ -608,19 +815,119 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             await callback.answer("Link expired. Run /menu again.", show_alert=True)
             return
 
+        if action == "rules_accept":
+            group = await container.group_service.get_or_create_group(int(pending.group_id))
+            require_rules = bool(getattr(group, "require_rules_acceptance", False)) and bool(
+                str(getattr(group, "rules_text", "") or "").strip()
+            )
+            if not require_rules:
+                await callback.answer()
+                await open_dm_verification_panel(callback.bot, container, user_id=callback.from_user.id, pending_id=pending_id)
+                return
+
+            ok = await container.pending_verification_service.mark_rules_accepted(pending_id, callback.from_user.id)
+            if not ok:
+                await callback.answer("Link expired.", show_alert=True)
+                return
+            await callback.answer()
+            await open_dm_verification_panel(callback.bot, container, user_id=callback.from_user.id, pending_id=pending_id)
+            return
+
+        if action.startswith("cap_"):
+            group = await container.group_service.get_or_create_group(int(pending.group_id))
+            if not bool(getattr(group, "captcha_enabled", False)):
+                await callback.answer("Captcha is not enabled.", show_alert=True)
+                await open_dm_verification_panel(callback.bot, container, user_id=callback.from_user.id, pending_id=pending_id)
+                return
+
+            style = str(getattr(group, "captcha_style", "button") or "button")
+            max_attempts = int(getattr(group, "captcha_max_attempts", 3) or 3)
+            await container.pending_verification_service.ensure_captcha(pending_id, callback.from_user.id, style=style)
+
+            answer = action.replace("cap_", "", 1)
+            res = await container.pending_verification_service.submit_captcha(
+                pending_id,
+                callback.from_user.id,
+                answer=answer,
+                max_attempts=max_attempts,
+            )
+            if not res:
+                await callback.answer("Link expired.", show_alert=True)
+                return
+
+            status = str(res.get("status") or "")
+            remaining = int(res.get("remaining") or 0)
+            if status in ("solved", "already_solved"):
+                await callback.answer()
+                await open_dm_verification_panel(callback.bot, container, user_id=callback.from_user.id, pending_id=pending_id)
+                return
+            if status == "wrong":
+                await callback.answer(f"❌ Wrong. Attempts left: {remaining}", show_alert=True)
+                await open_dm_verification_panel(callback.bot, container, user_id=callback.from_user.id, pending_id=pending_id)
+                return
+
+            if status == "failed":
+                # Mark terminal and enforce (best-effort).
+                await container.pending_verification_service.decide(pending_id, status="rejected", decided_by=callback.from_user.id)
+                try:
+                    kind = str(getattr(pending, "kind", "post_join") or "post_join")
+                    group_id = int(pending.group_id)
+                    user_id = int(pending.telegram_id)
+
+                    if kind == "join_request":
+                        try:
+                            await callback.bot.decline_chat_join_request(chat_id=group_id, user_id=user_id)
+                        except Exception:
+                            pass
+                    else:
+                        if bool(getattr(group, "kick_unverified", True)):
+                            try:
+                                await callback.bot.ban_chat_member(chat_id=group_id, user_id=user_id)
+                                await callback.bot.unban_chat_member(chat_id=group_id, user_id=user_id)
+                            except Exception:
+                                pass
+                    await container.pending_verification_service.edit_or_delete_group_prompt(callback.bot, pending, "❌ Captcha failed")
+                except Exception:
+                    pass
+
+                await callback.answer()
+                await callback.bot.edit_message_text(
+                    chat_id=callback.from_user.id,
+                    message_id=callback.message.message_id,
+                    text="❌ Captcha failed. Ask an admin or try again later.",
+                    parse_mode="HTML",
+                )
+                return
+
+            await callback.answer("Captcha error. Try again.", show_alert=True)
+            await open_dm_verification_panel(callback.bot, container, user_id=callback.from_user.id, pending_id=pending_id)
+            return
+
         if action == "cancel":
-            await container.pending_verification_service.decide(pending_id, status="cancelled", decided_by=callback.from_user.id)
             await callback.answer()
             await callback.bot.edit_message_text(
                 chat_id=callback.from_user.id,
                 message_id=callback.message.message_id,
-                text="Cancelled.",
+                text="Cancelled. You can re-open the link from the group prompt.",
                 parse_mode="HTML",
             )
             return
 
         if action == "confirm":
             # Idempotency: double-tap confirm should not start multiple Mercle sessions.
+            group = await container.group_service.get_or_create_group(int(pending.group_id))
+            require_rules = bool(getattr(group, "require_rules_acceptance", False)) and bool(
+                str(getattr(group, "rules_text", "") or "").strip()
+            )
+            if require_rules and getattr(pending, "rules_accepted_at", None) is None:
+                await callback.answer("Accept the rules first.", show_alert=True)
+                await open_dm_verification_panel(callback.bot, container, user_id=callback.from_user.id, pending_id=pending_id)
+                return
+            if bool(getattr(group, "captcha_enabled", False)) and getattr(pending, "captcha_solved_at", None) is None:
+                await callback.answer("Complete the captcha first.", show_alert=True)
+                await open_dm_verification_panel(callback.bot, container, user_id=callback.from_user.id, pending_id=pending_id)
+                return
+
             ok = await container.pending_verification_service.try_mark_starting(pending_id, callback.from_user.id)
             if not ok:
                 await callback.answer("Already started or expired.", show_alert=True)
@@ -684,8 +991,12 @@ def dm_help_text() -> str:
         "<b>Help</b>\n"
         "1) Add me to a group\n"
         "2) Promote me to admin (Restrict, Delete)\n"
-        "3) Run <code>/menu</code> in the group\n\n"
-        "Moderate: reply with <code>/actions</code>."
+        "3) Run <code>/menu</code> in the group (settings open in DM)\n\n"
+        "<b>Moderation</b>\n"
+        "• Reply in the group with <code>/actions</code>\n\n"
+        "<b>Custom roles</b>\n"
+        "• Telegram admins can grant roles in the group:\n"
+        "  reply to a user → <code>/roles add moderator</code>"
     )
 
 
@@ -704,7 +1015,7 @@ def dm_status_text(*, is_verified: bool, mercle_user_id: str | None) -> str:
             "<b>Status</b>\n"
             "✅ Verified\n\n"
             f"Mercle ID: {mid}\n\n"
-            "This verification is global: you won’t need to verify again in other groups."
+            "Some groups may still require a verification step when you join/rejoin (use the link from the group prompt)."
         )
     return (
         "<b>Status</b>\n"
@@ -989,10 +1300,12 @@ async def open_settings_screen(bot, container: ServiceContainer, admin_id: int, 
             ]
         )
     elif screen == "antispam":
+        silent = bool(getattr(group, "silent_automations", False))
         text = (
             f"<b>Anti-spam</b> • {group.group_name or group_id}\n\n"
             f"Status: {'On ✅' if group.antiflood_enabled else 'Off'}\n"
             f"Limit: <code>{int(group.antiflood_limit or 10)}</code> msgs/min\n\n"
+            f"Silent automations: {'On ✅' if silent else 'Off'}\n\n"
             "Tip: when a user exceeds the limit, the bot mutes them for 5 minutes."
         )
         kb = InlineKeyboardMarkup(
@@ -1005,6 +1318,16 @@ async def open_settings_screen(bot, container: ServiceContainer, admin_id: int, 
                     InlineKeyboardButton(
                         text="Off ✅" if not group.antiflood_enabled else "Off",
                         callback_data=f"cfg:{group_id}:set:antiflood:off",
+                    ),
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="Silent: On ✅" if silent else "Silent: On",
+                        callback_data=f"cfg:{group_id}:set:silent:on",
+                    ),
+                    InlineKeyboardButton(
+                        text="Silent: Off ✅" if not silent else "Silent: Off",
+                        callback_data=f"cfg:{group_id}:set:silent:off",
                     ),
                 ],
                 [
@@ -1084,13 +1407,123 @@ async def open_dm_verification_panel(bot, container: ServiceContainer, user_id: 
         await bot.send_message(chat_id=user_id, text="Verification expired. Ask an admin or rejoin.", parse_mode="HTML")
         return
     group = await container.group_service.get_or_create_group(int(pending.group_id))
-    text = f"<b>Verification</b>\nGroup: {group.group_name or group.group_id}"
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Confirm", callback_data=f"ver:{pending_id}:confirm")],
-            [InlineKeyboardButton(text="Cancel", callback_data=f"ver:{pending_id}:cancel")],
-        ]
-    )
+    group_title = str(group.group_name or group.group_id)
+    rules_text = str(getattr(group, "rules_text", "") or "").strip()
+    require_rules = bool(getattr(group, "require_rules_acceptance", False)) and bool(rules_text)
+
+    # Step 1: rules acceptance.
+    if require_rules and getattr(pending, "rules_accepted_at", None) is None:
+        safe_rules = html.escape(rules_text)
+        if len(safe_rules) > 1400:
+            safe_rules = safe_rules[:1397] + "..."
+        text = (
+            f"<b>Verification</b>\n"
+            f"Group: {html.escape(group_title)}\n\n"
+            f"<b>Rules</b>\n{safe_rules}\n\n"
+            f"Tap <b>I accept</b> to continue."
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="✅ I accept", callback_data=f"ver:{pending_id}:rules_accept")],
+                [InlineKeyboardButton(text="Cancel", callback_data=f"ver:{pending_id}:cancel")],
+            ]
+        )
+    else:
+        # Step 2: optional captcha (blocks "Confirm" until solved).
+        captcha_enabled = bool(getattr(group, "captcha_enabled", False))
+        captcha_style = str(getattr(group, "captcha_style", "button") or "button")
+        captcha_max_attempts = int(getattr(group, "captcha_max_attempts", 3) or 3)
+
+        if captcha_enabled and getattr(pending, "captcha_solved_at", None) is None:
+            ensured = await container.pending_verification_service.ensure_captcha(
+                pending_id, user_id, style=captcha_style
+            )
+            pending = await container.pending_verification_service.get_pending(pending_id) or pending
+
+            attempts = int(getattr(pending, "captcha_attempts", 0) or 0)
+            remaining = max(0, int(captcha_max_attempts) - attempts)
+
+            if not ensured:
+                text = f"<b>Verification</b>\nGroup: {html.escape(group_title)}\n\nCaptcha expired."
+                kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Cancel", callback_data=f"ver:{pending_id}:cancel")]])
+            else:
+                kind, expected = ensured
+                kind = str(kind or "")
+                expected = str(expected or "").strip().lower()
+                status_line = f"Attempts left: <b>{remaining}</b>"
+                if attempts:
+                    status_line = f"Attempts used: <b>{attempts}</b> • left: <b>{remaining}</b>"
+
+                if kind.startswith("math:"):
+                    _, a_str, b_str = (kind.split(":", 2) + ["", ""])[:3]
+                    try:
+                        a = int(a_str)
+                        b = int(b_str)
+                    except Exception:
+                        a = 2
+                        b = 2
+                    question = f"{a} + {b} = ?"
+                    try:
+                        exp_int = int(expected)
+                    except Exception:
+                        exp_int = a + b
+                        expected = str(exp_int)
+                    choices = {exp_int, exp_int + random.choice([1, 2, 3]), max(0, exp_int - random.choice([1, 2, 3]))}
+                    while len(choices) < 3:
+                        choices.add(exp_int + random.randint(-3, 3))
+                    opts = [str(x) for x in choices]
+                    random.shuffle(opts)
+                    rows = []
+                    for opt in opts:
+                        rows.append([InlineKeyboardButton(text=opt, callback_data=f"ver:{pending_id}:cap_{opt}")])
+                    rows.append([InlineKeyboardButton(text="Cancel", callback_data=f"ver:{pending_id}:cancel")])
+                    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+                    text = (
+                        f"<b>Verification</b>\n"
+                        f"Group: {html.escape(group_title)}\n\n"
+                        f"<b>Quick check</b>\n"
+                        f"Solve: <code>{question}</code>\n"
+                        f"{status_line}"
+                    )
+                else:
+                    # button captcha
+                    labels = {
+                        "blue": "🟦 Blue",
+                        "green": "🟩 Green",
+                        "red": "🟥 Red",
+                        "yellow": "🟨 Yellow",
+                    }
+                    colors = list(labels.keys())
+                    if expected not in colors:
+                        expected = "blue"
+                    others = [c for c in colors if c != expected]
+                    opts = [expected] + random.sample(others, k=2)
+                    random.shuffle(opts)
+                    rows = [[InlineKeyboardButton(text=labels[c], callback_data=f"ver:{pending_id}:cap_{c}")] for c in opts]
+                    rows.append([InlineKeyboardButton(text="Cancel", callback_data=f"ver:{pending_id}:cancel")])
+                    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+                    text = (
+                        f"<b>Verification</b>\n"
+                        f"Group: {html.escape(group_title)}\n\n"
+                        f"<b>Quick check</b>\n"
+                        f"Tap the <b>{expected.upper()}</b> button.\n"
+                        f"{status_line}"
+                    )
+        else:
+            # Step 3: ready to start Mercle.
+            extra = []
+            if require_rules:
+                extra.append("✅ Rules accepted")
+            if captcha_enabled:
+                extra.append("✅ Captcha passed")
+            extra_text = ("\n" + "\n".join(extra)) if extra else ""
+            text = f"<b>Verification</b>\nGroup: {html.escape(group_title)}\n\nTap <b>Confirm</b> to start Mercle.{extra_text}"
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="✅ Confirm", callback_data=f"ver:{pending_id}:confirm")],
+                    [InlineKeyboardButton(text="Cancel", callback_data=f"ver:{pending_id}:cancel")],
+                ]
+            )
     msg_id = await container.panel_service.upsert_dm_panel(
         bot=bot,
         user_id=user_id,

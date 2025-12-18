@@ -1,5 +1,6 @@
 """Group settings service - manage per-group configuration."""
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy import select
 
@@ -54,8 +55,16 @@ class GroupService:
         *,
         verification_timeout: Optional[int] = None,
         action_on_timeout: Optional[str] = None,  # "kick" or "mute"
+        require_rules_acceptance: Optional[bool] = None,
+        captcha_enabled: Optional[bool] = None,
+        captcha_style: Optional[str] = None,  # button|math
+        captcha_max_attempts: Optional[int] = None,
+        block_no_username: Optional[bool] = None,
         antiflood_limit: Optional[int] = None,
         antiflood_enabled: Optional[bool] = None,
+        silent_automations: Optional[bool] = None,
+        raid_mode_enabled: Optional[bool] = None,
+        raid_mode_minutes: Optional[int] = None,
         welcome_enabled: Optional[bool] = None,
         verification_enabled: Optional[bool] = None,
         join_gate_enabled: Optional[bool] = None,
@@ -77,11 +86,33 @@ class GroupService:
             if action_on_timeout is not None:
                 # Group model stores kick_unverified; map kick->True, mute->False
                 group.kick_unverified = (action_on_timeout == "kick")
+            if require_rules_acceptance is not None:
+                group.require_rules_acceptance = bool(require_rules_acceptance)
+            if captcha_enabled is not None:
+                group.captcha_enabled = bool(captcha_enabled)
+            if captcha_style is not None:
+                style = str(captcha_style or "").strip() or "button"
+                if style not in ("button", "math"):
+                    style = "button"
+                group.captcha_style = style
+            if captcha_max_attempts is not None:
+                group.captcha_max_attempts = max(1, min(int(captcha_max_attempts), 10))
+            if block_no_username is not None:
+                group.block_no_username = bool(block_no_username)
             if antiflood_limit is not None:
                 group.antiflood_limit = max(1, antiflood_limit)
                 group.antiflood_enabled = True
             if antiflood_enabled is not None:
                 group.antiflood_enabled = antiflood_enabled
+            if silent_automations is not None:
+                group.silent_automations = bool(silent_automations)
+            if raid_mode_enabled is not None:
+                if raid_mode_enabled:
+                    minutes = int(raid_mode_minutes or 15)
+                    minutes = max(1, min(minutes, 7 * 24 * 60))
+                    group.raid_mode_until = datetime.utcnow() + timedelta(minutes=minutes)
+                else:
+                    group.raid_mode_until = None
             if welcome_enabled is not None:
                 group.welcome_enabled = welcome_enabled
             if verification_enabled is not None:

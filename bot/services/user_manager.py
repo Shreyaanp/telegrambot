@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import select, update, and_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.models import User, VerificationSession
@@ -36,38 +37,81 @@ class UserManager:
         telegram_id: int,
         mercle_user_id: str,
         username: Optional[str] = None
-    ) -> User:
-        """Create or update a verified user."""
+    ) -> Optional[User]:
+        """
+        Create or update a verified user.
+
+        Returns:
+            The created/updated user, or None if the Mercle user is already linked
+            to a different Telegram account (enforced by the unique constraint on
+            `users.mercle_user_id`).
+        """
         async with db.session() as session:
+            # Guardrail: prevent linking one Mercle identity to multiple Telegram IDs.
+            try:
+                result = await session.execute(select(User).where(User.mercle_user_id == mercle_user_id))
+                conflict_user = result.scalar_one_or_none()
+                if conflict_user and int(conflict_user.telegram_id) != int(telegram_id):
+                    logger.warning(
+                        "Mercle identity already linked to another Telegram account; "
+                        "telegram_id=%s conflicts_with=%s",
+                        int(telegram_id),
+                        int(conflict_user.telegram_id),
+                    )
+                    return None
+            except Exception:
+                # Best-effort: if we can't check, let the DB constraint enforce it.
+                conflict_user = None
+
             # Check if user already exists
             result = await session.execute(
                 select(User).where(User.telegram_id == telegram_id)
             )
             existing_user = result.scalar_one_or_none()
             
-            if existing_user:
-                # Update existing user
-                existing_user.mercle_user_id = mercle_user_id
-                existing_user.username = username
-                existing_user.verified_at = datetime.utcnow()
-                await session.commit()
-                await session.refresh(existing_user)
-                logger.info(f"Updated verified user: {telegram_id} ({username})")
-                return existing_user
-            else:
+            try:
+                if existing_user:
+                    # Update existing user
+                    existing_user.mercle_user_id = mercle_user_id
+                    existing_user.username = username
+                    existing_user.verified_at = datetime.utcnow()
+                    await session.flush()
+                    logger.info(f"Updated verified user: {telegram_id} ({username})")
+                    return existing_user
+
                 # Create new user
                 user = User(
                     telegram_id=telegram_id,
                     username=username,
                     mercle_user_id=mercle_user_id,
-                    verified_at=datetime.utcnow()
+                    verified_at=datetime.utcnow(),
                 )
                 session.add(user)
-                await session.commit()
-                await session.refresh(user)
+                await session.flush()
                 logger.info(f"Created verified user: {telegram_id} ({username})")
                 return user
-    
+            except IntegrityError:
+                # Handle race/conflict without crashing the verification flow.
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+
+                try:
+                    result = await session.execute(select(User).where(User.mercle_user_id == mercle_user_id))
+                    conflict_user = result.scalar_one_or_none()
+                except Exception:
+                    conflict_user = None
+
+                if conflict_user and int(conflict_user.telegram_id) != int(telegram_id):
+                    logger.warning(
+                        "Mercle identity conflict on insert/update; telegram_id=%s conflicts_with=%s",
+                        int(telegram_id),
+                        int(conflict_user.telegram_id),
+                    )
+                    return None
+                raise
+
     async def create_session(
         self,
         session_id: str,
