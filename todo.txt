@@ -35,12 +35,72 @@ This file is a working checklist of what’s done and what’s left before launc
   - [ ] Happy-path: pending created, user DM’d, approve after Mercle approval
 - [ ] Add basic operational health checks:
   - [x] Webhook `/health` and `/status` verified behind auth (`ADMIN_API_TOKEN`)
-  - [ ] Logs destination test path verified
+  - [x] Logs destination test path implemented (DM settings + Mini App “Send test log”)
 - [x] Add rate-limit / backoff guardrails for Mercle polling under load.
 - [x] Update any remaining docs that still claim SQLite (e.g. `website/api.html`).
 
 ## Nice To Have (post-launch)
-- [ ] Mini App settings UI (keep DM panels as fallback).
-- [ ] Persistent metrics (current metrics are in-memory and reset on restart).
-- [ ] Admin log viewer command in Telegram (current logs are stored + optional push-to-destination).
+- [x] Mini App settings UI (v1: `/app` + `/api/app/*`; keep DM panels as fallback).
+- [x] Persistent metrics (stored in `metric_counters`, survives restarts).
+- [x] Admin log viewer command in Telegram (`/modlog`).
 - [ ] Unify parse modes (Markdown vs HTML) to reduce formatting edge-cases.
+
+## Roadmap (best-in-class features)
+
+### 1) Join + onboarding gates
+- [x] Verify-to-speak (post-join restrict → verify → unrestrict).
+- [x] Verify-to-join (join request gate using `ChatJoinRequest.user_chat_id`).
+- [x] Whitelist/trusted bypass.
+- [ ] Captcha challenges (multiple styles).
+- [ ] Rules acceptance step during verification/onboarding.
+- [ ] Account-age / join-quality heuristics (configurable).
+
+### 2) Anti-spam + anti-raid protection
+- [x] Locks (links/media).
+- [x] Blocklists (filters: reply/delete/warn).
+- [x] Antiflood (rate limiting → mute).
+- [ ] Silent automations (optional “no noisy messages” mode).
+- [ ] Anti-raid “join-wave” defense / lockdown mode.
+- [ ] Global spam DB integration (e.g. CAS).
+
+### 3) Moderation workflows
+- [x] Fast restriction commands (kick/ban/mute/unmute/purge).
+- [x] Warnings with escalation (`warn_limit`, `/warns`, `/resetwarns`).
+- [x] Admin action logging (DB + optional push to logs destination).
+- [x] User reports (`/report`, reply-only; forwards to logs destination if configured).
+- [ ] Anonymous admin handling (reliable permission checks).
+
+### 4) Automation + marketing + support
+- [x] Triggers (filters + notes).
+- [ ] Rules engine (trigger + conditions + actions; deterministic first, optional intent later).
+  - [x] Define DB schema + migrations (`rules`, `rule_actions`) with ordering + enable flags.
+  - [x] Implement evaluator (priority order + `stop_processing`) for group messages (DM rules later).
+  - [x] Actions v1: reply, delete, warn, mute (Mini App UI).
+  - [x] Actions v2: start sequence, create ticket, notify logs.
+  - [ ] Intent detection (optional): keyword/regex first, ML/LLM as fallback only when uncertain.
+- [ ] Broadcasts (group first, then DM subscribers).
+  - [x] DB schema + migrations (`broadcasts`, `broadcast_targets`, `jobs`) + status tracking.
+  - [x] Background sender (jobs worker) with basic `RetryAfter` reschedule.
+  - [x] Mini App v1: send announcement to one or more groups (queued broadcast).
+  - [x] Scheduling v1: `delay_seconds` + per-group broadcast history (Mini App).
+  - [ ] Improve rate limiting + retry/backoff (avoid Telegram 429 storms).
+  - [ ] DM subscribers: track `dm_deliverable` + opt-out; mark undeliverable on failures.
+- [ ] Sequences (drip campaigns).
+  - [x] DB schema + migrations (`sequences`, `sequence_steps`, `sequence_runs`, `sequence_run_steps`).
+  - [x] Background scheduler/runner (jobs worker + `sequence_step`).
+  - [x] Mini App v1: onboarding DM after verification (per-group).
+  - [x] Add a real sequences editor (multiple steps, preview, enable/disable) for onboarding.
+- [ ] Support tickets (DM intake + optional forum-topic bridge).
+  - [x] Decide destination (v1): use the group's logs destination for staff notifications.
+  - [x] DB schema + migrations (`tickets`, `support_link_tokens`).
+  - [x] User flow v1: `/ticket` in group → DM intake (`/start sup_<token>`) → ticket created + sent to logs.
+  - [ ] Upgrade to forum-topic tickets (create topic, relay both ways, close/reopen, macros).
+- [ ] Mini App admin console (settings + rules + broadcasts + tickets).
+  - [x] Settings UI (v1).
+  - [x] Rules editor + test console.
+  - [x] Broadcast composer + scheduling (v1: delay minutes + history list).
+  - [x] Ticket queue (v1 read-only: recent open tickets).
+
+### 5) Analytics + multi-group moderation
+- [ ] Analytics dashboard + engagement metrics.
+- [ ] Federation/shared banlists.

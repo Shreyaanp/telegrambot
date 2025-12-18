@@ -21,9 +21,24 @@ File: `webhook_server.py`
 - HTTP endpoints:
   - `POST <WEBHOOK_PATH>`: Telegram webhook updates.
   - `GET /`: basic info + links to endpoints.
+  - `GET /app`: serves `static/app.html` (Telegram Mini App settings UI).
   - `GET /verify`: serves `static/verify.html` (deep-link helper for Mercle).
   - `GET /health`: always returns a minimal liveness payload; includes DB status only when `ADMIN_API_TOKEN` is set + provided.
   - `GET /status`: returns detailed metrics only when `ADMIN_API_TOKEN` is set + provided.
+  - `POST /api/app/bootstrap`: validates Telegram WebApp `initData` and lists groups where the user can manage settings.
+  - `POST /api/app/group/{group_id}/settings`: validates `initData` + permissions and applies group settings updates (join gate prerequisites enforced).
+  - `POST /api/app/group/{group_id}/logs/test`: sends a “test log” message to the configured logs destination.
+  - `POST /api/app/group/{group_id}/broadcast`: validates `initData` + permissions and queues (or schedules via `delay_seconds`) an announcement broadcast to that group.
+  - `POST /api/app/broadcast`: validates `initData` and queues (or schedules via `delay_seconds`) an announcement broadcast to multiple groups the user can manage.
+  - `POST /api/app/group/{group_id}/broadcasts`: lists recent broadcasts that targeted this group (Mini App history).
+  - `POST /api/app/group/{group_id}/onboarding`: configures the first step of a per-group onboarding DM sequence (legacy v1).
+  - `POST /api/app/group/{group_id}/onboarding/get`: fetches the onboarding steps list for this group (Mini App editor).
+  - `POST /api/app/group/{group_id}/onboarding/steps`: updates the onboarding steps list for this group (Mini App editor).
+  - `POST /api/app/group/{group_id}/rules`: lists rules for that group (v1 rules engine).
+  - `POST /api/app/group/{group_id}/rules/test`: dry-run a sample message against current rules (Mini App test console).
+  - `POST /api/app/group/{group_id}/rules/create`: creates a simple rule (contains/regex → reply/delete/warn/mute/log/start_sequence/create_ticket).
+  - `POST /api/app/group/{group_id}/rules/delete`: deletes a rule.
+  - `POST /api/app/group/{group_id}/tickets`: lists recent tickets for that group (Mini App queue view).
 - Admin token transport:
   - `Authorization: Bearer <token>`, or `X-Admin-Token: <token>`, or `?token=<token>`
 
@@ -41,9 +56,10 @@ File: `bot/main.py`
   - `bot/handlers/rbac_help.py` (`/mycommands`)
   - `bot/handlers/message_handlers.py` (locks/antiflood/filters/notes triggers)
 - Sets Telegram command menus (scoped for private / groups / group-admins) via `set_my_commands(...)`.
+- If `WEBHOOK_URL` is set, the bot also sets a global chat menu button pointing to `<WEBHOOK_URL>/app` (Mini App settings UI).
 
 ### Logging (what you will and won’t see)
-- `bot/main.py` logs to stdout and `bot.log`.
+- `bot/main.py` logs to stdout and `bot.log` (and under systemd you can always use `journalctl -u telegrambot -f`).
 - `webhook_server.py` logs a safe per-update summary:
   - commands are logged as `cmd=/...`
   - private non-command messages log only `text_len=...`
@@ -56,6 +72,12 @@ File: `bot/main.py`
   - Finds expired `pending_join_verifications` and:
     - `kind="join_request"`: best-effort declines the join request, marks pending `timed_out`.
     - `kind="post_join"`: kicks (ban+unban) if `groups.kick_unverified`, otherwise keeps user muted; marks pending `timed_out` and edits/deletes the group prompt best-effort.
+
+### Background jobs
+File: `bot/main.py`
+- Runs a small DB-backed jobs worker loop (every ~2s when idle) for async features like broadcasts.
+- Jobs are stored in `jobs` and the first implemented job is `broadcast_send`.
+- Sequences also use jobs (`sequence_step`) for delayed sends.
 
 ## Database (tables + what they mean)
 File: `database/models.py` (migrated via Alembic)
@@ -74,6 +96,34 @@ Runtime:
 - `verification_sessions` (`VerificationSession`)
   - Tracks Mercle `session_id`, target chat/user, expiry, status (`pending|approved|rejected|expired`), and `message_ids` for cleanup.
   - Polling uses adaptive intervals and backoff (to avoid stampedes under load).
+
+### Operational metrics
+- `metric_counters` (`MetricCounter`)
+  - Persistent counters (survive restarts) used for admin `/status` metrics: admin actions, verification outcomes, API error counts.
+
+### Background jobs + broadcasts
+- `jobs` (`Job`)
+  - Minimal DB-backed queue: `job_type`, `status`, `run_at`, attempts/locks, JSON payload.
+- `broadcasts` (`Broadcast`)
+  - Broadcast campaign record + progress counts (includes `scheduled_at` for delayed sends).
+- `broadcast_targets` (`BroadcastTarget`)
+  - Per-chat delivery state for a broadcast (`pending|sent|failed`).
+
+### Sequences (drip/onboarding)
+- `sequences` (`Sequence`)
+  - Per-group sequence definition with a stable `key` and a `trigger` (current trigger used: `user_verified`).
+- `sequence_steps` (`SequenceStep`)
+  - Ordered steps with a `delay_seconds` and message content.
+- `sequence_runs` (`SequenceRun`)
+  - A per-user execution of a sequence (idempotent per `trigger_key`).
+- `sequence_run_steps` (`SequenceRunStep`)
+  - Per-step delivery state; each pending step schedules a `sequence_step` job at `run_at`.
+
+### Rules engine (v1)
+- `rules` (`Rule`)
+  - Per-group rules with a trigger (currently: `message_group`), a match (`contains|regex`), and priority/stop flags.
+- `rule_actions` (`RuleAction`)
+  - Ordered actions for a rule (current actions used: `reply|delete|warn|mute|log|start_sequence|create_ticket`).
 
 ### Per-group configuration
 - `groups` (`Group`)
@@ -106,6 +156,7 @@ Important invariant:
 ### Deep-link tokens
 - `config_link_tokens` (`ConfigLinkToken`): `/start cfg_<token>` (DM settings), bound to `(group_id, admin_id)`, expires, one-time.
 - `verification_link_tokens` (`VerificationLinkToken`): `/start ver_<token>` (DM verification panel), bound to `(pending_id, group_id, telegram_id)`, expires.
+- `support_link_tokens` (`SupportLinkToken`): `/start sup_<token>` (DM support ticket intake), bound to `(group_id, user_id)`, expires, one-time.
 
 Telegram `/start` payload constraints:
 - Telegram deep-link parameters are constrained (1–64 chars, limited charset). Tokens must remain within these constraints (the current implementation uses short URL-safe tokens).
@@ -120,7 +171,7 @@ Telegram `/start` payload constraints:
   - Used to resolve `@username` → `user_id` scoped to the current group.
 
 ### Moderation/content tables used by features
-- Used by current handlers: `warnings`, `whitelist`, `admin_logs`, `flood_tracker`, `notes`, `filters`
+- Used by current handlers: `warnings`, `whitelist`, `admin_logs`, `flood_tracker`, `notes`, `filters`, `tickets`
 - Present in schema but not currently used by handlers: `group_members`
 
 ## Permissions (actual checks)
@@ -262,6 +313,8 @@ File: `bot/handlers/message_handlers.py`
   - `lock_media`: deletes media messages (photo/video/document/etc).
 - Anti-flood:
   - Uses `flood_tracker` with a 60s rolling window; if `antiflood_enabled` and `message_count > antiflood_limit`, the bot mutes the user for 5 minutes, deletes the triggering message, and posts a warning.
+- Rules engine (v1):
+  - Evaluates enabled rules in `rules` (trigger `message_group`) before filters/notes; actions can reply/delete/warn/mute/log/start_sequence/create_ticket and may stop further processing.
 - Filters:
   - Uses `filters` table; a matched filter can reply with text, delete the message, or warn the user (depending on `filter_type`).
 - Notes trigger:
@@ -289,8 +342,11 @@ File: `bot/handlers/admin_commands.py`
   - numeric id
   - `@username` via group admins list → `group_user_state` → best-effort `get_chat`
 - Other moderation helpers:
+  - `/report` (reply): sends a user report to the configured logs destination (if enabled) and stores it in `admin_logs`
+  - `/ticket`: opens a DM support intake flow and creates a `tickets` row (requires logs destination enabled for the group)
   - `/warns` and `/resetwarns` (warnings)
   - `/whitelist` (bypass verification per-group)
+  - `/modlog` (admins/log viewers): view recent `admin_logs` (`/modlog [limit]`, `/modlog action <x>`, `/modlog admin <id>`, etc.)
   - `/pin` and `/unpin`
   - `/lock` and `/unlock` (links/media)
 

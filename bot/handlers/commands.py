@@ -52,6 +52,26 @@ async def open_logs_setup(bot, container: ServiceContainer, *, admin_id: int, gr
         reply_markup=kb,
     )
 
+async def open_ticket_intake(bot, container: ServiceContainer, *, user_id: int, group_id: int) -> None:
+    group = await container.group_service.get_or_create_group(group_id)
+    title = group.group_name or str(group.group_id)
+    text = (
+        f"<b>Support ticket</b>\n"
+        f"Group: {title}\n\n"
+        "Send your message (one message for now)."
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Cancel", callback_data=f"ticket:cancel:{group_id}")]]
+    )
+    await container.panel_service.upsert_dm_panel(
+        bot=bot,
+        user_id=user_id,
+        panel_type="ticket_intake",
+        group_id=group_id,
+        text=text,
+        reply_markup=kb,
+    )
+
 
 def create_command_handlers(container: ServiceContainer) -> Router:
     router = Router()
@@ -66,6 +86,24 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 .where(
                     DmPanelState.telegram_id == user_id,
                     DmPanelState.panel_type == "logs_setup",
+                )
+                .order_by(DmPanelState.updated_at.desc())
+                .limit(1)
+            )
+            state = result.scalar_one_or_none()
+            if not state:
+                return None
+            if state.updated_at and (datetime.utcnow() - state.updated_at).total_seconds() > 15 * 60:
+                return None
+            return int(state.group_id) if state.group_id is not None else None
+
+    async def _get_active_ticket_intake_group_id(user_id: int) -> Optional[int]:
+        async with db.session() as session:
+            result = await session.execute(
+                select(DmPanelState)
+                .where(
+                    DmPanelState.telegram_id == user_id,
+                    DmPanelState.panel_type == "ticket_intake",
                 )
                 .order_by(DmPanelState.updated_at.desc())
                 .limit(1)
@@ -123,7 +161,46 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             await open_dm_verification_panel(message.bot, container, user_id=user_id, pending_id=ver.pending_id)
             return
 
+        if payload and payload.startswith("sup_"):
+            token = payload.replace("sup_", "", 1)
+            sup = await container.token_service.consume_support_token(token, user_id=user_id)
+            if not sup:
+                await message.answer("Support link expired. Ask an admin to run /ticket again.", parse_mode="HTML")
+                return
+            await open_ticket_intake(message.bot, container, user_id=user_id, group_id=sup.group_id)
+            return
+
         await show_dm_home(message.bot, container, user_id=user_id)
+
+    @router.message(Command("ticket"))
+    async def cmd_ticket(message: Message):
+        if message.chat.type == "private":
+            await message.answer("Open /ticket in the group where you need help.", parse_mode="HTML")
+            return
+        if message.chat.type not in ["group", "supergroup"]:
+            return
+
+        group_id = int(message.chat.id)
+        user_id = int(message.from_user.id)
+        await container.group_service.register_group(group_id, message.chat.title)
+
+        group = await container.group_service.get_or_create_group(group_id)
+        if not getattr(group, "logs_enabled", False) or not getattr(group, "logs_chat_id", None):
+            await message.reply(
+                "Support is not configured for this group.\n\n"
+                "Admins: enable a logs destination in <code>/menu</code> → Logs.",
+                parse_mode="HTML",
+            )
+            return
+
+        bot_info = await message.bot.get_me()
+        token = await container.token_service.create_support_token(group_id=group_id, user_id=user_id)
+        deep_link = f"https://t.me/{bot_info.username}?start=sup_{token}"
+        await message.reply(
+            "Open support in DM:",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Open Support", url=deep_link)]]),
+        )
 
     @router.message(Command("menu"))
     async def cmd_menu(message: Message):
@@ -234,6 +311,34 @@ def create_command_handlers(container: ServiceContainer) -> Router:
     async def dm_fallback_text(message: Message):
         if message.text and message.text.startswith("/"):
             return
+
+        ticket_group_id = await _get_active_ticket_intake_group_id(message.from_user.id)
+        if ticket_group_id:
+            try:
+                ticket_id = await container.ticket_service.create_ticket(
+                    bot=message.bot,
+                    group_id=int(ticket_group_id),
+                    user_id=int(message.from_user.id),
+                    message=str(message.text or ""),
+                )
+                async with db.session() as session:
+                    result = await session.execute(
+                        select(DmPanelState).where(
+                            DmPanelState.telegram_id == message.from_user.id,
+                            DmPanelState.panel_type == "ticket_intake",
+                            DmPanelState.group_id == int(ticket_group_id),
+                        )
+                    )
+                    state = result.scalar_one_or_none()
+                    if state:
+                        await session.delete(state)
+                await message.answer(f"✅ Ticket #{ticket_id} created. Our team will follow up in the logs.", parse_mode="HTML")
+                await show_dm_home(message.bot, container, user_id=message.from_user.id)
+            except Exception as e:
+                await message.answer(f"❌ Could not create ticket: {e}", parse_mode="HTML")
+                await open_ticket_intake(message.bot, container, user_id=message.from_user.id, group_id=int(ticket_group_id))
+            return
+
         group_id = await _get_active_logs_setup_group_id(message.from_user.id)
         if group_id:
             if not await can_user(message.bot, group_id, message.from_user.id, "settings"):
@@ -268,6 +373,32 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             return
 
         await show_dm_home(message.bot, container, user_id=message.from_user.id)
+
+    @router.callback_query(lambda c: c.data and c.data.startswith("ticket:"))
+    async def ticket_callbacks(callback: CallbackQuery):
+        parts = callback.data.split(":")
+        await callback.answer()
+        if len(parts) < 2:
+            return
+        action = parts[1]
+        if action == "cancel" and len(parts) >= 3:
+            try:
+                gid = int(parts[2])
+            except ValueError:
+                gid = None
+            if gid is not None:
+                async with db.session() as session:
+                    result = await session.execute(
+                        select(DmPanelState).where(
+                            DmPanelState.telegram_id == callback.from_user.id,
+                            DmPanelState.panel_type == "ticket_intake",
+                            DmPanelState.group_id == gid,
+                        )
+                    )
+                    state = result.scalar_one_or_none()
+                    if state:
+                        await session.delete(state)
+            await show_dm_home(callback.bot, container, user_id=callback.from_user.id)
 
     @router.callback_query(lambda c: c.data and c.data.startswith("dm:"))
     async def dm_callbacks(callback: CallbackQuery):

@@ -9,7 +9,7 @@ from typing import Optional
 from sqlalchemy import select
 
 from database.db import db
-from database.models import ConfigLinkToken, VerificationLinkToken, PendingJoinVerification
+from database.models import ConfigLinkToken, VerificationLinkToken, PendingJoinVerification, SupportLinkToken
 
 
 @dataclass(frozen=True)
@@ -27,12 +27,20 @@ class VerificationTokenPayload:
     telegram_id: int
 
 
+@dataclass(frozen=True)
+class SupportTokenPayload:
+    token: str
+    group_id: int
+    user_id: int
+
+
 class TokenService:
     """DB-backed tokens for config and verification deep links."""
 
-    def __init__(self, cfg_ttl_minutes: int = 10, ver_ttl_minutes: int = 10):
+    def __init__(self, cfg_ttl_minutes: int = 10, ver_ttl_minutes: int = 10, sup_ttl_minutes: int = 15):
         self.cfg_ttl_minutes = cfg_ttl_minutes
         self.ver_ttl_minutes = ver_ttl_minutes
+        self.sup_ttl_minutes = sup_ttl_minutes
 
     def _new_token(self) -> str:
         # Short, URL-safe token; callback_data limits don't apply to deep links.
@@ -79,6 +87,34 @@ class TokenService:
                 )
             )
         return token
+
+    async def create_support_token(self, group_id: int, user_id: int) -> str:
+        expires_at = datetime.utcnow() + timedelta(minutes=self.sup_ttl_minutes)
+        token = self._new_token()
+        async with db.session() as session:
+            session.add(
+                SupportLinkToken(
+                    token=token,
+                    group_id=group_id,
+                    user_id=user_id,
+                    expires_at=expires_at,
+                )
+            )
+        return token
+
+    async def consume_support_token(self, token: str, user_id: int) -> Optional[SupportTokenPayload]:
+        now = datetime.utcnow()
+        async with db.session() as session:
+            result = await session.execute(select(SupportLinkToken).where(SupportLinkToken.token == token))
+            row = result.scalar_one_or_none()
+            if not row:
+                return None
+            if row.used_at is not None or row.expires_at < now:
+                return None
+            if int(row.user_id) != int(user_id):
+                return None
+            row.used_at = now
+            return SupportTokenPayload(token=row.token, group_id=int(row.group_id), user_id=int(row.user_id))
 
     async def get_verification_token(self, token: str) -> Optional[VerificationTokenPayload]:
         now = datetime.utcnow()

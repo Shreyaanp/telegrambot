@@ -95,6 +95,19 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                 
             except Exception as e:
                 logger.error(f"Failed to mute flooding user: {e}")
+
+        # ========== RULES ENGINE ==========
+        try:
+            match = await container.rules_service.apply_group_text_rules(
+                message=message,
+                admin_service=container.admin_service,
+                sequence_service=container.sequence_service,
+                ticket_service=container.ticket_service,
+            )
+            if match and match.stop_processing:
+                return
+        except Exception as e:
+            logger.debug(f"Rules engine error: {e}")
         
         # ========== CHECK FILTERS ==========
         matched_filter = await container.filter_service.check_filters(group_id, text)

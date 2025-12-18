@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import sys
+from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -10,6 +11,8 @@ from aiogram.types import (
     BotCommandScopeAllChatAdministrators,
     BotCommandScopeAllGroupChats,
     BotCommandScopeAllPrivateChats,
+    MenuButtonWebApp,
+    WebAppInfo,
 )
 
 from bot.config import Config
@@ -50,6 +53,7 @@ class TelegramBot:
         self.container: ServiceContainer = None
         self._running = False
         self._cleanup_task: asyncio.Task | None = None
+        self._jobs_task: asyncio.Task | None = None
         self.started_at: float | None = None
     
     async def initialize(self):
@@ -130,6 +134,7 @@ class TelegramBot:
 
             # Background cleanup (polling mode + non-webhook runners)
             self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
+            self._jobs_task = asyncio.create_task(self._jobs_worker())
             
             # Get bot info
             bot_info = await self.bot.get_me()
@@ -175,6 +180,8 @@ class TelegramBot:
                 commands=[
                     BotCommand(command="menu", description="Open settings in DM (admins)"),
                     BotCommand(command="actions", description="Moderate (reply-first)"),
+                    BotCommand(command="report", description="Report a message (reply)"),
+                    BotCommand(command="ticket", description="Contact admins (support)"),
                     BotCommand(command="checkperms", description="Check bot permissions (admins)"),
                     BotCommand(command="rules", description="Show group rules"),
                     BotCommand(command="mycommands", description="Show commands you can use"),
@@ -189,6 +196,7 @@ class TelegramBot:
                     BotCommand(command="actions", description="Open action panel (reply)"),
                     BotCommand(command="checkperms", description="Check bot permissions"),
                     BotCommand(command="status", description="Bot status (admin)"),
+                    BotCommand(command="modlog", description="View admin logs"),
                     BotCommand(command="mycommands", description="Show commands you can use"),
                     BotCommand(command="kick", description="Kick a user (reply)"),
                     BotCommand(command="ban", description="Ban a user (reply)"),
@@ -201,6 +209,16 @@ class TelegramBot:
                 ],
                 scope=BotCommandScopeAllChatAdministrators(),
             )
+
+            # Mini App menu button (global). If this fails, the Mini App can still be configured via BotFather.
+            if self.config.webhook_url:
+                try:
+                    app_url = self.config.webhook_url.rstrip("/") + "/app"
+                    await self.bot.set_chat_menu_button(
+                        menu_button=MenuButtonWebApp(text="Settings", web_app=WebAppInfo(url=app_url))
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to set menu button: {e}")
         except Exception as e:
             logger.warning(f"Failed to set command menu: {e}")
 
@@ -237,6 +255,84 @@ class TelegramBot:
                 break
             except Exception as e:
                 logger.error(f"Periodic cleanup error: {e}")
+
+    async def _jobs_worker(self):
+        """
+        Background worker for DB-backed jobs (broadcasts, sequences, tickets).
+        """
+        last_reap_at: datetime | None = None
+        while self._running:
+            try:
+                await asyncio.sleep(0)  # allow cancellation
+                if not self.container:
+                    await asyncio.sleep(2)
+                    continue
+
+                now = datetime.utcnow()
+                if last_reap_at is None or (now - last_reap_at) > timedelta(seconds=60):
+                    try:
+                        await self.container.jobs_service.release_stale_locks(max_age_seconds=600)
+                    except Exception:
+                        pass
+                    last_reap_at = now
+
+                jobs = await self.container.jobs_service.claim_due(limit=3)
+                if not jobs:
+                    await asyncio.sleep(2)
+                    continue
+
+                for job in jobs:
+                    try:
+                        if job.job_type == "broadcast_send":
+                            broadcast_id = int(job.payload.get("broadcast_id") or 0)
+                            if not broadcast_id:
+                                await self.container.jobs_service.mark_failed(job.id, last_error="missing broadcast_id")
+                                continue
+
+                            result = await self.container.broadcast_service.run_send_job(
+                                self.bot, broadcast_id=broadcast_id, batch_size=5
+                            )
+                            if result.done:
+                                await self.container.jobs_service.mark_done(job.id)
+                            else:
+                                delay = int(result.retry_after_seconds or 1)
+                                delay = max(1, min(delay, 3600))
+                                await self.container.jobs_service.reschedule(
+                                    job.id,
+                                    run_at=datetime.utcnow() + timedelta(seconds=delay),
+                                    last_error=result.detail,
+                                )
+                            continue
+
+                        if job.job_type == "sequence_step":
+                            run_step_id = int(job.payload.get("run_step_id") or 0)
+                            if not run_step_id:
+                                await self.container.jobs_service.mark_failed(job.id, last_error="missing run_step_id")
+                                continue
+
+                            result = await self.container.sequence_service.run_step_job(
+                                self.bot, run_step_id=run_step_id
+                            )
+                            if result.done:
+                                await self.container.jobs_service.mark_done(job.id)
+                            else:
+                                delay = int(result.retry_after_seconds or 1)
+                                delay = max(1, min(delay, 3600))
+                                await self.container.jobs_service.reschedule(
+                                    job.id,
+                                    run_at=datetime.utcnow() + timedelta(seconds=delay),
+                                    last_error=result.detail,
+                                )
+                            continue
+
+                        await self.container.jobs_service.mark_failed(job.id, last_error=f"unknown job_type={job.job_type}")
+                    except Exception as e:
+                        await self.container.jobs_service.mark_failed(job.id, last_error=str(e))
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Jobs worker error: {e}")
+                await asyncio.sleep(2)
     
     async def stop(self):
         """Stop the bot and cleanup."""
@@ -254,6 +350,9 @@ class TelegramBot:
             if self._cleanup_task:
                 self._cleanup_task.cancel()
                 self._cleanup_task = None
+            if self._jobs_task:
+                self._jobs_task.cancel()
+                self._jobs_task = None
             
             # Cleanup services
             if self.container:

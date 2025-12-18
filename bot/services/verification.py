@@ -13,6 +13,7 @@ from bot.services.user_manager import UserManager
 from bot.services.group_service import GroupService
 from bot.services.metrics_service import MetricsService
 from bot.services.pending_verification_service import PendingVerificationService
+from bot.services.sequence_service import SequenceService
 from bot.utils.qr_generator import generate_qr_code, decode_base64_qr
 from bot.utils.messages import (
     verification_prompt_message,
@@ -44,6 +45,7 @@ class VerificationService:
         group_service: GroupService,
         metrics_service: MetricsService,
         pending_verification_service: PendingVerificationService | None = None,
+        sequence_service: SequenceService | None = None,
     ):
         """Initialize verification service."""
         self.config = config
@@ -52,6 +54,7 @@ class VerificationService:
         self.group_service = group_service
         self.metrics = metrics_service
         self.pending = pending_verification_service
+        self.sequences = sequence_service
         self.active_verifications = {}  # session_id -> asyncio.Task
         self._status_semaphore = asyncio.Semaphore(20)
 
@@ -529,6 +532,13 @@ class VerificationService:
             
             # Update session status
             await self.user_manager.update_session_status(session_id, "approved")
+
+            # Trigger per-group onboarding sequences (best-effort).
+            if group_id and self.sequences:
+                try:
+                    await self.sequences.trigger_user_verified(bot=bot, group_id=int(group_id), telegram_id=int(telegram_id))
+                except Exception:
+                    pass
             
             # If this was for a group, unmute the user (skip for join-request gating; user isn't a member yet).
             if group_id and pending_kind != "join_request":

@@ -508,3 +508,40 @@ class AdminService:
             await bot.send_message(chat_id=dest_chat_id, text=text, parse_mode="HTML", **kwargs)
         except Exception:
             return
+
+    async def log_custom_action(
+        self,
+        bot: Bot,
+        group_id: int,
+        *,
+        actor_id: int,
+        target_id: Optional[int],
+        action: str,
+        reason: Optional[str],
+    ) -> None:
+        """
+        Log an event that isn't necessarily a moderation action (e.g. user reports).
+
+        This records the event in `admin_logs` and (if enabled) forwards it to the configured logs destination.
+        """
+        try:
+            await self._log_action(
+                group_id=group_id,
+                admin_id=actor_id,
+                target_id=target_id,
+                action=action,
+                reason=reason,
+            )
+        except Exception:
+            pass
+        try:
+            await self._maybe_send_log(
+                bot,
+                group_id,
+                admin_id=actor_id,
+                target_id=target_id,
+                action=action,
+                reason=reason,
+            )
+        except Exception:
+            pass

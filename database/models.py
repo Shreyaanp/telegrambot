@@ -73,6 +73,7 @@ class Group(Base):
     notes = relationship("Note", back_populates="group")
     filters = relationship("Filter", back_populates="group")
     admin_logs = relationship("AdminLog", back_populates="group")
+    sequences = relationship("Sequence", back_populates="group")
     
     def __repr__(self):
         return f"<Group(group_id={self.group_id}, group_name={self.group_name})>"
@@ -313,6 +314,24 @@ class ConfigLinkToken(Base):
     )
 
 
+class SupportLinkToken(Base):
+    """Short-lived tokens to open a support/ticket intake flow in DM."""
+
+    __tablename__ = "support_link_tokens"
+
+    token = Column(String, primary_key=True)
+    group_id = Column(BigInteger, nullable=False)
+    user_id = Column(BigInteger, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_sup_token_expiry", "expires_at"),
+        Index("idx_sup_token_group_user", "group_id", "user_id"),
+    )
+
+
 class PendingJoinVerification(Base):
     """Pending verification for a user in a specific group (global verification outcome)."""
     __tablename__ = "pending_join_verifications"
@@ -389,6 +408,33 @@ class DmPanelState(Base):
     )
 
 
+class Ticket(Base):
+    """Support ticket (v1: one message, logged to logs destination)."""
+
+    __tablename__ = "tickets"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    user_id = Column(BigInteger, nullable=False)
+    status = Column(String, nullable=False, default="open")  # open|closed
+    subject = Column(String, nullable=True)
+    message = Column(Text, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+
+    staff_chat_id = Column(BigInteger, nullable=True)
+    staff_thread_id = Column(BigInteger, nullable=True)
+    staff_message_id = Column(BigInteger, nullable=True)
+
+    group = relationship("Group")
+
+    __table_args__ = (
+        Index("idx_ticket_group_status", "group_id", "status", "created_at"),
+        Index("idx_ticket_user", "user_id", "created_at"),
+    )
+
+
 class GroupWizardState(Base):
     """Stores one-time setup wizard state for a group."""
     __tablename__ = "group_wizard_state"
@@ -423,4 +469,227 @@ class GroupUserState(Base):
 
     __table_args__ = (
         Index("idx_group_user_username", "group_id", "username_lc"),
+    )
+
+
+class MetricCounter(Base):
+    """Small persistent counters (used for bot operational metrics)."""
+
+    __tablename__ = "metric_counters"
+
+    key = Column(String, primary_key=True)
+    value = Column(BigInteger, nullable=False, default=0)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
+class Job(Base):
+    """DB-backed job queue entries (used for broadcasts, sequences, tickets)."""
+
+    __tablename__ = "jobs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    job_type = Column(String, nullable=False)  # e.g. "broadcast_send"
+    status = Column(String, nullable=False, default="pending")  # pending|running|done|failed|cancelled
+    run_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    attempts = Column(Integer, nullable=False, default=0)
+    locked_at = Column(DateTime, nullable=True)
+    locked_by = Column(String, nullable=True)
+    payload = Column(Text, nullable=False, default="{}")  # JSON string (avoid dialect-specific JSON type)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_jobs_due", "status", "run_at"),
+    )
+
+
+class Broadcast(Base):
+    """Broadcast campaign definition + progress tracking."""
+
+    __tablename__ = "broadcasts"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    created_by = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    scheduled_at = Column(DateTime, nullable=True)
+
+    status = Column(String, nullable=False, default="pending")  # pending|running|completed|failed|cancelled
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    text = Column(Text, nullable=False)
+    parse_mode = Column(String, nullable=True)  # "Markdown"|"HTML"|None
+    disable_web_page_preview = Column(Boolean, default=True)
+
+    total_targets = Column(Integer, nullable=False, default=0)
+    sent_count = Column(Integer, nullable=False, default=0)
+    failed_count = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+
+    targets = relationship("BroadcastTarget", back_populates="broadcast")
+
+
+class BroadcastTarget(Base):
+    """Broadcast delivery target (chat or user)."""
+
+    __tablename__ = "broadcast_targets"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    broadcast_id = Column(BigInteger, ForeignKey("broadcasts.id"), nullable=False)
+    chat_id = Column(BigInteger, nullable=False)
+
+    status = Column(String, nullable=False, default="pending")  # pending|sent|failed
+    telegram_message_id = Column(BigInteger, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    error = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    broadcast = relationship("Broadcast", back_populates="targets")
+
+    __table_args__ = (
+        Index("idx_broadcast_target_status", "broadcast_id", "status"),
+    )
+
+
+class Sequence(Base):
+    """Message sequence (drip/onboarding) definition."""
+
+    __tablename__ = "sequences"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    key = Column(String, nullable=False)  # stable identifier, e.g. "onboarding_verified"
+    name = Column(String, nullable=False)
+    trigger = Column(String, nullable=False)  # e.g. "user_verified"
+    enabled = Column(Boolean, default=True)
+    created_by = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    group = relationship("Group", back_populates="sequences")
+    steps = relationship("SequenceStep", back_populates="sequence")
+    runs = relationship("SequenceRun", back_populates="sequence")
+
+    __table_args__ = (
+        Index("uq_sequence_key", "group_id", "key", unique=True),
+        Index("idx_sequence_trigger", "group_id", "trigger", "enabled"),
+    )
+
+
+class SequenceStep(Base):
+    """A single step in a sequence."""
+
+    __tablename__ = "sequence_steps"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    sequence_id = Column(BigInteger, ForeignKey("sequences.id"), nullable=False)
+    step_order = Column(Integer, nullable=False, default=1)
+    delay_seconds = Column(Integer, nullable=False, default=0)
+    text = Column(Text, nullable=False)
+    parse_mode = Column(String, nullable=True)  # "Markdown"|"HTML"|None
+    disable_web_page_preview = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    sequence = relationship("Sequence", back_populates="steps")
+
+    __table_args__ = (
+        Index("uq_sequence_step_order", "sequence_id", "step_order", unique=True),
+    )
+
+
+class SequenceRun(Base):
+    """A single execution of a sequence for a user."""
+
+    __tablename__ = "sequence_runs"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    sequence_id = Column(BigInteger, ForeignKey("sequences.id"), nullable=False)
+    telegram_id = Column(BigInteger, nullable=False)
+    trigger_key = Column(String, nullable=True)  # used for idempotency per trigger/event
+    status = Column(String, nullable=False, default="running")  # running|completed|failed|cancelled
+    started_at = Column(DateTime, default=datetime.utcnow)
+    finished_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+
+    sequence = relationship("Sequence", back_populates="runs")
+    steps = relationship("SequenceRunStep", back_populates="run")
+
+    __table_args__ = (
+        Index("idx_sequence_run_user", "sequence_id", "telegram_id"),
+        Index("uq_sequence_run_trigger", "sequence_id", "telegram_id", "trigger_key", unique=True),
+    )
+
+
+class SequenceRunStep(Base):
+    """Per-step delivery status for a run."""
+
+    __tablename__ = "sequence_run_steps"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    run_id = Column(BigInteger, ForeignKey("sequence_runs.id"), nullable=False)
+    step_id = Column(BigInteger, ForeignKey("sequence_steps.id"), nullable=False)
+    status = Column(String, nullable=False, default="pending")  # pending|sent|failed|cancelled
+    run_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    attempts = Column(Integer, nullable=False, default=0)
+    sent_at = Column(DateTime, nullable=True)
+    telegram_message_id = Column(BigInteger, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    run = relationship("SequenceRun", back_populates="steps")
+    step = relationship("SequenceStep")
+
+    __table_args__ = (
+        Index("uq_run_step", "run_id", "step_id", unique=True),
+        Index("idx_run_step_due", "status", "run_at"),
+    )
+
+
+class Rule(Base):
+    """Rules engine: triggers + conditions + actions."""
+
+    __tablename__ = "rules"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    name = Column(String, nullable=False, default="Rule")
+    enabled = Column(Boolean, default=True)
+    priority = Column(Integer, nullable=False, default=100)  # lower runs first
+    trigger = Column(String, nullable=False, default="message_group")  # message_group|dm_message|...
+    stop_processing = Column(Boolean, default=True)
+
+    match_type = Column(String, nullable=False, default="contains")  # contains|regex
+    pattern = Column(Text, nullable=False)
+    case_sensitive = Column(Boolean, default=False)
+
+    created_by = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    group = relationship("Group")
+    actions = relationship("RuleAction", back_populates="rule")
+
+    __table_args__ = (
+        Index("idx_rules_lookup", "group_id", "trigger", "enabled", "priority"),
+    )
+
+
+class RuleAction(Base):
+    """Ordered actions for a rule (reply/delete/warn/mute/etc)."""
+
+    __tablename__ = "rule_actions"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    rule_id = Column(BigInteger, ForeignKey("rules.id"), nullable=False)
+    action_order = Column(Integer, nullable=False, default=1)
+    action_type = Column(String, nullable=False)  # reply|delete|warn|mute|log|start_sequence|create_ticket
+    params = Column(Text, nullable=False, default="{}")  # JSON string
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    rule = relationship("Rule", back_populates="actions")
+
+    __table_args__ = (
+        Index("uq_rule_action_order", "rule_id", "action_order", unique=True),
     )

@@ -20,6 +20,7 @@ from bot.utils.permissions import (
     require_role_or_admin,
     require_telegram_admin,
     can_user,
+    can_delete_messages,
     extract_user_and_reason,
     get_user_mention,
     format_time_delta,
@@ -66,6 +67,16 @@ def _parse_duration_token(token: str) -> int | None:
         return n * 3600
     if unit == "d":
         return n * 86400
+    return None
+
+
+def _tg_message_link(*, chat_id: int, chat_username: str | None, message_id: int) -> str | None:
+    if chat_username:
+        return f"https://t.me/{chat_username}/{int(message_id)}"
+    cid = str(int(chat_id))
+    if cid.startswith("-100"):
+        internal = cid[4:]
+        return f"https://t.me/c/{internal}/{int(message_id)}"
     return None
 
 
@@ -752,6 +763,159 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             f"api_errors: {api_errors}\n"
         )
         await message.reply(text, parse_mode="HTML")
+
+    @router.message(Command("modlog"))
+    async def cmd_modlog(message: Message):
+        """View recent admin logs for this group."""
+        if message.chat.type not in ["group", "supergroup"]:
+            await message.reply("Run this in a group.", parse_mode="HTML")
+            return
+        if not await can_user(message.bot, message.chat.id, message.from_user.id, "logs"):
+            await message.reply("Not allowed.", parse_mode="HTML")
+            return
+
+        parts = (message.text or "").split()
+        mode = "recent"
+        limit = 10
+        logs = []
+
+        def _parse_limit(token: str | None, default: int = 10) -> int:
+            if not token or not token.isdigit():
+                return default
+            try:
+                return max(1, min(20, int(token)))
+            except Exception:
+                return default
+
+        if len(parts) == 2:
+            limit = _parse_limit(parts[1], default=10)
+            logs = await container.logs_service.get_recent_logs(message.chat.id, limit=limit)
+        elif len(parts) >= 3:
+            mode = parts[1].lower()
+            value = parts[2]
+            if mode == "action":
+                limit = _parse_limit(parts[3] if len(parts) > 3 else None, default=10)
+                logs = await container.logs_service.get_logs_by_action(message.chat.id, value, limit=limit)
+            elif mode == "admin":
+                if not value.isdigit():
+                    await message.reply("Usage: <code>/modlog admin 123456 [limit]</code>", parse_mode="HTML")
+                    return
+                limit = _parse_limit(parts[3] if len(parts) > 3 else None, default=10)
+                logs = await container.logs_service.get_logs_by_admin(message.chat.id, int(value), limit=limit)
+            elif mode == "user":
+                if not value.isdigit():
+                    await message.reply("Usage: <code>/modlog user 123456 [limit]</code>", parse_mode="HTML")
+                    return
+                limit = _parse_limit(parts[3] if len(parts) > 3 else None, default=10)
+                logs = await container.logs_service.get_logs_by_target(message.chat.id, int(value), limit=limit)
+            elif mode == "hours":
+                if not value.isdigit():
+                    await message.reply("Usage: <code>/modlog hours 24 [limit]</code>", parse_mode="HTML")
+                    return
+                hours = max(1, min(168, int(value)))
+                limit = _parse_limit(parts[3] if len(parts) > 3 else None, default=20)
+                logs = (await container.logs_service.get_logs_in_timeframe(message.chat.id, hours=hours))[:limit]
+            else:
+                await message.reply(
+                    "Usage:\n"
+                    "<code>/modlog [limit]</code>\n"
+                    "<code>/modlog action kick [limit]</code>\n"
+                    "<code>/modlog admin 123456 [limit]</code>\n"
+                    "<code>/modlog user 123456 [limit]</code>\n"
+                    "<code>/modlog hours 24 [limit]</code>",
+                    parse_mode="HTML",
+                )
+                return
+        else:
+            logs = await container.logs_service.get_recent_logs(message.chat.id, limit=limit)
+
+        if not logs:
+            await message.reply("No logs yet.", parse_mode="HTML")
+            return
+
+        lines = []
+        for row in logs:
+            try:
+                ts = row.timestamp.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                ts = "n/a"
+            action = escape(str(getattr(row, "action", "") or ""))
+            admin_id = getattr(row, "admin_id", None)
+            target_id = getattr(row, "target_id", None)
+            reason = getattr(row, "reason", None)
+            target = f" → <code>{int(target_id)}</code>" if target_id is not None else ""
+            reason_line = f"\n  <i>{escape(str(reason))}</i>" if reason else ""
+            lines.append(f"• <code>{ts}</code> <code>{action}</code> by <code>{int(admin_id)}</code>{target}{reason_line}")
+
+        header = "<b>Admin log</b>"
+        if mode != "recent":
+            header = f"<b>Admin log</b> (<code>{escape(mode)}</code>)"
+        text = header + "\n" + "\n".join(lines[:20])
+        await message.reply(text, parse_mode="HTML", disable_web_page_preview=True)
+
+    @router.message(Command("report"))
+    async def cmd_report(message: Message):
+        """
+        User report (reply-only).
+
+        Sends a report to the configured logs destination (if enabled) and stores it in `admin_logs`.
+        """
+        if message.chat.type not in ["group", "supergroup"]:
+            return
+        if not message.reply_to_message or not message.reply_to_message.from_user:
+            await message.reply("Reply to a message and use <code>/report [reason]</code>.", parse_mode="HTML")
+            return
+
+        group_id = int(message.chat.id)
+        reporter_id = int(message.from_user.id)
+        target_user = message.reply_to_message.from_user
+        target_id = int(target_user.id)
+
+        reason = None
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) > 1:
+            reason = parts[1].strip() or None
+
+        link = _tg_message_link(
+            chat_id=group_id,
+            chat_username=getattr(message.chat, "username", None),
+            message_id=int(message.reply_to_message.message_id),
+        )
+        reason_full = reason
+        if link:
+            reason_full = (reason_full + "\n" if reason_full else "") + f"Message: {link}"
+        else:
+            reason_full = (reason_full + "\n" if reason_full else "") + f"Message id: {int(message.reply_to_message.message_id)}"
+
+        await container.admin_service.log_custom_action(
+            message.bot,
+            group_id,
+            actor_id=reporter_id,
+            target_id=target_id,
+            action="report",
+            reason=reason_full,
+        )
+
+        logs_enabled = False
+        try:
+            group = await container.group_service.get_or_create_group(group_id)
+            logs_enabled = bool(getattr(group, "logs_enabled", False) and getattr(group, "logs_chat_id", None))
+        except Exception:
+            logs_enabled = False
+
+        ack = "✅ Report sent to admins." if logs_enabled else "✅ Report recorded (logs are off for this group)."
+        try:
+            await message.reply(ack, parse_mode="HTML")
+        except Exception:
+            pass
+
+        # Best-effort cleanup to reduce chat noise.
+        try:
+            bot_info = await message.bot.get_me()
+            if await can_delete_messages(message.bot, group_id, bot_info.id):
+                await message.delete()
+        except Exception:
+            pass
     
     # ========== SETTINGS ==========
     

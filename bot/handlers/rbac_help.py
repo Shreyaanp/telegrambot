@@ -26,11 +26,15 @@ def create_rbac_help_handlers(container: ServiceContainer) -> Router:
         # Always useful
         allowed.append("/actions (reply)")
         allowed.append("/rules")
+        allowed.append("/report (reply)")
+        allowed.append("/ticket")
         if is_admin or await has_role_permission(gid, uid, "settings"):
             allowed.append("/menu")
             allowed.append("/checkperms")
         if is_admin or await has_role_permission(gid, uid, "status"):
             allowed.append("/status")
+        if is_admin or await has_role_permission(gid, uid, "logs"):
+            allowed.append("/modlog")
         if is_admin or await has_role_permission(gid, uid, "warn"):
             allowed.append("/warn (reply)")
         if is_admin or await has_role_permission(gid, uid, "kick"):
@@ -48,4 +52,3 @@ def create_rbac_help_handlers(container: ServiceContainer) -> Router:
         await message.reply(text, parse_mode="HTML")
 
     return router
-

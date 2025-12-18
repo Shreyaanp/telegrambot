@@ -17,6 +17,11 @@ from bot.services.group_service import GroupService
 from bot.services.roles_service import RolesService
 from bot.services.lock_service import LockService
 from bot.services.metrics_service import MetricsService
+from bot.services.jobs_service import JobsService
+from bot.services.broadcast_service import BroadcastService
+from bot.services.sequence_service import SequenceService
+from bot.services.rules_service import RulesService
+from bot.services.ticket_service import TicketService
 from bot.services.token_service import TokenService
 from bot.services.panel_service import PanelService
 from bot.services.pending_verification_service import PendingVerificationService
@@ -43,6 +48,11 @@ class ServiceContainer:
     roles_service: RolesService
     lock_service: LockService
     metrics_service: MetricsService
+    jobs_service: JobsService
+    broadcast_service: BroadcastService
+    sequence_service: SequenceService
+    rules_service: RulesService
+    ticket_service: TicketService
     token_service: TokenService
     panel_service: PanelService
     pending_verification_service: PendingVerificationService
@@ -65,6 +75,11 @@ class ServiceContainer:
         group_service = GroupService()
 
         metrics_service = MetricsService()
+        jobs_service = JobsService()
+        broadcast_service = BroadcastService(jobs=jobs_service)
+        sequence_service = SequenceService(jobs=jobs_service)
+        rules_service = RulesService()
+        ticket_service = TicketService()
         pending_verification_service = PendingVerificationService()
         verification_service = VerificationService(
             config,
@@ -73,6 +88,7 @@ class ServiceContainer:
             group_service,
             metrics_service,
             pending_verification_service=pending_verification_service,
+            sequence_service=sequence_service,
         )
         admin_service = AdminService()
         whitelist_service = WhitelistService()
@@ -104,6 +120,11 @@ class ServiceContainer:
             roles_service=roles_service,
             lock_service=lock_service,
             metrics_service=metrics_service,
+            jobs_service=jobs_service,
+            broadcast_service=broadcast_service,
+            sequence_service=sequence_service,
+            rules_service=rules_service,
+            ticket_service=ticket_service,
             token_service=token_service,
             panel_service=panel_service,
             pending_verification_service=pending_verification_service,
