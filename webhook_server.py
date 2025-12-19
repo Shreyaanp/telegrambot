@@ -103,9 +103,9 @@ def _log_update_summary(update: Update) -> None:
                 from_id,
                 content_type or "unknown",
                 len(text),
+                _truncate(text),
             )
             return
-                (msg.text or msg.caption or "")[:200],
 
         if kind == "callback_query":
             cb = update.callback_query

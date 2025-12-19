@@ -1,6 +1,6 @@
 """User management service."""
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from sqlalchemy import select, update, and_
 from sqlalchemy.exc import IntegrityError
@@ -16,13 +16,18 @@ class UserManager:
     """Manages user verification status and database operations."""
     
     async def is_verified(self, telegram_id: int) -> bool:
-        """Check if user is verified."""
+        """Check if user is verified and verification hasn't expired."""
         async with db.session() as session:
             result = await session.execute(
                 select(User).where(User.telegram_id == telegram_id)
             )
             user = result.scalar_one_or_none()
-            return user is not None
+            if not user:
+                return False
+            # Check if verification has expired
+            if user.verified_until and user.verified_until > datetime.utcnow():
+                return True
+            return False
     
     async def get_user(self, telegram_id: int) -> Optional[User]:
         """Get user by telegram ID."""
@@ -71,24 +76,45 @@ class UserManager:
             
             try:
                 if existing_user:
-                    # Update existing user
+                    # Update existing user - but check if we're changing the mercle_user_id
+                    # If the new mercle_user_id is different and already linked to another user,
+                    # we need to reject this update
+                    if existing_user.mercle_user_id != mercle_user_id:
+                        # Check if the new mercle_user_id is already taken by someone else
+                        result = await session.execute(
+                            select(User).where(User.mercle_user_id == mercle_user_id)
+                        )
+                        other_user = result.scalar_one_or_none()
+                        if other_user and int(other_user.telegram_id) != int(telegram_id):
+                            logger.warning(
+                                "Cannot update user %s: mercle_user_id %s already linked to user %s",
+                                telegram_id,
+                                mercle_user_id,
+                                other_user.telegram_id,
+                            )
+                            return None
+                    
+                    # Safe to update
                     existing_user.mercle_user_id = mercle_user_id
                     existing_user.username = username
                     existing_user.verified_at = datetime.utcnow()
+                    existing_user.verified_until = datetime.utcnow() + timedelta(days=7)
                     await session.flush()
-                    logger.info(f"Updated verified user: {telegram_id} ({username})")
+                    logger.info(f"Updated verified user: {telegram_id} ({username}) - expires in 7 days")
                     return existing_user
 
                 # Create new user
+                now = datetime.utcnow()
                 user = User(
                     telegram_id=telegram_id,
                     username=username,
                     mercle_user_id=mercle_user_id,
-                    verified_at=datetime.utcnow(),
+                    verified_at=now,
+                    verified_until=now + timedelta(days=7),
                 )
                 session.add(user)
                 await session.flush()
-                logger.info(f"Created verified user: {telegram_id} ({username})")
+                logger.info(f"Created verified user: {telegram_id} ({username}) - expires in 7 days")
                 return user
             except IntegrityError as e:
                 # Handle race/conflict without crashing the verification flow.
@@ -120,6 +146,7 @@ class UserManager:
                     # Same Telegram account won the race: treat as success.
                     conflict_user.username = username
                     conflict_user.verified_at = datetime.utcnow()
+                    conflict_user.verified_until = datetime.utcnow() + timedelta(days=7)
                     return conflict_user
 
                 # If the Telegram user row already exists (concurrent insert), treat as success.
@@ -133,6 +160,7 @@ class UserManager:
                     existing_user.mercle_user_id = mercle_user_id
                     existing_user.username = username
                     existing_user.verified_at = datetime.utcnow()
+                    existing_user.verified_until = datetime.utcnow() + timedelta(days=7)
                     return existing_user
 
                 # Unknown IntegrityError: bubble up so we can see it in logs/metrics.

@@ -40,6 +40,8 @@ def create_message_handlers(container: ServiceContainer) -> Router:
 
         # Enforce locks first (even for sender_chat / anonymous-admin style messages).
         lock_links, _lock_media = await container.lock_service.get_locks(group_id)
+        logger.info(f"🔗 Lock check: group={group_id}, lock_links={lock_links}, lock_media={_lock_media}")
+        
         is_anonymous_admin = (
             message.from_user is None
             and getattr(message, "sender_chat", None) is not None
@@ -49,9 +51,11 @@ def create_message_handlers(container: ServiceContainer) -> Router:
         if lock_links and not is_anonymous_admin:
             has_url_entity = any(getattr(e, "type", None) in ("url", "text_link") for e in (message.entities or []))
             looks_like_url = bool(_URL_RE.search(text))
+            logger.info(f"🔗 URL check: has_entity={has_url_entity}, looks_like_url={looks_like_url}, text={text[:50]}")
             if has_url_entity or looks_like_url:
                 try:
                     await message.delete()
+                    logger.info(f"🔗 Deleted message with link in group {group_id}")
                     return
                 except Exception as e:
                     logger.debug(f"Failed to delete locked link message: {e}")
@@ -88,6 +92,8 @@ def create_message_handlers(container: ServiceContainer) -> Router:
             group_id=group_id,
             user_id=user_id
         )
+        
+        logger.info(f"🌊 Anti-flood check: group={group_id}, user={user_id}, flooding={is_flooding}, count={msg_count}")
         
         if is_flooding:
             # Mute the user for flooding
@@ -212,27 +218,39 @@ def create_message_handlers(container: ServiceContainer) -> Router:
         """
         Enforce link locks for captions (e.g. photo/video/document captions).
         """
+        logger.info(f"📝 Caption handler triggered: group={message.chat.id}, content_type={str(message.content_type)}")
+        
         if message.chat.type == "private":
+            logger.debug(f"📝 Skipping private chat")
             return
+            
         lock_links, _lock_media = await container.lock_service.get_locks(message.chat.id)
+        logger.info(f"📝 Caption lock check: group={message.chat.id}, lock_links={lock_links}")
+        
         if not lock_links:
+            logger.debug(f"📝 Link locks disabled, skipping")
             return
+            
         is_anonymous_admin = (
             message.from_user is None
             and getattr(message, "sender_chat", None) is not None
             and int(message.sender_chat.id) == int(message.chat.id)
         )
         if is_anonymous_admin:
+            logger.debug(f"📝 Skipping anonymous admin message")
             return
+            
         caption = message.caption or ""
         has_url_entity = any(getattr(e, "type", None) in ("url", "text_link") for e in (message.caption_entities or []))
         looks_like_url = bool(_URL_RE.search(caption))
+        logger.info(f"📝 Caption URL check: has_entity={has_url_entity}, looks_like_url={looks_like_url}, caption={caption[:50]}")
+        
         if has_url_entity or looks_like_url:
             try:
                 await message.delete()
-                logger.info(f"Deleted captioned media due to link lock in group {message.chat.id}")
+                logger.info(f"📝 ✅ Deleted captioned media with link in group {message.chat.id}")
             except Exception as e:
-                logger.debug(f"Failed to delete locked caption link message: {e}")
+                logger.warning(f"📝 ❌ Failed to delete locked caption link message: {e}")
 
     @router.message(
         F.content_type.in_(
@@ -257,15 +275,21 @@ def create_message_handlers(container: ServiceContainer) -> Router:
         """
         Enforce media locks: delete media if lock_media is enabled.
         """
+        logger.info(f"📷 Media handler triggered: group={message.chat.id}, content_type={str(message.content_type)}, user={message.from_user.id if message.from_user else 'None'}")
+        
         if message.chat.type == "private":
+            logger.debug(f"📷 Skipping private chat")
             return
+            
         is_anonymous_admin = (
             message.from_user is None
             and getattr(message, "sender_chat", None) is not None
             and int(message.sender_chat.id) == int(message.chat.id)
         )
         if is_anonymous_admin:
+            logger.debug(f"📷 Skipping anonymous admin message")
             return
+            
         if message.from_user and not message.from_user.is_bot:
             try:
                 await container.pending_verification_service.touch_group_user_throttled(
@@ -278,14 +302,19 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                 )
             except Exception:
                 pass
+                
         _, lock_media = await container.lock_service.get_locks(message.chat.id)
+        logger.info(f"📷 Media lock check: group={message.chat.id}, lock_media={lock_media}")
+        
         if lock_media:
             try:
                 await message.delete()
-                logger.info(f"Deleted media due to lock in group {message.chat.id}")
+                logger.info(f"📷 ✅ Deleted media due to lock in group {message.chat.id}")
             except Exception as e:
-                logger.debug(f"Failed to delete locked media: {e}")
+                logger.warning(f"📷 ❌ Failed to delete locked media: {e}")
             return
+        else:
+            logger.debug(f"📷 Media locks disabled, allowing media")
         # No further processing for media here
     
     return router

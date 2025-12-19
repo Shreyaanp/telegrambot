@@ -108,12 +108,42 @@ def create_ticket_bridge_handlers(container: ServiceContainer) -> Router:
             return
 
         try:
+            # Store staff message in history
+            content = message.text or message.caption or ""
+            message_type = "text"
+            file_id = None
+            if message.photo:
+                message_type = "photo"
+                file_id = message.photo[-1].file_id if message.photo else None
+            elif message.video:
+                message_type = "video"
+                file_id = message.video.file_id
+            elif message.document:
+                message_type = "document"
+                file_id = message.document.file_id
+            elif message.voice:
+                message_type = "voice"
+                file_id = message.voice.file_id
+            
+            await container.ticket_service.add_message(
+                ticket_id=int(ticket["id"]),
+                sender_type="staff",
+                sender_id=int(message.from_user.id) if message.from_user else None,
+                sender_name=message.from_user.full_name if message.from_user else "Staff",
+                message_type=message_type,
+                content=content,
+                file_id=file_id,
+                telegram_message_id=int(message.message_id),
+            )
+            
+            # Forward to user
             await message.bot.copy_message(
                 chat_id=int(ticket["user_id"]),
                 from_chat_id=int(message.chat.id),
                 message_id=int(message.message_id),
             )
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to relay staff message for ticket {ticket['id']}: {e}")
             return
 
     return router

@@ -311,8 +311,9 @@
         transform: translateY(0);
       }
     }
+
     /* ========== PHASE 4: MOBILE-STYLE UI ========== */
-    
+
     .group-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -436,7 +437,7 @@
         <select id="groupSelect"></select>
       </div>
     </div>
-    
+
     <!-- Phase 4: Mobile Group Selection -->
     <div id="mobileGroupSelection" class="card" style="display:none">
       <div class="row">
@@ -969,6 +970,7 @@
     }
 
     let state = { groups: [], selected: null, onboarding_steps: [] };
+    let mobileMode = true;  // Enable mobile UI by default
 
     function renderBroadcastTargets(defaultGroupId) {
       const wrap = $("broadcast_targets");
@@ -1003,6 +1005,22 @@
     }
 
     function renderGroups() {
+      if (mobileMode) {
+        // Hide old dropdown selector card
+        const cards = document.querySelectorAll('.card');
+        for (const card of cards) {
+          if (card.querySelector('#groupSelect')) {
+            card.style.display = 'none';
+            break;
+          }
+        }
+        // Show mobile group selection UI
+        $("mobileGroupSelection").style.display = "block";
+        renderMobileGroupGrid();
+        return;  // Don't auto-select any group
+      }
+
+      // Original dropdown logic (fallback for non-mobile)
       const sel = $("groupSelect");
       sel.innerHTML = "";
       if (!state.groups.length) {
@@ -1018,8 +1036,7 @@
         opt.textContent = g.group_name || String(g.group_id);
         sel.appendChild(opt);
       }
-      sel.value = String(state.groups[0].group_id);
-      selectGroup(sel.value);
+      // Removed auto-selection - let user choose
     }
 
     function selectGroup(groupIdStr) {
@@ -1734,72 +1751,73 @@
         loadAnalytics(state.selected.group_id).catch((e) => setError(String(e.message || e)));
       });
 
+      $("backToGroups").addEventListener("click", () => backToMobileGroups());
+
       bootstrap().catch((e) => setError(String(e.message || e)));
       updateBroadcastAudienceUI();
-    // ========== PHASE 4: MOBILE UI JAVASCRIPT ==========
-    let mobileMode = false;
-    
-    function renderMobileGroupGrid() {
-      const grid = $("groupGrid");
-      if (!grid) return;
-      grid.innerHTML = "";
-      if (!state.groups || state.groups.length === 0) {
-        grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--hint)">No groups found</div>';
-        return;
+      // ========== PHASE 4: MOBILE UI JAVASCRIPT ==========
+
+      function renderMobileGroupGrid() {
+        const grid = $("groupGrid");
+        if (!grid) return;
+        grid.innerHTML = "";
+        if (!state.groups || state.groups.length === 0) {
+          grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--hint)">No groups found</div>';
+          return;
+        }
+        state.groups.forEach(group => {
+          const card = document.createElement("div");
+          card.className = "group-card";
+          card.onclick = () => selectMobileGroup(group.group_id);
+          const initial = (group.group_name || "G").charAt(0).toUpperCase();
+          card.innerHTML = `<div class="group-card-header"><div class="group-avatar">${initial}</div><div class="group-info"><div class="group-name">${group.group_name || `Group ${group.group_id}`}</div><div class="group-stats">${group.member_count || 0} members</div></div></div>`;
+          grid.appendChild(card);
+        });
       }
-      state.groups.forEach(group => {
-        const card = document.createElement("div");
-        card.className = "group-card";
-        card.onclick = () => selectMobileGroup(group.group_id);
-        const initial = (group.group_name || "G").charAt(0).toUpperCase();
-        card.innerHTML = `<div class="group-card-header"><div class="group-avatar">${initial}</div><div class="group-info"><div class="group-name">${group.group_name || `Group ${group.group_id}`}</div><div class="group-stats">${group.member_count || 0} members</div></div></div>`;
-        grid.appendChild(card);
-      });
-    }
-    
-    function selectMobileGroup(groupId) {
-      selectGroup(String(groupId));
-      showMobileActionGrid();
-    }
-    
-    function showMobileActionGrid() {
-      $("mobileGroupSelection").style.display = "none";
-      $("mobileActionGrid").style.display = "block";
-      if (state.selected) $("currentGroupName").textContent = state.selected.group_name || `Group ${state.selected.group_id}`;
-      renderMobileActionGrid();
-    }
-    
-    function renderMobileActionGrid() {
-      const grid = $("actionGrid");
-      if (!grid) return;
-      grid.innerHTML = "";
-      const actions = [
-        { icon: "⚙️", name: "Verification", id: "settings" },
-        { icon: "🚪", name: "Join Gate", id: "settings" },
-        { icon: "🌊", name: "Anti-Flood", id: "settings" },
-        { icon: "🔗", name: "Lock Links", id: "settings" },
-        { icon: "📷", name: "Lock Media", id: "settings" },
-        { icon: "🔇", name: "Silent", id: "settings" },
-        { icon: "🚨", name: "Raid Mode", id: "settings" },
-        { icon: "👋", name: "Onboarding", id: "onboarding" },
-        { icon: "📋", name: "Rules", id: "rules" },
-        { icon: "📣", name: "Broadcast", id: "broadcast" },
-        { icon: "📝", name: "Logs", id: "settings" },
-        { icon: "📊", name: "Analytics", id: "analytics" }
-      ];
-      actions.forEach(action => {
-        const card = document.createElement("div");
-        card.className = "action-card";
-        card.onclick = () => { const el = $(action.id); if (el) { el.style.display = "block"; el.scrollIntoView({ behavior: "smooth" }); } };
-        card.innerHTML = `<div class="action-icon">${action.icon}</div><div class="action-name">${action.name}</div>`;
-        grid.appendChild(card);
-      });
-    }
-    
-    function backToMobileGroups() {
-      $("mobileActionGrid").style.display = "none";
-      $("mobileGroupSelection").style.display = "block";
-    }
+
+      function selectMobileGroup(groupId) {
+        selectGroup(String(groupId));
+        showMobileActionGrid();
+      }
+
+      function showMobileActionGrid() {
+        $("mobileGroupSelection").style.display = "none";
+        $("mobileActionGrid").style.display = "block";
+        if (state.selected) $("currentGroupName").textContent = state.selected.group_name || `Group ${state.selected.group_id}`;
+        renderMobileActionGrid();
+      }
+
+      function renderMobileActionGrid() {
+        const grid = $("actionGrid");
+        if (!grid) return;
+        grid.innerHTML = "";
+        const actions = [
+          { icon: "⚙️", name: "Verification", id: "settings" },
+          { icon: "🚪", name: "Join Gate", id: "settings" },
+          { icon: "🌊", name: "Anti-Flood", id: "settings" },
+          { icon: "🔗", name: "Lock Links", id: "settings" },
+          { icon: "📷", name: "Lock Media", id: "settings" },
+          { icon: "🔇", name: "Silent", id: "settings" },
+          { icon: "🚨", name: "Raid Mode", id: "settings" },
+          { icon: "👋", name: "Onboarding", id: "onboarding" },
+          { icon: "📋", name: "Rules", id: "rules" },
+          { icon: "📣", name: "Broadcast", id: "broadcast" },
+          { icon: "📝", name: "Logs", id: "settings" },
+          { icon: "📊", name: "Analytics", id: "analytics" }
+        ];
+        actions.forEach(action => {
+          const card = document.createElement("div");
+          card.className = "action-card";
+          card.onclick = () => { const el = $(action.id); if (el) { el.style.display = "block"; el.scrollIntoView({ behavior: "smooth" }); } };
+          card.innerHTML = `<div class="action-icon">${action.icon}</div><div class="action-name">${action.name}</div>`;
+          grid.appendChild(card);
+        });
+      }
+
+      function backToMobileGroups() {
+        $("mobileActionGrid").style.display = "none";
+        $("mobileGroupSelection").style.display = "block";
+      }
     }
   </script>
 </body>

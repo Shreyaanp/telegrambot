@@ -1,0 +1,24 @@
+[Unit]
+Description=Telegram Bot Webhook Server
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/telegrambot
+Environment="PATH=/home/ubuntu/telegrambot/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/ubuntu/telegrambot/venv/bin/uvicorn webhook_server:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=10
+
+# Resource Limits (with swap available, can be more generous)
+MemoryMax=800M
+MemoryHigh=700M
+CPUQuota=90%
+
+# Logging
+StandardOutput=append:/home/ubuntu/telegrambot/bot.log
+StandardError=append:/home/ubuntu/telegrambot/bot.log
+
+[Install]
+WantedBy=multi-user.target

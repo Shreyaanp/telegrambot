@@ -80,7 +80,11 @@ def create_command_handlers(container: ServiceContainer) -> Router:
     router = Router()
 
     async def show_link_expired(chat_id: int, bot):
-        await bot.send_message(chat_id=chat_id, text="Link expired. Run /menu again in the group.", parse_mode="HTML")
+        try:
+            await bot.send_message(chat_id=chat_id, text="Link expired. Run /menu again in the group.", parse_mode="HTML")
+        except Exception as e:
+            # User may have blocked the bot or deleted the chat
+            logger.warning(f"Failed to send link expired message to {chat_id}: {e}")
 
     async def _touch_dm_subscriber(user) -> None:
         try:
@@ -216,6 +220,38 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Open Support", url=deep_link)]]),
         )
+
+    @router.message(Command("mytickets"))
+    async def cmd_mytickets(message: Message):
+        """Show user's recent tickets across all groups."""
+        user_id = int(message.from_user.id)
+        
+        # Get user's tickets from database
+        async with db.session() as session:
+            from database.models import Ticket
+            from sqlalchemy import select, or_
+            result = await session.execute(
+                select(Ticket)
+                .where(Ticket.user_id == user_id)
+                .order_by(Ticket.created_at.desc())
+                .limit(10)
+            )
+            tickets = list(result.scalars().all())
+        
+        if not tickets:
+            await message.answer("You have no support tickets.", parse_mode="HTML")
+            return
+        
+        lines = ["<b>Your Recent Tickets:</b>\n"]
+        for t in tickets:
+            status_emoji = "🟢" if t.status == "open" else "⚪️"
+            lines.append(
+                f"{status_emoji} <b>#{t.id}</b> - {t.subject[:40]}\n"
+                f"  Status: {t.status} | Messages: {t.message_count or 1}\n"
+                f"  Created: {t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else 'N/A'}\n"
+            )
+        
+        await message.answer("\n".join(lines), parse_mode="HTML")
 
     @router.message(Command("menu"))
     async def cmd_menu(message: Message):
@@ -393,6 +429,26 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         await _touch_dm_subscriber(message.from_user)
         ticket_group_id = await _get_active_ticket_intake_group_id(message.from_user.id)
         if ticket_group_id:
+            # Check if already creating a ticket (race condition protection)
+            async with db.session() as session:
+                from database.models import TicketUserState
+                state = await session.get(TicketUserState, int(message.from_user.id))
+                if state and getattr(state, "creating_ticket", False):
+                    # Already creating, ignore this message
+                    return
+                
+                # Set creating flag
+                if not state:
+                    state = TicketUserState(
+                        user_id=int(message.from_user.id),
+                        ticket_id=0,  # Temporary
+                        creating_ticket=True,
+                    )
+                    session.add(state)
+                else:
+                    state.creating_ticket = True
+                await session.commit()
+            
             try:
                 ticket_id = await container.ticket_service.create_ticket(
                     bot=message.bot,
@@ -401,6 +457,13 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                     message=str(message.text or ""),
                 )
                 await container.ticket_service.set_active_ticket(user_id=int(message.from_user.id), ticket_id=int(ticket_id))
+                
+                # Clear creating flag
+                async with db.session() as session:
+                    state = await session.get(TicketUserState, int(message.from_user.id))
+                    if state:
+                        state.creating_ticket = False
+                
                 async with db.session() as session:
                     result = await session.execute(
                         select(DmPanelState).where(
@@ -409,9 +472,9 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                             DmPanelState.group_id == int(ticket_group_id),
                         )
                     )
-                    state = result.scalar_one_or_none()
-                    if state:
-                        await session.delete(state)
+                    panel_state = result.scalar_one_or_none()
+                    if panel_state:
+                        await session.delete(panel_state)
                 await message.answer(
                     f"✅ Ticket <code>#{ticket_id}</code> created.\n\n"
                     "Send messages here to add updates.\n"
@@ -419,6 +482,11 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                     parse_mode="HTML",
                 )
             except Exception as e:
+                # Clear creating flag on error
+                async with db.session() as session:
+                    state = await session.get(TicketUserState, int(message.from_user.id))
+                    if state:
+                        state.creating_ticket = False
                 await message.answer(f"❌ Could not create ticket: {e}", parse_mode="HTML")
                 await open_ticket_intake(message.bot, container, user_id=message.from_user.id, group_id=int(ticket_group_id))
             return
@@ -462,7 +530,18 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         except Exception:
             active = None
 
+        # Check if ticket is closed and notify user
+        if active and active.get("status") == "closed":
+            await container.ticket_service.clear_active_ticket(user_id=int(message.from_user.id))
+            await message.answer(
+                f"⚠️ Ticket <code>#{active['id']}</code> is closed.\n\n"
+                "To open a new ticket, use <code>/ticket</code> in the group.",
+                parse_mode="HTML"
+            )
+            return
+
         if active and active.get("status") == "open" and active.get("staff_chat_id") is not None:
+            ticket_id = int(active["id"])
             staff_chat_id = int(active["staff_chat_id"])
             thread_id = active.get("staff_thread_id")
             if thread_id is None:
@@ -475,6 +554,17 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             if thread_id:
                 kwargs["message_thread_id"] = int(thread_id)
             try:
+                # Store message in history
+                await container.ticket_service.add_message(
+                    ticket_id=ticket_id,
+                    sender_type="user",
+                    sender_id=int(message.from_user.id),
+                    sender_name=message.from_user.full_name,
+                    message_type="text",
+                    content=message.text,
+                    telegram_message_id=int(message.message_id),
+                )
+                # Forward to staff
                 await message.bot.forward_message(
                     chat_id=staff_chat_id,
                     from_chat_id=int(message.chat.id),
@@ -482,8 +572,10 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                     **kwargs,
                 )
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to relay message to staff for ticket {ticket_id}: {e}")
+                await message.answer("⚠️ Failed to send message. The ticket may be closed.", parse_mode="HTML")
+                return
 
         await show_dm_home(message.bot, container, user_id=message.from_user.id)
 
@@ -1008,12 +1100,26 @@ def dm_help_keyboard(bot_username: str) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(text="Back", callback_data="dm:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-def dm_status_text(*, is_verified: bool, mercle_user_id: str | None) -> str:
+def dm_status_text(*, is_verified: bool, mercle_user_id: str | None, verified_until=None) -> str:
     if is_verified:
         mid = f"<code>{mercle_user_id}</code>" if mercle_user_id else "n/a"
+        
+        # Calculate time remaining
+        timer_text = ""
+        if verified_until:
+            from datetime import datetime, timezone
+            remaining = verified_until - datetime.now(timezone.utc)
+            if remaining.total_seconds() > 0:
+                days = remaining.days
+                hours = remaining.seconds // 3600
+                if days > 0:
+                    timer_text = f"\n⏱ Expires in {days}d {hours}h"
+                else:
+                    timer_text = f"\n⏱ Expires in {hours}h"
+        
         return (
             "<b>Status</b>\n"
-            "✅ Verified\n\n"
+            f"✅ Verified{timer_text}\n\n"
             f"Mercle ID: {mid}\n\n"
             "Some groups may still require a verification step when you join/rejoin (use the link from the group prompt)."
         )
@@ -1034,8 +1140,9 @@ def dm_status_keyboard(*, is_verified: bool) -> InlineKeyboardMarkup:
 
 async def show_dm_status(bot, container: ServiceContainer, user_id: int):
     user = await container.user_manager.get_user(user_id)
-    is_verified = user is not None
-    text = dm_status_text(is_verified=is_verified, mercle_user_id=(user.mercle_user_id if user else None))
+    is_verified = user is not None and (user.verified_until and user.verified_until > datetime.now(timezone.utc) if user.verified_until else False)
+    verified_until = user.verified_until if user else None
+    text = dm_status_text(is_verified=is_verified, mercle_user_id=(user.mercle_user_id if user else None), verified_until=verified_until)
     kb = dm_status_keyboard(is_verified=is_verified)
     await container.panel_service.upsert_dm_panel(
         bot=bot,

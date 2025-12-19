@@ -1,0 +1,895 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Bot Admin Dashboard - Demo</title>
+  <style>
+    /* [Same CSS as app_v2.html - copying entire style block] */
+    :root {
+      --bg: #0a0a0b;
+      --bg-secondary: #17181a;
+      --text: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.6);
+      --accent: #5b7cff;
+      --accent-text: #ffffff;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #3b82f6;
+      --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+      --spacing-xs: 4px;
+      --spacing-sm: 8px;
+      --spacing-md: 16px;
+      --spacing-lg: 24px;
+      --spacing-xl: 32px;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 24px;
+      --radius-full: 9999px;
+      --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+
+    .app {
+      min-height: 100vh;
+      padding-bottom: var(--spacing-xl);
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: var(--spacing-md);
+    }
+
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: var(--bg);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding: var(--spacing-md);
+      margin-bottom: var(--spacing-lg);
+    }
+
+    .header-content {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--spacing-md);
+    }
+
+    .header-title {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+    }
+
+    .header-back {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-full);
+      background: var(--bg-secondary);
+      border: none;
+      color: var(--text);
+      cursor: pointer;
+      transition: all var(--transition-base);
+      font-size: 20px;
+    }
+
+    .header-back:hover {
+      background: rgba(255, 255, 255, 0.1);
+      transform: translateX(-2px);
+    }
+
+    .header-back:active {
+      transform: scale(0.95) translateX(-2px);
+    }
+
+    .search-container {
+      position: relative;
+      margin-bottom: var(--spacing-lg);
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 14px 48px 14px 48px;
+      background: var(--bg-secondary);
+      border: 2px solid transparent;
+      border-radius: var(--radius-lg);
+      color: var(--text);
+      font-size: 16px;
+      transition: all var(--transition-base);
+    }
+
+    .search-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 20px;
+      color: var(--text-secondary);
+    }
+
+    .search-clear {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-full);
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      color: var(--text);
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      transition: all var(--transition-fast);
+    }
+
+    .search-clear:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .search-clear.active {
+      display: flex;
+    }
+
+    .group-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: var(--spacing-md);
+      margin-bottom: var(--spacing-lg);
+    }
+
+    .group-card {
+      background: var(--bg-secondary);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-lg);
+      cursor: pointer;
+      transition: all var(--transition-base);
+      border: 2px solid transparent;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .group-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: var(--gradient-primary);
+      opacity: 0;
+      transition: opacity var(--transition-base);
+    }
+
+    .group-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-xl);
+      border-color: var(--accent);
+    }
+
+    .group-card:hover::before {
+      opacity: 1;
+    }
+
+    .group-card:active {
+      transform: translateY(-2px);
+    }
+
+    .group-card-header {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-md);
+      margin-bottom: var(--spacing-md);
+    }
+
+    .group-avatar {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-md);
+      background: var(--gradient-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      font-weight: 700;
+      color: white;
+      flex-shrink: 0;
+      box-shadow: var(--shadow);
+    }
+
+    .group-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .group-name {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .group-stats {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .group-stat {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .group-badges {
+      display: flex;
+      gap: var(--spacing-sm);
+      flex-wrap: wrap;
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: var(--spacing-md);
+      margin-bottom: var(--spacing-lg);
+    }
+
+    .dashboard-card {
+      background: var(--bg-secondary);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-lg);
+      cursor: pointer;
+      transition: all var(--transition-base);
+      text-align: center;
+      border: 2px solid transparent;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .dashboard-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: var(--gradient-primary);
+      opacity: 0;
+      transition: opacity var(--transition-base);
+    }
+
+    .dashboard-card:hover {
+      transform: translateY(-4px) scale(1.02);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--accent);
+    }
+
+    .dashboard-card:hover::after {
+      opacity: 0.05;
+    }
+
+    .dashboard-card:active {
+      transform: translateY(-2px) scale(1);
+    }
+
+    .dashboard-icon {
+      font-size: 40px;
+      margin-bottom: var(--spacing-sm);
+      display: block;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+    }
+
+    .dashboard-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .dashboard-subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .dashboard-badge {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      background: var(--danger);
+      border-radius: var(--radius-full);
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: var(--shadow);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: var(--radius-full);
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1;
+    }
+
+    .badge-success {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--success);
+    }
+
+    .badge-warning {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+    }
+
+    .badge-danger {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+    }
+
+    .badge-info {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--info);
+    }
+
+    .badge-neutral {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-secondary);
+    }
+
+    .card {
+      background: var(--bg-secondary);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-lg);
+      margin-bottom: var(--spacing-md);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--spacing-md);
+      padding-bottom: var(--spacing-md);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-sm);
+    }
+
+    .card-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: var(--spacing-sm);
+      padding: 12px 24px;
+      border-radius: var(--radius-md);
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all var(--transition-base);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: white;
+      opacity: 0;
+      transition: opacity var(--transition-fast);
+    }
+
+    .btn:hover::before {
+      opacity: 0.1;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--accent-text);
+      box-shadow: var(--shadow);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text);
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: white;
+      box-shadow: var(--shadow);
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      color: white;
+      box-shadow: var(--shadow);
+    }
+
+    .btn-sm {
+      padding: 8px 16px;
+      font-size: 14px;
+    }
+
+    .btn-icon {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border-radius: var(--radius-full);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .text-secondary {
+      color: var(--text-secondary);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: var(--spacing-xl) var(--spacing-md);
+      color: var(--text-secondary);
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: var(--spacing-md);
+      opacity: 0.5;
+    }
+
+    .empty-state-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: var(--spacing-sm);
+      color: var(--text);
+    }
+
+    .empty-state-text {
+      font-size: 14px;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .fade-in {
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    @media (max-width: 640px) {
+      .container {
+        padding: var(--spacing-sm);
+      }
+
+      .header {
+        padding: var(--spacing-sm) var(--spacing-md);
+      }
+
+      .header-title {
+        font-size: 20px;
+      }
+
+      .group-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .dashboard-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .card {
+        padding: var(--spacing-md);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <div class="header">
+      <div class="header-content">
+        <button class="header-back hidden" id="backBtn" onclick="goBack()">←</button>
+        <div class="header-title" id="headerTitle">
+          <span>🤖</span>
+          <span id="headerText">Bot Dashboard</span>
+        </div>
+        <div id="headerActions"></div>
+      </div>
+    </div>
+
+    <div class="container">
+      <div id="groupSelectionView" class="fade-in">
+        <div class="search-container">
+          <span class="search-icon">🔍</span>
+          <input 
+            type="text" 
+            class="search-input" 
+            id="groupSearch" 
+            placeholder="Search groups..."
+            oninput="filterGroups()"
+          />
+          <button class="search-clear" id="searchClear" onclick="clearSearch()">✕</button>
+        </div>
+        
+        <div class="group-grid" id="groupGrid"></div>
+
+        <div class="empty-state hidden" id="noGroupsState">
+          <div class="empty-state-icon">📭</div>
+          <div class="empty-state-title">No groups found</div>
+          <div class="empty-state-text">Add the bot to a group to get started</div>
+        </div>
+      </div>
+
+      <div id="dashboardView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title" id="dashboardGroupName">Group Name</div>
+              <div class="card-subtitle" id="dashboardGroupStats">Loading...</div>
+            </div>
+          </div>
+          
+          <div class="dashboard-grid" id="dashboardGrid"></div>
+        </div>
+      </div>
+
+      <div id="settingsView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">⚙️ Settings</div>
+              <div class="card-subtitle">Configure bot behavior</div>
+            </div>
+          </div>
+          <div id="settingsContent">
+            <div class="empty-state">
+              <div class="empty-state-icon">⚙️</div>
+              <div class="empty-state-title">Settings Coming Soon</div>
+              <div class="empty-state-text">Full settings interface will be available here</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="ticketsView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🎫 Support Tickets</div>
+              <div class="card-subtitle">Manage user support requests</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="refreshTickets()">
+              <span>🔄</span>
+              <span>Refresh</span>
+            </button>
+          </div>
+          <div id="ticketsContent">
+            <div class="empty-state">
+              <div class="empty-state-icon">🎫</div>
+              <div class="empty-state-title">Tickets Coming Soon</div>
+              <div class="empty-state-text">Ticket management interface will be available here</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // MOCK DATA FOR DEMO
+    const mockGroups = [
+      {
+        group_id: -1001234567890,
+        group_name: 'Crypto Traders Community',
+        member_count: 15234,
+        open_tickets: 3,
+        settings: {
+          verification_enabled: true,
+          raid_mode_enabled: false,
+          antiflood_enabled: true
+        }
+      },
+      {
+        group_id: -1001234567891,
+        group_name: 'NFT Collectors Hub',
+        member_count: 8456,
+        open_tickets: 0,
+        settings: {
+          verification_enabled: true,
+          raid_mode_enabled: true,
+          antiflood_enabled: false
+        }
+      },
+      {
+        group_id: -1001234567892,
+        group_name: 'DeFi Discussion',
+        member_count: 23567,
+        open_tickets: 7,
+        settings: {
+          verification_enabled: false,
+          raid_mode_enabled: false,
+          antiflood_enabled: true
+        }
+      },
+      {
+        group_id: -1001234567893,
+        group_name: 'Web3 Developers',
+        member_count: 5678,
+        open_tickets: 1,
+        settings: {
+          verification_enabled: true,
+          raid_mode_enabled: false,
+          antiflood_enabled: true
+        }
+      }
+    ];
+
+    const state = {
+      groups: mockGroups,
+      selectedGroup: null,
+      currentView: 'groupSelection',
+      viewHistory: [],
+    };
+
+    function showView(viewName, addToHistory = true) {
+      document.querySelectorAll('[id$="View"]').forEach(view => {
+        view.classList.add('hidden');
+      });
+
+      const view = document.getElementById(viewName + 'View');
+      if (view) {
+        view.classList.remove('hidden');
+        view.classList.add('fade-in');
+      }
+
+      const backBtn = document.getElementById('backBtn');
+      if (viewName === 'groupSelection') {
+        backBtn.classList.add('hidden');
+        document.getElementById('headerText').textContent = 'Bot Dashboard';
+      } else {
+        backBtn.classList.remove('hidden');
+      }
+
+      if (addToHistory && state.currentView !== viewName) {
+        state.viewHistory.push(state.currentView);
+      }
+      state.currentView = viewName;
+    }
+
+    function goBack() {
+      if (state.viewHistory.length > 0) {
+        const previousView = state.viewHistory.pop();
+        showView(previousView, false);
+      } else {
+        showView('groupSelection', false);
+      }
+    }
+
+    function renderGroups() {
+      const grid = document.getElementById('groupGrid');
+      const noGroupsState = document.getElementById('noGroupsState');
+      
+      if (state.groups.length === 0) {
+        grid.innerHTML = '';
+        noGroupsState.classList.remove('hidden');
+        return;
+      }
+
+      noGroupsState.classList.add('hidden');
+      
+      grid.innerHTML = state.groups.map(group => {
+        const initial = (group.group_name || 'G')[0].toUpperCase();
+        const memberCount = group.member_count || 0;
+        const hasTickets = group.open_tickets > 0;
+        
+        return `
+          <div class="group-card" onclick="selectGroup(${group.group_id})">
+            <div class="group-card-header">
+              <div class="group-avatar">${initial}</div>
+              <div class="group-info">
+                <div class="group-name">${group.group_name || `Group ${group.group_id}`}</div>
+                <div class="group-stats">
+                  <span class="group-stat">
+                    <span>👥</span>
+                    <span>${memberCount.toLocaleString()}</span>
+                  </span>
+                  ${hasTickets ? `
+                    <span class="group-stat">
+                      <span>🎫</span>
+                      <span>${group.open_tickets}</span>
+                    </span>
+                  ` : ''}
+                </div>
+              </div>
+            </div>
+            <div class="group-badges">
+              ${group.settings?.verification_enabled ? '<span class="badge badge-success">✓ Verification</span>' : ''}
+              ${group.settings?.raid_mode_enabled ? '<span class="badge badge-warning">🚨 Raid Mode</span>' : ''}
+              ${group.settings?.antiflood_enabled ? '<span class="badge badge-info">🌊 Anti-Flood</span>' : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function filterGroups() {
+      const searchInput = document.getElementById('groupSearch');
+      const searchClear = document.getElementById('searchClear');
+      const query = searchInput.value.toLowerCase();
+      
+      searchClear.classList.toggle('active', query.length > 0);
+      
+      const cards = document.querySelectorAll('.group-card');
+      cards.forEach(card => {
+        const text = card.textContent.toLowerCase();
+        card.style.display = text.includes(query) ? 'block' : 'none';
+      });
+    }
+
+    function clearSearch() {
+      document.getElementById('groupSearch').value = '';
+      document.getElementById('searchClear').classList.remove('active');
+      filterGroups();
+    }
+
+    function selectGroup(groupId) {
+      const group = state.groups.find(g => g.group_id === groupId);
+      if (!group) return;
+      
+      state.selectedGroup = group;
+      document.getElementById('headerText').textContent = group.group_name || `Group ${groupId}`;
+      renderDashboard();
+      showView('dashboard');
+    }
+
+    function renderDashboard() {
+      const group = state.selectedGroup;
+      if (!group) return;
+      
+      document.getElementById('dashboardGroupName').textContent = group.group_name || `Group ${group.group_id}`;
+      document.getElementById('dashboardGroupStats').textContent = `${group.member_count || 0} members`;
+      
+      const grid = document.getElementById('dashboardGrid');
+      const cards = [
+        { icon: '⚙️', title: 'Settings', subtitle: 'Configure bot', action: 'showSettings' },
+        { icon: '🎫', title: 'Tickets', subtitle: `${group.open_tickets || 0} open`, badge: group.open_tickets, action: 'showTickets' },
+        { icon: '📊', title: 'Analytics', subtitle: 'View stats', action: 'showAnalytics' },
+        { icon: '📣', title: 'Broadcast', subtitle: 'Send messages', action: 'showBroadcast' },
+        { icon: '📋', title: 'Rules', subtitle: 'Auto-moderation', action: 'showRules' },
+        { icon: '👋', title: 'Onboarding', subtitle: 'Welcome flow', action: 'showOnboarding' },
+      ];
+      
+      grid.innerHTML = cards.map(card => `
+        <div class="dashboard-card" onclick="${card.action}()">
+          ${card.badge ? `<span class="dashboard-badge">${card.badge}</span>` : ''}
+          <span class="dashboard-icon">${card.icon}</span>
+          <div class="dashboard-title">${card.title}</div>
+          <div class="dashboard-subtitle">${card.subtitle}</div>
+        </div>
+      `).join('');
+    }
+
+    function showSettings() {
+      document.getElementById('headerText').textContent = 'Settings';
+      showView('settings');
+    }
+
+    function showTickets() {
+      document.getElementById('headerText').textContent = 'Support Tickets';
+      showView('tickets');
+    }
+
+    function showAnalytics() {
+      alert('Analytics view coming soon!');
+    }
+
+    function showBroadcast() {
+      alert('Broadcast view coming soon!');
+    }
+
+    function showRules() {
+      alert('Rules view coming soon!');
+    }
+
+    function showOnboarding() {
+      alert('Onboarding view coming soon!');
+    }
+
+    function refreshTickets() {
+      alert('Refreshing tickets...');
+    }
+
+    // Initialize
+    renderGroups();
+  </script>
+</body>
+</html>
+

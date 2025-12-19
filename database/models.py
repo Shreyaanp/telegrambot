@@ -17,6 +17,7 @@ class User(Base):
     last_name = Column(String, nullable=True)
     mercle_user_id = Column(String, nullable=False, unique=True)
     verified_at = Column(DateTime, default=datetime.utcnow)
+    verified_until = Column(DateTime, nullable=True)  # Verification expires after 7 days
     is_banned = Column(Boolean, default=False)  # Global ban
     
     # Relationships
@@ -494,7 +495,7 @@ class DmPanelState(Base):
 
 
 class Ticket(Base):
-    """Support ticket (v1: one message, logged to logs destination)."""
+    """Support ticket with full conversation history."""
 
     __tablename__ = "tickets"
 
@@ -503,7 +504,16 @@ class Ticket(Base):
     user_id = Column(BigInteger, nullable=False)
     status = Column(String, nullable=False, default="open")  # open|closed
     subject = Column(String, nullable=True)
-    message = Column(Text, nullable=False)
+    message = Column(Text, nullable=False)  # First message (kept for backward compat)
+
+    # Enhanced fields
+    priority = Column(String, default="normal", nullable=False)  # low|normal|high|urgent
+    assigned_to = Column(BigInteger, nullable=True)
+    category = Column(String, nullable=True)
+    last_message_at = Column(DateTime, nullable=True)
+    last_staff_reply_at = Column(DateTime, nullable=True)
+    last_user_message_at = Column(DateTime, nullable=True)
+    message_count = Column(Integer, default=1, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
@@ -513,10 +523,37 @@ class Ticket(Base):
     staff_message_id = Column(BigInteger, nullable=True)
 
     group = relationship("Group")
+    messages = relationship("TicketMessage", back_populates="ticket", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_ticket_group_status", "group_id", "status", "created_at"),
         Index("idx_ticket_user", "user_id", "created_at"),
+        Index("idx_ticket_priority", "priority", "status"),
+        Index("idx_ticket_assigned", "assigned_to", "status"),
+    )
+
+
+class TicketMessage(Base):
+    """Individual messages within a ticket conversation."""
+
+    __tablename__ = "ticket_messages"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    ticket_id = Column(BigInteger, ForeignKey("tickets.id"), nullable=False)
+    sender_type = Column(String, nullable=False)  # user|staff|system
+    sender_id = Column(BigInteger, nullable=True)  # Telegram user ID
+    sender_name = Column(String, nullable=True)  # Display name
+    message_type = Column(String, nullable=False, default="text")  # text|photo|video|document|etc
+    content = Column(Text, nullable=True)  # Text content
+    file_id = Column(String, nullable=True)  # Telegram file_id for media
+    telegram_message_id = Column(BigInteger, nullable=True)  # Original message ID
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ticket = relationship("Ticket", back_populates="messages")
+
+    __table_args__ = (
+        Index("idx_ticket_msg_ticket", "ticket_id", "created_at"),
+        Index("idx_ticket_msg_sender", "sender_id", "created_at"),
     )
 
 
@@ -527,6 +564,8 @@ class TicketUserState(Base):
 
     user_id = Column(BigInteger, primary_key=True, autoincrement=False)
     ticket_id = Column(BigInteger, ForeignKey("tickets.id"), nullable=False)
+    creating_ticket = Column(Boolean, default=False, nullable=False)  # Lock during creation
+    last_message_at = Column(DateTime, nullable=True)  # For deduplication
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     ticket = relationship("Ticket")

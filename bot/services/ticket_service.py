@@ -11,10 +11,76 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from sqlalchemy import select
 
 from database.db import db
-from database.models import Group, Ticket, TicketUserState
+from database.models import Group, Ticket, TicketUserState, TicketMessage
 
 
 class TicketService:
+    async def add_message(
+        self,
+        *,
+        ticket_id: int,
+        sender_type: str,  # user|staff|system
+        sender_id: int | None = None,
+        sender_name: str | None = None,
+        message_type: str = "text",
+        content: str | None = None,
+        file_id: str | None = None,
+        telegram_message_id: int | None = None,
+    ) -> int:
+        """Store a message in the ticket conversation history."""
+        now = datetime.utcnow()
+        async with db.session() as session:
+            msg = TicketMessage(
+                ticket_id=int(ticket_id),
+                sender_type=sender_type,
+                sender_id=int(sender_id) if sender_id else None,
+                sender_name=sender_name,
+                message_type=message_type,
+                content=content,
+                file_id=file_id,
+                telegram_message_id=int(telegram_message_id) if telegram_message_id else None,
+                created_at=now,
+            )
+            session.add(msg)
+            await session.flush()
+            
+            # Update ticket timestamps and message count
+            ticket = await session.get(Ticket, int(ticket_id))
+            if ticket:
+                ticket.last_message_at = now
+                ticket.message_count = int(ticket.message_count or 0) + 1
+                if sender_type == "staff":
+                    ticket.last_staff_reply_at = now
+                elif sender_type == "user":
+                    ticket.last_user_message_at = now
+            
+            return int(msg.id)
+
+    async def get_ticket_messages(self, *, ticket_id: int, limit: int = 50) -> list[dict]:
+        """Retrieve conversation history for a ticket."""
+        limit = max(1, min(int(limit or 50), 200))
+        async with db.session() as session:
+            result = await session.execute(
+                select(TicketMessage)
+                .where(TicketMessage.ticket_id == int(ticket_id))
+                .order_by(TicketMessage.created_at.asc())
+                .limit(limit)
+            )
+            messages = list(result.scalars().all())
+            return [
+                {
+                    "id": int(m.id),
+                    "sender_type": str(m.sender_type),
+                    "sender_id": int(m.sender_id) if m.sender_id else None,
+                    "sender_name": str(m.sender_name or ""),
+                    "message_type": str(m.message_type),
+                    "content": str(m.content or ""),
+                    "file_id": str(m.file_id or ""),
+                    "created_at": m.created_at.isoformat() if m.created_at else None,
+                }
+                for m in messages
+            ]
+
     async def list_tickets(self, *, group_id: int, status: str = "open", limit: int = 20) -> list[dict]:
         status = str(status or "open")
         if status not in ("open", "closed"):
@@ -240,10 +306,24 @@ class TicketService:
                 staff_chat_id=staff_chat_id,
                 staff_thread_id=None,
                 staff_message_id=None,
+                last_message_at=now,
+                last_user_message_at=now,
+                message_count=1,
             )
             session.add(ticket)
             await session.flush()
             ticket_id = int(ticket.id)
+            
+            # Store the initial message in history
+            initial_msg = TicketMessage(
+                ticket_id=ticket_id,
+                sender_type="user",
+                sender_id=int(user_id),
+                message_type="text",
+                content=msg,
+                created_at=now,
+            )
+            session.add(initial_msg)
 
         # Try to create a dedicated forum topic (best UX for staff). If it fails, fall back to logs chat/thread.
         topic_thread_id: int | None = None
