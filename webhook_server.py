@@ -500,7 +500,8 @@ async def app_bootstrap(payload: _InitDataPayload):
     mercle_user_id = None
     
     try:
-        async with container.db.session() as session:
+        from database.db import db
+        async with db.session() as session:
             from sqlalchemy import select
             from database.models import User
             result = await session.execute(select(User).where(User.telegram_id == user_id))
@@ -1386,16 +1387,17 @@ async def app_delete_my_data(payload: _InitDataPayload):
             )
             
             # Delete in order respecting foreign keys
-            await session.execute(delete(TicketMessage).where(TicketMessage.user_id == user_id))
+            # Note: Using correct column names for each model
+            await session.execute(delete(TicketMessage).where(TicketMessage.sender_id == user_id))
+            await session.execute(delete(TicketUserState).where(TicketUserState.user_id == user_id))
             await session.execute(delete(Ticket).where(Ticket.user_id == user_id))
             await session.execute(delete(AdminLog).where(AdminLog.admin_id == user_id))
-            await session.execute(delete(GroupWizardState).where(GroupWizardState.telegram_id == user_id))
-            await session.execute(delete(TicketUserState).where(TicketUserState.telegram_id == user_id))
+            # GroupWizardState has no user column - skip it
             await session.execute(delete(DmPanelState).where(DmPanelState.telegram_id == user_id))
             await session.execute(delete(DmSubscriber).where(DmSubscriber.telegram_id == user_id))
             await session.execute(delete(Whitelist).where(Whitelist.telegram_id == user_id))
             await session.execute(delete(Permission).where(Permission.telegram_id == user_id))
-            await session.execute(delete(Warning).where(Warning.user_id == user_id))
+            await session.execute(delete(Warning).where(Warning.telegram_id == user_id))
             await session.execute(delete(GroupMember).where(GroupMember.telegram_id == user_id))
             await session.execute(delete(VerificationLinkToken).where(VerificationLinkToken.telegram_id == user_id))
             await session.execute(delete(PendingJoinVerification).where(PendingJoinVerification.telegram_id == user_id))
