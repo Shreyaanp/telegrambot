@@ -7,6 +7,14 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
+# NOTE: All datetimes are stored as timezone-naive UTC in PostgreSQL.
+# This is intentional for consistency with existing data.
+# Always use datetime.utcnow() for current time, never datetime.now(timezone.utc).
+def utcnow():
+    """Return timezone-naive UTC datetime for model defaults."""
+    return datetime.utcnow()
+
+
 class User(Base):
     """Verified users table - global verification across all groups."""
     __tablename__ = "users"
@@ -16,7 +24,7 @@ class User(Base):
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
     mercle_user_id = Column(String, nullable=False, unique=True)
-    verified_at = Column(DateTime, default=datetime.utcnow)
+    verified_at = Column(DateTime, default=utcnow)
     verified_until = Column(DateTime, nullable=True)  # Verification expires after 7 days
     is_banned = Column(Boolean, default=False)  # Global ban
     
@@ -43,8 +51,8 @@ class DmSubscriber(Base):
     fail_count = Column(Integer, nullable=False, default=0)
     last_error = Column(Text, nullable=True)
 
-    first_seen_at = Column(DateTime, default=datetime.utcnow)
-    last_seen_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    first_seen_at = Column(DateTime, default=utcnow)
+    last_seen_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     last_ok_at = Column(DateTime, nullable=True)
     last_fail_at = Column(DateTime, nullable=True)
 
@@ -66,8 +74,8 @@ class Federation(Base):
     name = Column(String, nullable=False)
     owner_id = Column(BigInteger, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     groups = relationship("Group", back_populates="federation")
 
@@ -82,7 +90,7 @@ class FederationBan(Base):
     telegram_id = Column(BigInteger, nullable=False)
     reason = Column(Text, nullable=True)
     banned_by = Column(BigInteger, nullable=False)
-    banned_at = Column(DateTime, default=datetime.utcnow)
+    banned_at = Column(DateTime, default=utcnow)
 
     federation = relationship("Federation")
 
@@ -137,7 +145,7 @@ class Group(Base):
     rules_text = Column(Text, nullable=True)
     
     # Metadata
-    added_at = Column(DateTime, default=datetime.utcnow)
+    added_at = Column(DateTime, default=utcnow)
     
     # Relationships
     members = relationship("GroupMember", back_populates="group")
@@ -163,7 +171,7 @@ class GroupMember(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
     telegram_id = Column(BigInteger, ForeignKey("users.telegram_id"), nullable=False)
-    joined_at = Column(DateTime, default=datetime.utcnow)
+    joined_at = Column(DateTime, default=utcnow)
     is_muted = Column(Boolean, default=False)
     
     # Relationships
@@ -187,7 +195,7 @@ class VerificationSession(Base):
     telegram_username = Column(String, nullable=True)
     group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=True)
     chat_id = Column(BigInteger, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     expires_at = Column(DateTime, nullable=False)
     status = Column(String, default="pending")  # pending, approved, rejected, expired
     message_ids = Column(Text, nullable=True)  # Comma-separated message IDs to delete
@@ -216,7 +224,7 @@ class Warning(Base):
     telegram_id = Column(BigInteger, nullable=False)
     warned_by = Column(BigInteger, nullable=False)  # Admin telegram_id
     reason = Column(Text, nullable=True)
-    warned_at = Column(DateTime, default=datetime.utcnow)
+    warned_at = Column(DateTime, default=utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="warnings")
@@ -238,7 +246,7 @@ class Whitelist(Base):
     telegram_id = Column(BigInteger, nullable=False)
     added_by = Column(BigInteger, nullable=False)  # Admin telegram_id
     reason = Column(Text, nullable=True)
-    added_at = Column(DateTime, default=datetime.utcnow)
+    added_at = Column(DateTime, default=utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="whitelist_entries")
@@ -271,7 +279,7 @@ class Permission(Base):
     can_view_status = Column(Boolean, default=False)
     can_view_logs = Column(Boolean, default=False)
     granted_by = Column(BigInteger, nullable=False)
-    granted_at = Column(DateTime, default=datetime.utcnow)
+    granted_at = Column(DateTime, default=utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="permissions")
@@ -292,8 +300,8 @@ class FloodTracker(Base):
     group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
     telegram_id = Column(BigInteger, nullable=False)
     message_count = Column(Integer, default=0)
-    window_start = Column(DateTime, default=datetime.utcnow)
-    last_message = Column(DateTime, default=datetime.utcnow)
+    window_start = Column(DateTime, default=utcnow)
+    last_message = Column(DateTime, default=utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="flood_records")
@@ -317,8 +325,8 @@ class Note(Base):
     file_id = Column(String, nullable=True)  # For media notes
     file_type = Column(String, nullable=True)  # photo, video, document, etc.
     created_by = Column(BigInteger, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="notes")
@@ -341,7 +349,7 @@ class Filter(Base):
     response = Column(Text, nullable=False)  # Response text
     filter_type = Column(String, default="text")  # text, delete, warn
     created_by = Column(BigInteger, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="filters")
@@ -364,7 +372,7 @@ class AdminLog(Base):
     target_id = Column(BigInteger, nullable=True)  # Who was affected (if applicable)
     action = Column(String, nullable=False)  # kick, ban, warn, mute, etc.
     reason = Column(Text, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=utcnow)
     
     # Relationships
     group = relationship("Group", back_populates="admin_logs")
@@ -387,7 +395,7 @@ class ConfigLinkToken(Base):
     admin_id = Column(BigInteger, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     __table_args__ = (
         Index("idx_cfg_token_expiry", "expires_at"),
@@ -405,7 +413,7 @@ class SupportLinkToken(Base):
     user_id = Column(BigInteger, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     __table_args__ = (
         Index("idx_sup_token_expiry", "expires_at"),
@@ -422,7 +430,7 @@ class PendingJoinVerification(Base):
     telegram_id = Column(BigInteger, nullable=False)
     kind = Column(String, default="post_join")  # post_join | join_request
     status = Column(String, default="pending")  # pending, approved, rejected, timed_out, cancelled
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     join_request_at = Column(DateTime, nullable=True)
     user_chat_id = Column(BigInteger, nullable=True)  # Only for kind=join_request (DM window target)
     expires_at = Column(DateTime, nullable=False)
@@ -467,7 +475,7 @@ class VerificationLinkToken(Base):
     telegram_id = Column(BigInteger, nullable=False)
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     pending = relationship("PendingJoinVerification")
 
@@ -487,7 +495,7 @@ class DmPanelState(Base):
     panel_type = Column(String, nullable=False)  # home, help, settings
     group_id = Column(BigInteger, nullable=True)
     message_id = Column(BigInteger, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
         Index("idx_dm_panel_lookup", "telegram_id", "panel_type", "group_id", unique=True),
@@ -515,7 +523,7 @@ class Ticket(Base):
     last_user_message_at = Column(DateTime, nullable=True)
     message_count = Column(Integer, default=1, nullable=False)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     closed_at = Column(DateTime, nullable=True)
 
     staff_chat_id = Column(BigInteger, nullable=True)
@@ -547,7 +555,7 @@ class TicketMessage(Base):
     content = Column(Text, nullable=True)  # Text content
     file_id = Column(String, nullable=True)  # Telegram file_id for media
     telegram_message_id = Column(BigInteger, nullable=True)  # Original message ID
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     ticket = relationship("Ticket", back_populates="messages")
 
@@ -566,7 +574,7 @@ class TicketUserState(Base):
     ticket_id = Column(BigInteger, ForeignKey("tickets.id"), nullable=False)
     creating_ticket = Column(Boolean, default=False, nullable=False)  # Lock during creation
     last_message_at = Column(DateTime, nullable=True)  # For deduplication
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     ticket = relationship("Ticket")
 
@@ -583,7 +591,7 @@ class GroupWizardState(Base):
     wizard_completed = Column(Boolean, default=False)
     wizard_step = Column(Integer, default=1)  # 1 preset, 2 verification, 3 logs
     setup_card_message_id = Column(BigInteger, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     group = relationship("Group")
 
@@ -599,8 +607,8 @@ class GroupUserState(Base):
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
     last_source = Column(String, nullable=True)  # join | dm_verify | message | other
-    first_seen_at = Column(DateTime, default=datetime.utcnow)
-    last_seen_at = Column(DateTime, default=datetime.utcnow)
+    first_seen_at = Column(DateTime, default=utcnow)
+    last_seen_at = Column(DateTime, default=utcnow)
     join_count = Column(Integer, default=1)
     first_verified_seen_at = Column(DateTime, nullable=True)
     last_verification_session_id = Column(String, nullable=True)
@@ -619,7 +627,7 @@ class MetricCounter(Base):
 
     key = Column(String, primary_key=True)
     value = Column(BigInteger, nullable=False, default=0)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class Job(Base):
@@ -630,14 +638,14 @@ class Job(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     job_type = Column(String, nullable=False)  # e.g. "broadcast_send"
     status = Column(String, nullable=False, default="pending")  # pending|running|done|failed|cancelled
-    run_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    run_at = Column(DateTime, nullable=False, default=utcnow)
     attempts = Column(Integer, nullable=False, default=0)
     locked_at = Column(DateTime, nullable=True)
     locked_by = Column(String, nullable=True)
     payload = Column(Text, nullable=False, default="{}")  # JSON string (avoid dialect-specific JSON type)
     last_error = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     __table_args__ = (
         Index("idx_jobs_due", "status", "run_at"),
@@ -651,7 +659,7 @@ class Broadcast(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     created_by = Column(BigInteger, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
     scheduled_at = Column(DateTime, nullable=True)
 
     status = Column(String, nullable=False, default="pending")  # pending|running|completed|failed|cancelled
@@ -684,7 +692,7 @@ class BroadcastTarget(Base):
     sent_at = Column(DateTime, nullable=True)
     error = Column(Text, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     broadcast = relationship("Broadcast", back_populates="targets")
 
@@ -705,8 +713,8 @@ class Sequence(Base):
     trigger = Column(String, nullable=False)  # e.g. "user_verified"
     enabled = Column(Boolean, default=True)
     created_by = Column(BigInteger, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     group = relationship("Group", back_populates="sequences")
     steps = relationship("SequenceStep", back_populates="sequence")
@@ -730,7 +738,7 @@ class SequenceStep(Base):
     text = Column(Text, nullable=False)
     parse_mode = Column(String, nullable=True)  # "Markdown"|"HTML"|None
     disable_web_page_preview = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     sequence = relationship("Sequence", back_populates="steps")
 
@@ -749,7 +757,7 @@ class SequenceRun(Base):
     telegram_id = Column(BigInteger, nullable=False)
     trigger_key = Column(String, nullable=True)  # used for idempotency per trigger/event
     status = Column(String, nullable=False, default="running")  # running|completed|failed|cancelled
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=utcnow)
     finished_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
 
@@ -771,12 +779,12 @@ class SequenceRunStep(Base):
     run_id = Column(BigInteger, ForeignKey("sequence_runs.id"), nullable=False)
     step_id = Column(BigInteger, ForeignKey("sequence_steps.id"), nullable=False)
     status = Column(String, nullable=False, default="pending")  # pending|sent|failed|cancelled
-    run_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    run_at = Column(DateTime, nullable=False, default=utcnow)
     attempts = Column(Integer, nullable=False, default=0)
     sent_at = Column(DateTime, nullable=True)
     telegram_message_id = Column(BigInteger, nullable=True)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     run = relationship("SequenceRun", back_populates="steps")
     step = relationship("SequenceStep")
@@ -805,8 +813,8 @@ class Rule(Base):
     case_sensitive = Column(Boolean, default=False)
 
     created_by = Column(BigInteger, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     group = relationship("Group")
     actions = relationship("RuleAction", back_populates="rule")
@@ -826,7 +834,7 @@ class RuleAction(Base):
     action_order = Column(Integer, nullable=False, default=1)
     action_type = Column(String, nullable=False)  # reply|delete|warn|mute|log|start_sequence|create_ticket
     params = Column(Text, nullable=False, default="{}")  # JSON string
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     rule = relationship("Rule", back_populates="actions")
 

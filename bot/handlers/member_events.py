@@ -1,10 +1,11 @@
 """Member event handlers for group management - simplified."""
 import logging
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, timezone
 from aiogram import Router
 from aiogram.types import ChatMemberUpdated, CallbackQuery
 from aiogram.filters import ChatMemberUpdatedFilter, MEMBER, RESTRICTED, LEFT, KICKED, ADMINISTRATOR, CREATOR
+from aiogram import F
 
 from bot.container import ServiceContainer
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -54,8 +55,8 @@ def create_member_handlers(container: ServiceContainer) -> Router:
                 bot_me = await event.bot.get_me()
                 await container.pending_verification_service.decide(int(pending.id), status="cancelled", decided_by=int(bot_me.id))
                 await container.pending_verification_service.delete_group_prompt(event.bot, pending)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not cancel pending verification for promoted user {user_id}: {e}")
 
         # Best-effort: restore send permissions (may fail for admins; that's fine).
         try:
@@ -65,8 +66,8 @@ def create_member_handlers(container: ServiceContainer) -> Router:
                 user_id=user_id,
                 permissions=perms,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not restore permissions for promoted user {user_id}: {e}")
 
     async def _send_welcome(bot, group_id: int, user) -> None:
         try:
@@ -79,21 +80,25 @@ def create_member_handlers(container: ServiceContainer) -> Router:
             try:
                 chat = await container.group_service.get_or_create_group(group_id)
                 group_name = chat.group_name or "this group"
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Could not get group name for {group_id}: {e}")
                 group_name = "this group"
             try:
                 member_count = await bot.get_chat_member_count(group_id)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Could not get member count for {group_id}: {e}")
                 member_count = 0
 
             name = getattr(user, "full_name", None) or getattr(user, "first_name", None) or "there"
             try:
                 mention = user.mention_html()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Could not create mention for user: {e}")
                 mention = name
             text = container.welcome_service.format_message(template, name, mention, group_name, int(member_count or 0))
             await bot.send_message(chat_id=group_id, text=text, parse_mode="HTML")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Could not send welcome message in group {group_id}: {e}")
             return
     
     @router.chat_member(
@@ -244,6 +249,13 @@ def create_member_handlers(container: ServiceContainer) -> Router:
         except Exception:
             pass
         
+        # NOTE: We do NOT skip the DM interaction even if user is verified globally
+        # The user must still click the verification link so the bot can:
+        # 1. Collect user data for this specific group
+        # 2. Show group-specific rules if enabled
+        # 3. Track that they've interacted with the bot for this group
+        # The 7-day skip only applies to the Mercle SDK step itself (handled in verification panel)
+        
         try:
             # Verify bot has permissions before restricting
             if not await is_bot_admin(event.bot, group_id):
@@ -255,46 +267,65 @@ def create_member_handlers(container: ServiceContainer) -> Router:
                 await event.bot.send_message(chat_id=group_id, text="I need Restrict members. Run <code>/checkperms</code>.", parse_mode="HTML")
                 return
 
-            # Create pending record first (idempotency: if one exists, reuse it)
+            # Create pending record first
+            # Check if there's an existing VALID pending verification (not expired, has recent message)
             existing = await container.pending_verification_service.get_active_for_user(group_id, user_id)
-            if existing:
-                pending = existing
-            else:
+            should_create_new = True
+            
+            if existing and existing.expires_at > datetime.utcnow():
+                # Existing pending verification is still valid (not expired)
+                # Check if it was created very recently (within last 30 seconds) - likely a duplicate event
+                time_since_created = (datetime.utcnow() - existing.created_at).total_seconds() if hasattr(existing, 'created_at') else 999
+                if time_since_created < 30 and existing.prompt_message_id:
+                    # Very recent - reuse it
+                    pending = existing
+                    should_create_new = False
+                    logger.info(f"Reusing recent pending verification {existing.id} for user {user_id} in group {group_id}")
+                else:
+                    # Expired or old - create new one
+                    logger.info(f"Existing pending verification is old or expired for user {user_id}, creating new one")
+            
+            if should_create_new:
+                # Create new pending verification
                 timeout_seconds = int(group.verification_timeout or container.config.verification_timeout)
                 pending = await container.pending_verification_service.create_pending(
                     group_id=group_id,
                     telegram_id=user_id,
                     expires_at=datetime.utcnow() + timedelta(seconds=timeout_seconds),
                 )
+                logger.info(f"Created new pending verification {pending.id} for user {user_id} in group {group_id}")
 
-            # Restrict user
+            # Restrict user (even if already restricted, ensure permissions are correct)
             await event.bot.restrict_chat_member(
                 chat_id=group_id,
                 user_id=user_id,
                 permissions=ChatPermissions(can_send_messages=False),
             )
 
-            # Create expiring deep link token bound to (group_id, user_id)
-            bot_username = bot_info.username or ""
-            minutes = max(1, int((pending.expires_at - datetime.utcnow()).total_seconds() // 60))
-            token = await container.token_service.create_verification_token(
-                pending_id=int(pending.id),
-                group_id=group_id,
-                telegram_id=user_id,
-                expires_at=pending.expires_at,
-            )
-            deep_link = f"https://t.me/{bot_username}?start=ver_{token}" if bot_username else ""
+            # Always send verification message (unless we just reused a very recent one)
+            if should_create_new:
+                # Create expiring deep link token bound to (group_id, user_id)
+                bot_username = bot_info.username or ""
+                minutes = max(1, int((pending.expires_at - datetime.utcnow()).total_seconds() // 60))
+                token = await container.token_service.create_verification_token(
+                    pending_id=int(pending.id),
+                    group_id=group_id,
+                    telegram_id=user_id,
+                    expires_at=pending.expires_at,
+                )
+                deep_link = f"https://t.me/{bot_username}?start=ver_{token}" if bot_username else ""
 
-            prompt_text = f"👋 {new_member.mention_html()} — verify in DM to chat.\n⏱ Time left: {minutes} min"
-            keyboard = InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="✅ Verify in DM", url=deep_link)] if deep_link else [],
-                    # Manual Approve/Reject removed - Mercle SDK is single source of truth
-                ]
-            )
-            keyboard.inline_keyboard = [row for row in keyboard.inline_keyboard if row]
-            sent = await event.bot.send_message(chat_id=group_id, text=prompt_text, parse_mode="HTML", reply_markup=keyboard)
-            await container.pending_verification_service.set_prompt_message_id(int(pending.id), sent.message_id)
+                prompt_text = f"👋 {new_member.mention_html()} — verify in DM to chat.\n⏱ Time left: {minutes} min"
+                keyboard = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="✅ Verify in DM", url=deep_link)] if deep_link else [],
+                        # Manual Approve/Reject removed - Mercle SDK is single source of truth
+                    ]
+                )
+                keyboard.inline_keyboard = [row for row in keyboard.inline_keyboard if row]
+                sent = await event.bot.send_message(chat_id=group_id, text=prompt_text, parse_mode="HTML", reply_markup=keyboard)
+                await container.pending_verification_service.set_prompt_message_id(int(pending.id), sent.message_id)
+                logger.info(f"Sent verification message for user {user_id} in group {group_id}")
             
         except Exception as e:
             logger.error(f"❌ Error handling new member {user_id}: {e}", exc_info=True)
@@ -312,6 +343,150 @@ def create_member_handlers(container: ServiceContainer) -> Router:
     # REMOVED: Manual verification approve/reject callbacks
     # Mercle SDK is the single source of truth for verification
     # The pv: callback handler has been disabled
+
+    # Handle NEW_CHAT_MEMBERS message events (for users who rejoin while restricted)
+    @router.message(F.new_chat_members)
+    async def on_new_chat_members_message(message):
+        """
+        Handle NEW_CHAT_MEMBERS message event.
+        This triggers when users join via invite link or are added, even if already restricted.
+        """
+        try:
+            logger.info(f"🔥 NEW_CHAT_MEMBERS handler triggered!")
+            logger.info(f"🔥 Chat: {message.chat.id} ({message.chat.title})")
+            logger.info(f"🔥 Message type: {message.content_type}")
+            logger.info(f"🔥 New members: {message.new_chat_members}")
+            logger.info(f"🔥 New members count: {len(message.new_chat_members) if message.new_chat_members else 0}")
+            
+            if not message.new_chat_members:
+                logger.warning("🔥 No new_chat_members in message, returning")
+                return
+        except Exception as e:
+            logger.error(f"❌ Error in NEW_CHAT_MEMBERS handler initialization: {e}", exc_info=True)
+            return
+        
+        for new_member in message.new_chat_members:
+            try:
+                if new_member.is_bot:
+                    logger.info(f"Bot @{new_member.username} added to group {message.chat.id}")
+                    continue
+                
+                user_id = new_member.id
+                username = new_member.username
+                group_id = message.chat.id
+                group_name = message.chat.title or "this group"
+                
+                logger.info(f"👤 New member (message event): {user_id} (@{username}) joined group {group_id} ({group_name})")
+                
+                # Register group and touch user
+                await container.group_service.register_group(group_id, group_name)
+                await container.pending_verification_service.touch_group_user(
+                    group_id,
+                    user_id,
+                    username=username,
+                    first_name=new_member.first_name,
+                    last_name=new_member.last_name,
+                    source="join",
+                    increment_join=True,
+                )
+                
+                # Load group settings
+                group = await container.group_service.get_or_create_group(group_id)
+                
+                # Check if verification is enabled
+                if not group.verification_enabled:
+                    logger.info(f"Verification disabled for group {group_id}; allowing user {user_id}")
+                    await _send_welcome(message.bot, group_id, new_member)
+                    continue
+                
+                # Check whitelist
+                try:
+                    if await container.whitelist_service.is_whitelisted(group_id, user_id):
+                        logger.info(f"User {user_id} is whitelisted in group {group_id}; allowing access")
+                        await _send_welcome(message.bot, group_id, new_member)
+                        continue
+                except Exception:
+                    pass
+                
+                # Start verification flow
+                try:
+                    # Verify bot has permissions
+                    if not await is_bot_admin(message.bot, group_id):
+                        await message.bot.send_message(chat_id=group_id, text="I need to be admin. Run <code>/checkperms</code>.", parse_mode="HTML")
+                        continue
+                    
+                    bot_info = await message.bot.get_me()
+                    restrict_ok = await can_restrict_members(message.bot, group_id, bot_info.id)
+                    if not restrict_ok:
+                        await message.bot.send_message(chat_id=group_id, text="I need Restrict members. Run <code>/checkperms</code>.", parse_mode="HTML")
+                        continue
+                    
+                    # Check for existing valid pending verification
+                    existing = await container.pending_verification_service.get_active_for_user(group_id, user_id)
+                    should_create_new = True
+                    
+                    if existing and existing.expires_at > datetime.utcnow():
+                        # Check if created very recently (< 30 seconds)
+                        time_since_created = (datetime.utcnow() - existing.created_at).total_seconds() if hasattr(existing, 'created_at') else 999
+                        if time_since_created < 30 and existing.prompt_message_id:
+                            pending = existing
+                            should_create_new = False
+                            logger.info(f"Reusing recent pending verification {existing.id} for user {user_id}")
+                        else:
+                            logger.info(f"Existing pending verification is old for user {user_id}, creating new one")
+                    
+                    if should_create_new:
+                        timeout_seconds = int(group.verification_timeout or container.config.verification_timeout)
+                        pending = await container.pending_verification_service.create_pending(
+                            group_id=group_id,
+                            telegram_id=user_id,
+                            expires_at=datetime.utcnow() + timedelta(seconds=timeout_seconds),
+                        )
+                        logger.info(f"Created new pending verification {pending.id} for user {user_id}")
+                    
+                    # Restrict user
+                    await message.bot.restrict_chat_member(
+                        chat_id=group_id,
+                        user_id=user_id,
+                        permissions=ChatPermissions(can_send_messages=False),
+                    )
+                    
+                    # Send verification message
+                    if should_create_new:
+                        bot_username = bot_info.username or ""
+                        minutes = max(1, int((pending.expires_at - datetime.utcnow()).total_seconds() // 60))
+                        token = await container.token_service.create_verification_token(
+                            pending_id=int(pending.id),
+                            group_id=group_id,
+                            telegram_id=user_id,
+                            expires_at=pending.expires_at,
+                        )
+                        deep_link = f"https://t.me/{bot_username}?start=ver_{token}" if bot_username else ""
+                        
+                        prompt_text = f"👋 {new_member.mention_html()} — verify in DM to chat.\n⏱ Time left: {minutes} min"
+                        keyboard = InlineKeyboardMarkup(
+                            inline_keyboard=[
+                                [InlineKeyboardButton(text="✅ Verify in DM", url=deep_link)] if deep_link else [],
+                            ]
+                        )
+                        keyboard.inline_keyboard = [row for row in keyboard.inline_keyboard if row]
+                        sent = await message.bot.send_message(chat_id=group_id, text=prompt_text, parse_mode="HTML", reply_markup=keyboard)
+                        await container.pending_verification_service.set_prompt_message_id(int(pending.id), sent.message_id)
+                        logger.info(f"Sent verification message for user {user_id} in group {group_id}")
+                        
+                except Exception as e:
+                    logger.error(f"❌ Error in verification flow for user {user_id}: {e}", exc_info=True)
+                    try:
+                        await message.bot.send_message(
+                            chat_id=group_id,
+                            text=f"⚠️ Error starting verification for @{username}. Please try `/verify` in a private message with me.",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as notify_error:
+                        logger.error(f"❌ Failed to send error notification: {notify_error}")
+                        
+            except Exception as e:
+                logger.error(f"❌ Error processing new member {user_id}: {e}", exc_info=True)
 
     return router
 

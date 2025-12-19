@@ -15,10 +15,7 @@ from bot.config import Config
 from bot.utils.permissions import can_delete_messages, can_pin_messages, can_restrict_members, can_user, is_bot_admin
 from bot.utils.webapp_auth import WebAppAuthError, validate_webapp_init_data
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Don't configure logging here - it's configured in bot/main.py
 logger = logging.getLogger(__name__)
 
 # Global bot instance
@@ -496,7 +493,33 @@ async def app_bootstrap(payload: _InitDataPayload):
         except Exception:
             continue
 
-    return {"user": user, "groups": allowed}
+    # Check user verification status
+    is_verified = await container.user_manager.is_verified(user_id)
+    user_data = None
+    verified_until = None
+    mercle_user_id = None
+    
+    try:
+        async with container.db.session() as session:
+            from sqlalchemy import select
+            from database.models import User
+            result = await session.execute(select(User).where(User.telegram_id == user_id))
+            db_user = result.scalar_one_or_none()
+            if db_user:
+                verified_until = db_user.verified_until.isoformat() if db_user.verified_until else None
+                mercle_user_id = db_user.mercle_user_id
+    except Exception as e:
+        logger.warning(f"Failed to fetch user verification details: {e}")
+
+    return {
+        "user": user,
+        "groups": allowed,
+        "verification": {
+            "is_verified": is_verified,
+            "verified_until": verified_until,
+            "mercle_user_id": mercle_user_id
+        }
+    }
 
 
 @app.post("/api/app/group/{group_id}/settings")
@@ -1338,6 +1361,53 @@ async def status(request: Request):
     except Exception as e:
         logger.error(f"Status check failed: {e}")
         return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/app/delete-my-data")
+async def app_delete_my_data(payload: _InitDataPayload):
+    """Delete all user data from the database."""
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    
+    try:
+        async with container.db.session() as session:
+            from sqlalchemy import delete
+            from database.models import (
+                User, VerificationSession, PendingJoinVerification,
+                VerificationLinkToken, GroupMember, Warning, Permission,
+                Whitelist, DmSubscriber, DmPanelState, TicketUserState,
+                GroupWizardState, AdminLog, Ticket, TicketMessage
+            )
+            
+            # Delete in order respecting foreign keys
+            await session.execute(delete(TicketMessage).where(TicketMessage.user_id == user_id))
+            await session.execute(delete(Ticket).where(Ticket.user_id == user_id))
+            await session.execute(delete(AdminLog).where(AdminLog.admin_id == user_id))
+            await session.execute(delete(GroupWizardState).where(GroupWizardState.telegram_id == user_id))
+            await session.execute(delete(TicketUserState).where(TicketUserState.telegram_id == user_id))
+            await session.execute(delete(DmPanelState).where(DmPanelState.telegram_id == user_id))
+            await session.execute(delete(DmSubscriber).where(DmSubscriber.telegram_id == user_id))
+            await session.execute(delete(Whitelist).where(Whitelist.telegram_id == user_id))
+            await session.execute(delete(Permission).where(Permission.telegram_id == user_id))
+            await session.execute(delete(Warning).where(Warning.user_id == user_id))
+            await session.execute(delete(GroupMember).where(GroupMember.telegram_id == user_id))
+            await session.execute(delete(VerificationLinkToken).where(VerificationLinkToken.telegram_id == user_id))
+            await session.execute(delete(PendingJoinVerification).where(PendingJoinVerification.telegram_id == user_id))
+            await session.execute(delete(VerificationSession).where(VerificationSession.telegram_id == user_id))
+            await session.execute(delete(User).where(User.telegram_id == user_id))
+            
+            await session.commit()
+            logger.info(f"Deleted all data for user {user_id}")
+            
+        return {"success": True, "message": "All your data has been deleted"}
+    except Exception as e:
+        logger.error(f"Failed to delete data for user {user_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete data") from e
 
 
 @app.get("/")

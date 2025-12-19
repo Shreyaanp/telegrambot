@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, timezone
 from typing import Optional
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile, ChatPermissions
@@ -239,6 +239,66 @@ class VerificationService:
         Used for the join flow DM deep link.
         """
         try:
+            # Check if user is already verified (within 7-day window)
+            # If so, skip Mercle SDK and directly approve
+            if await self.user_manager.is_verified(telegram_id):
+                logger.info(f"User {telegram_id} already verified (within 7 days), skipping Mercle SDK")
+                
+                # Get user data
+                user = await self.user_manager.get_user(telegram_id)
+                
+                # Mark as verified for this group
+                if group_id and pending_id:
+                    await self.pending.mark_group_user_verified(group_id, telegram_id)
+                    
+                    # Approve join request or unmute member
+                    pending = await self.pending.get_pending(pending_id)
+                    if pending:
+                        if pending.kind == "join_request":
+                            try:
+                                await bot.approve_chat_join_request(chat_id=group_id, user_id=telegram_id)
+                                logger.info(f"Approved join request for user {telegram_id} in group {group_id}")
+                            except Exception as e:
+                                logger.error(f"Failed to approve join request: {e}")
+                        elif pending.kind == "join":
+                            # Unmute the user
+                            try:
+                                from aiogram.types import ChatPermissions
+                                await bot.restrict_chat_member(
+                                    chat_id=group_id,
+                                    user_id=telegram_id,
+                                    permissions=ChatPermissions(
+                                        can_send_messages=True,
+                                        can_send_media_messages=True,
+                                        can_send_polls=True,
+                                        can_send_other_messages=True,
+                                        can_add_web_page_previews=True,
+                                        can_change_info=False,
+                                        can_invite_users=True,
+                                        can_pin_messages=False,
+                                    ),
+                                )
+                                logger.info(f"Unmuted user {telegram_id} in group {group_id}")
+                            except Exception as e:
+                                logger.error(f"Failed to unmute user: {e}")
+                        
+                        # Mark pending as approved
+                        await self.pending.decide(pending_id, status="approved", decided_by=telegram_id)
+                
+                # Update message
+                if message_id:
+                    try:
+                        await bot.edit_message_text(
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text="✅ <b>Already Verified</b>\n\nYou're already verified! Access granted.",
+                            parse_mode="HTML",
+                        )
+                    except Exception:
+                        pass
+                
+                return True
+            
             timeout_seconds = self.config.verification_timeout
             action_on_timeout = self.config.action_on_timeout
             group_name = None

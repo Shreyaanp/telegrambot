@@ -52,7 +52,7 @@ class AntiFloodService:
             )
             tracker = result.scalar_one_or_none()
             
-            now = datetime.now(timezone.utc)
+            now = datetime.utcnow()
             
             if not tracker:
                 # Create new tracker

@@ -138,6 +138,43 @@ class RulesService:
             )
             return int(rule.id)
 
+    async def add_rule(
+        self,
+        *,
+        group_id: int,
+        created_by: int,
+        name: str,
+        match_type: str,
+        pattern: str,
+        action_type: str,
+        action_params: dict[str, Any] | None = None,
+        priority: int = 100,
+        stop_processing: bool = True,
+        enabled: bool = True,
+        trigger: str = "message_group",
+        case_sensitive: bool = False,
+    ) -> int:
+        """
+        Alias for create_simple_rule for API consistency.
+        
+        This method provides a simpler name for creating rules.
+        All parameters are passed through to create_simple_rule.
+        """
+        return await self.create_simple_rule(
+            group_id=group_id,
+            created_by=created_by,
+            name=name,
+            match_type=match_type,
+            pattern=pattern,
+            action_type=action_type,
+            action_params=action_params,
+            priority=priority,
+            stop_processing=stop_processing,
+            enabled=enabled,
+            trigger=trigger,
+            case_sensitive=case_sensitive,
+        )
+
     async def delete_rule(self, *, group_id: int, rule_id: int) -> bool:
         async with db.session() as session:
             rule = await session.get(Rule, int(rule_id))

@@ -29,13 +29,12 @@ from bot.handlers.rbac_help import create_rbac_help_handlers
 from bot.middlewares.anonymous_admin_guard import AnonymousAdminGuardMiddleware
 from database.db import db
 
-# Configure logging
+# Configure logging (systemd will redirect stdout to bot.log)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("bot.log")
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)

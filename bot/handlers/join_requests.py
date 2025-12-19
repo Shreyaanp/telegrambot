@@ -7,7 +7,7 @@ This only works if the group is configured by admins to require join requests
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta, timezone
 
 from aiogram import Router
 from aiogram.types import ChatJoinRequest, InlineKeyboardMarkup, InlineKeyboardButton
@@ -32,7 +32,8 @@ def create_join_request_handlers(container: ServiceContainer) -> Router:
         # ChatJoinRequest.date is a unix timestamp (seconds) in the Bot API.
         try:
             join_request_at = datetime.utcfromtimestamp(int(getattr(req, "date")))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Could not parse join request date: {e}")
             join_request_at = datetime.utcnow()
 
         await container.group_service.register_group(group_id, group_title)
@@ -51,7 +52,8 @@ def create_join_request_handlers(container: ServiceContainer) -> Router:
                 if thread_id:
                     kwargs["message_thread_id"] = thread_id
                 await req.bot.send_message(chat_id=dest_chat_id, text=text, parse_mode="HTML", **kwargs)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Could not send admin log: {e}")
                 return
 
         # Preflight: join-gate requires the bot to be able to approve/decline join requests.
@@ -62,7 +64,8 @@ def create_join_request_handlers(container: ServiceContainer) -> Router:
                 can_manage_join_requests = True
             else:
                 can_manage_join_requests = bot_member.status == "administrator" and bool(getattr(bot_member, "can_invite_users", False))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Could not check bot permissions in group {group_id}: {e}")
             can_manage_join_requests = False
 
         if not can_manage_join_requests:
@@ -237,6 +240,13 @@ def create_join_request_handlers(container: ServiceContainer) -> Router:
                 return
         except Exception:
             pass
+
+        # NOTE: We do NOT skip the DM interaction even if user is verified globally
+        # The user must still click the verification link so the bot can:
+        # 1. Collect user data for this specific group
+        # 2. Show group-specific rules if enabled
+        # 3. Track that they've interacted with the bot for this group
+        # The 7-day skip only applies to the Mercle SDK step itself (handled in verification panel)
 
         timeout_seconds = int(group.verification_timeout or container.config.verification_timeout)
         expires_at = datetime.utcnow() + timedelta(seconds=timeout_seconds)

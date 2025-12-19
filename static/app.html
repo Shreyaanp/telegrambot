@@ -1,119 +1,331 @@
 <!doctype html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Mercle Bot Settings</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Bot Admin Dashboard</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
+    /* ===== DESIGN SYSTEM ===== */
     :root {
-      --bg: var(--tg-theme-bg-color, #0f0f10);
+      --bg: var(--tg-theme-bg-color, #0a0a0b);
+      --bg-secondary: var(--tg-theme-secondary-bg-color, #17181a);
       --text: var(--tg-theme-text-color, #ffffff);
-      --hint: var(--tg-theme-hint-color, rgba(255, 255, 255, 0.7));
-      --card: var(--tg-theme-secondary-bg-color, #17181a);
-      --btn: var(--tg-theme-button-color, #4a7cff);
-      --btnText: var(--tg-theme-button-text-color, #ffffff);
-      --danger: #ff4d4d;
-      --ok: #35c759;
-      --warning: #ffcc00;
+      --text-secondary: var(--tg-theme-hint-color, rgba(255, 255, 255, 0.6));
+      --accent: var(--tg-theme-button-color, #5b7cff);
+      --accent-text: var(--tg-theme-button-text-color, #ffffff);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #3b82f6;
+      --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+      --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+      --spacing-sm: 8px;
+      --spacing-md: 16px;
+      --spacing-lg: 24px;
+      --spacing-xl: 32px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-full: 9999px;
+      --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.5;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
     }
 
-    .wrap {
-      padding: 16px;
-      max-width: 820px;
-      margin: 0 auto;
-      padding-bottom: 32px;
+    .app { min-height: 100vh; padding-bottom: var(--spacing-xl); }
+    .container { max-width: 800px; margin: 0 auto; padding: var(--spacing-md); }
+
+    /* Header */
+    .header {
+      position: sticky; top: 0; z-index: 50;
+      background: var(--bg);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding: var(--spacing-md);
+      margin-bottom: var(--spacing-lg);
     }
 
-    .title {
-      font-size: 24px;
-      font-weight: 700;
-      margin: 0 0 8px;
-      letter-spacing: -0.5px;
-    }
-
-    .sub {
-      margin: 0 0 20px;
-      color: var(--hint);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-
-    .card {
-      background: var(--card);
-      border-radius: 16px;
-      padding: 16px;
-      margin: 16px 0;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    .card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
-
-    .row {
-      display: flex;
-      gap: 12px;
-      align-items: center;
+    .header-content {
+      max-width: 800px; margin: 0 auto;
+      display: flex; align-items: center;
       justify-content: space-between;
-      padding: 12px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      gap: var(--spacing-md);
     }
 
-    .row:last-child {
-      border-bottom: 0;
+    .header-title {
+      font-size: 24px; font-weight: 700;
+      display: flex; align-items: center;
+      gap: var(--spacing-sm);
     }
 
-    .label {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      flex: 1;
+    .header-back {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-full);
+      background: var(--bg-secondary);
+      border: none; color: var(--text);
+      cursor: pointer;
+      transition: all var(--transition-base);
+      font-size: 20px;
+      display: flex; align-items: center; justify-content: center;
     }
 
-    .label .k {
-      font-weight: 600;
-      font-size: 15px;
+    .header-back:hover { background: rgba(255, 255, 255, 0.1); }
+
+    /* Search */
+    .search-container { position: relative; margin-bottom: var(--spacing-lg); }
+    .search-input {
+      width: 100%; padding: 14px 48px;
+      background: var(--bg-secondary);
+      border: 2px solid transparent;
+      border-radius: var(--radius-lg);
+      color: var(--text); font-size: 16px;
+      transition: all var(--transition-base);
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .search-icon {
+      position: absolute; left: 16px; top: 50%;
+      transform: translateY(-50%);
+      font-size: 20px; color: var(--text-secondary);
     }
 
-    .label .d {
+    /* Group Grid */
+    .group-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: var(--spacing-md);
+    }
+
+    .group-card {
+      background: var(--bg-secondary);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-lg);
+      cursor: pointer;
+      transition: all var(--transition-base);
+      border: 2px solid transparent;
+      position: relative;
+    }
+
+    .group-card::before {
+      content: ''; position: absolute;
+      top: 0; left: 0; right: 0; height: 4px;
+      background: var(--gradient-primary);
+      opacity: 0;
+      transition: opacity var(--transition-base);
+    }
+
+    .group-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-xl);
+      border-color: var(--accent);
+    }
+
+    .group-card:hover::before { opacity: 1; }
+
+    .group-card-header {
+      display: flex; align-items: center;
+      gap: var(--spacing-md);
+      margin-bottom: var(--spacing-md);
+    }
+
+    .group-avatar {
+      width: 56px; height: 56px;
+      border-radius: var(--radius-md);
+      background: var(--gradient-primary);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; font-weight: 700;
+      color: white; flex-shrink: 0;
+      box-shadow: var(--shadow);
+    }
+
+    .group-info { flex: 1; min-width: 0; }
+    .group-name {
+      font-size: 18px; font-weight: 600;
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .group-stats {
+      display: flex; align-items: center;
+      gap: var(--spacing-sm);
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .group-stat {
+      display: flex; align-items: center; gap: 4px;
+    }
+
+    .group-badges {
+      display: flex; gap: var(--spacing-sm); flex-wrap: wrap;
+    }
+
+    /* Dashboard */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: var(--spacing-md);
+    }
+
+    .dashboard-card {
+      background: var(--bg-secondary);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-lg);
+      cursor: pointer;
+      transition: all var(--transition-base);
+      text-align: center;
+      border: 2px solid transparent;
+      position: relative;
+    }
+
+    .dashboard-card:hover {
+      transform: translateY(-4px) scale(1.02);
+      box-shadow: var(--shadow-lg);
+      border-color: var(--accent);
+    }
+
+    .dashboard-icon {
+      font-size: 40px;
+      margin-bottom: var(--spacing-sm);
+      display: block;
+    }
+
+    .dashboard-title {
+      font-size: 15px; font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .dashboard-subtitle {
       font-size: 13px;
-      color: var(--hint);
-      line-height: 1.4;
+      color: var(--text-secondary);
     }
 
-    select,
-    input[type="number"] {
+    .dashboard-badge {
+      position: absolute; top: 8px; right: 8px;
+      min-width: 20px; height: 20px; padding: 0 6px;
+      background: var(--danger);
+      border-radius: var(--radius-full);
+      font-size: 11px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      color: white;
+    }
+
+    /* Badge */
+    .badge {
+      display: inline-flex; align-items: center;
+      gap: 4px; padding: 4px 10px;
+      border-radius: var(--radius-full);
+      font-size: 12px; font-weight: 600;
+    }
+
+    .badge-success { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+    .badge-warning { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+    .badge-danger { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+    .badge-info { background: rgba(59, 130, 246, 0.15); color: var(--info); }
+
+    /* Card */
+    .card {
+      background: var(--bg-secondary);
+      border-radius: var(--radius-lg);
+      padding: var(--spacing-lg);
+      margin-bottom: var(--spacing-md);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .card-header {
+      display: flex; align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--spacing-md);
+      padding-bottom: var(--spacing-md);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .card-title {
+      font-size: 18px; font-weight: 600;
+      display: flex; align-items: center;
+      gap: var(--spacing-sm);
+    }
+
+    .card-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+    }
+
+    /* Settings Row */
+    .settings-row {
+      display: flex; align-items: center;
+      justify-content: space-between;
+      padding: 16px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .settings-row:last-child { border-bottom: none; }
+
+    .settings-label { flex: 1; }
+    .settings-label-title {
+      font-weight: 600; font-size: 15px;
+      margin-bottom: 4px;
+    }
+    .settings-label-desc {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    /* Toggle */
+    .toggle {
+      width: 50px; height: 28px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.2);
+      position: relative;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+
+    .toggle[data-on="true"] { background: var(--success); }
+
+    .toggle::after {
+      content: ""; position: absolute;
+      top: 3px; left: 3px;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: white;
+      transition: transform 0.3s ease;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .toggle[data-on="true"]::after { transform: translateX(22px); }
+
+    /* Select & Input */
+    select, input[type="number"], input[type="text"] {
       background: rgba(255, 255, 255, 0.08);
       border: 1px solid rgba(255, 255, 255, 0.12);
       color: var(--text);
       padding: 10px 14px;
-      border-radius: 12px;
-      outline: none;
-      min-width: 220px;
+      border-radius: var(--radius-md);
       font-size: 14px;
-      transition: all 0.2s ease;
+      transition: all var(--transition-base);
     }
 
-    select:focus,
-    input[type="number"]:focus {
+    select:focus, input:focus {
+      outline: none;
       background: rgba(255, 255, 255, 0.12);
-      border-color: var(--btn);
+      border-color: var(--accent);
     }
 
     textarea {
@@ -122,1704 +334,1225 @@
       border: 1px solid rgba(255, 255, 255, 0.12);
       color: var(--text);
       padding: 12px 14px;
-      border-radius: 12px;
-      outline: none;
+      border-radius: var(--radius-md);
       resize: vertical;
       min-height: 100px;
-      line-height: 1.5;
       font-family: inherit;
       font-size: 14px;
-      transition: all 0.2s ease;
     }
 
     textarea:focus {
+      outline: none;
       background: rgba(255, 255, 255, 0.12);
-      border-color: var(--btn);
+      border-color: var(--accent);
     }
 
-    .toggle {
-      width: 50px;
-      height: 28px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.2);
-      position: relative;
-      cursor: pointer;
-      flex: 0 0 auto;
-      transition: background 0.3s ease;
-    }
-
-    .toggle[data-on="true"] {
-      background: var(--ok);
-    }
-
-    .toggle::after {
-      content: "";
-      position: absolute;
-      top: 3px;
-      left: 3px;
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      background: white;
-      transition: transform 0.3s ease;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    }
-
-    .toggle[data-on="true"]::after {
-      transform: translateX(22px);
-    }
-
-    .pill {
-      font-size: 12px;
-      padding: 5px 10px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--hint);
-      font-weight: 500;
-    }
-
-    .pill.ok {
-      background: rgba(53, 199, 89, 0.2);
-      color: var(--ok);
-    }
-
-    .pill.bad {
-      background: rgba(255, 77, 77, 0.2);
-      color: var(--danger);
-    }
-
-    .pill.warning {
-      background: rgba(255, 204, 0, 0.2);
-      color: var(--warning);
-    }
-
-    .actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .checklist {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-      margin-top: 10px;
-    }
-
-    .check {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 14px;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      transition: all 0.2s ease;
-    }
-
-    .check:hover {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: rgba(255, 255, 255, 0.12);
-    }
-
-    .check input {
-      transform: scale(1.3);
-      cursor: pointer;
-    }
-
-    button {
-      border: 0;
-      border-radius: 12px;
-      padding: 14px 18px;
-      cursor: pointer;
-      font-weight: 600;
-      font-size: 15px;
-      transition: all 0.2s ease;
-      position: relative;
-      overflow: hidden;
-    }
-
-    button:active {
-      transform: scale(0.98);
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
+    /* Button */
     .btn {
-      background: var(--btn);
-      color: var(--btnText);
-      width: 100%;
-      box-shadow: 0 2px 8px rgba(74, 124, 255, 0.3);
+      display: inline-flex; align-items: center;
+      justify-content: center;
+      gap: var(--spacing-sm);
+      padding: 12px 24px;
+      border-radius: var(--radius-md);
+      font-size: 15px; font-weight: 600;
+      border: none; cursor: pointer;
+      transition: all var(--transition-base);
+      position: relative;
     }
 
-    .btn:hover:not(:disabled) {
-      box-shadow: 0 4px 12px rgba(74, 124, 255, 0.4);
-      transform: translateY(-1px);
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--accent-text);
+      box-shadow: var(--shadow);
     }
 
-    .btn.secondary {
+    .btn-secondary {
       background: rgba(255, 255, 255, 0.1);
       color: var(--text);
-      box-shadow: none;
     }
 
-    .btn.secondary:hover:not(:disabled) {
-      background: rgba(255, 255, 255, 0.15);
+    .btn-danger {
+      background: var(--danger);
+      color: white;
     }
 
-    .error {
-      color: var(--danger);
+    /* Form Elements */
+    .form-group {
+      margin-bottom: var(--spacing-md);
+    }
+
+    .form-group label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: var(--spacing-sm);
       font-size: 14px;
-      line-height: 1.5;
-      padding: 12px;
-      background: rgba(255, 77, 77, 0.1);
-      border-radius: 12px;
-      border: 1px solid rgba(255, 77, 77, 0.2);
     }
 
+    .form-input, .form-input select, .form-input textarea {
+      width: 100%;
+      padding: 12px;
+      background: var(--bg);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--radius-md);
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+      transition: all var(--transition-base);
+    }
+
+    .form-input:focus, select.form-input:focus, textarea.form-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    textarea.form-input {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    select.form-input {
+      cursor: pointer;
+    }
+
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin-right: 8px;
+      cursor: pointer;
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: white;
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      color: white;
+    }
+
+    .btn-sm { padding: 8px 16px; font-size: 14px; }
+    .btn-full { width: 100%; }
+
+    /* Utility */
+    .hidden { display: none !important; }
+    .text-secondary { color: var(--text-secondary); }
+    .mt-md { margin-top: var(--spacing-md); }
+    .mb-md { margin-bottom: var(--spacing-md); }
+
+    .empty-state {
+      text-align: center;
+      padding: var(--spacing-xl);
+      color: var(--text-secondary);
+    }
+
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: var(--spacing-md);
+      opacity: 0.5;
+    }
+
+    .empty-state-title {
+      font-size: 18px; font-weight: 600;
+      margin-bottom: var(--spacing-sm);
+      color: var(--text);
+    }
+
+    /* Loading */
     .loading {
       display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid rgba(255, 255, 255, 0.3);
-      border-top-color: var(--btnText);
+      width: 20px; height: 20px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-top-color: currentColor;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
 
     @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
+      to { transform: rotate(360deg); }
     }
 
-    .fade-in {
-      animation: fadeIn 0.3s ease;
-    }
-
+    /* Animations */
     @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
-    /* ========== PHASE 4: MOBILE-STYLE UI ========== */
+    .fade-in { animation: fadeIn 0.3s ease-out; }
 
-    .group-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 12px;
-      margin: 16px 0;
-    }
-
-    .group-card {
-      background: var(--card);
-      border-radius: 16px;
-      padding: 16px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      border: 2px solid transparent;
-    }
-
-    .group-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-      border-color: var(--btn);
-    }
-
-    .group-card-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .group-avatar {
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, var(--btn), #6b5ce7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      font-weight: 700;
-      color: white;
-    }
-
-    .group-name {
-      font-weight: 600;
-      font-size: 16px;
-    }
-
-    .group-stats {
-      font-size: 13px;
-      color: var(--hint);
-      margin-top: 4px;
-    }
-
-    .action-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 12px;
-      margin: 16px 0;
-    }
-
-    .action-card {
-      background: var(--card);
-      border-radius: 16px;
-      padding: 16px;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      text-align: center;
-      min-height: 120px;
-    }
-
-    .action-card:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-    }
-
-    .action-icon {
-      font-size: 32px;
-      margin-bottom: 8px;
-    }
-
-    .action-name {
-      font-weight: 600;
-      font-size: 14px;
-    }
-
-    .action-status {
-      font-size: 12px;
-      color: var(--hint);
-      margin-top: 4px;
-    }
-
+    /* Responsive */
     @media (max-width: 640px) {
-      .action-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
+      .container { padding: var(--spacing-sm); }
+      .header { padding: var(--spacing-sm) var(--spacing-md); }
+      .header-title { font-size: 20px; }
+      .group-grid { grid-template-columns: 1fr; }
+      .dashboard-grid { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
 </head>
-
 <body>
-  <div class="wrap">
-    <h1 class="title">Bot Settings</h1>
-    <p class="sub">
-      This Mini App is optional. It only lists groups where you have permission to manage settings. Your Telegram
-      <code>initData</code> is verified server-side.
-    </p>
-
-    <div id="notg" class="card" style="display:none">
-      <div class="error">Open this page from inside Telegram (as a Web App).</div>
-    </div>
-
-    <div id="err" class="card" style="display:none">
-      <div class="error" id="errText"></div>
-    </div>
-
-    <div class="card">
-      <div class="row">
-        <div class="label">
-          <div class="k">Group</div>
-          <div class="d">Choose which chat to configure</div>
-        </div>
-        <select id="groupSelect"></select>
-      </div>
-    </div>
-
-    <!-- Phase 4: Mobile Group Selection -->
-    <div id="mobileGroupSelection" class="card" style="display:none">
-      <div class="row">
-        <div class="label">
-          <div class="k">📱 Select Group</div>
-          <div class="d">Tap a group to configure settings</div>
-        </div>
-      </div>
-      <div id="groupGrid" class="group-grid"></div>
-    </div>
-
-    <!-- Phase 4: Mobile Action Grid -->
-    <div id="mobileActionGrid" class="card" style="display:none">
-      <div class="row">
-        <div class="label">
-          <div class="k" id="currentGroupName">Group Dashboard</div>
-          <div class="d">Tap an action to configure</div>
-        </div>
-        <button id="backToGroups" class="btn secondary" style="width:auto">← Groups</button>
-      </div>
-      <div id="actionGrid" class="action-grid"></div>
-    </div>
-
-    <div id="preflight" class="card" style="display:none">
-      <div class="row">
-        <div class="label">
-          <div class="k">Preflight</div>
-          <div class="d">Bot permissions and join-gate readiness</div>
-        </div>
-        <div class="actions">
-          <span id="pf_admin" class="pill">Admin</span>
-          <span id="pf_restrict" class="pill">Restrict</span>
-          <span id="pf_delete" class="pill">Delete</span>
-          <span id="pf_joinreq" class="pill">Join requests</span>
-          <span id="pf_invite" class="pill">Invite users</span>
+  <div class="app">
+    <div class="header">
+      <div class="header-content">
+        <button class="header-back hidden" id="backBtn" onclick="goBack()">←</button>
+        <div class="header-title">
+          <span>🤖</span>
+          <span id="headerText">Bot Dashboard</span>
         </div>
       </div>
     </div>
 
-    <div id="analytics" class="card" style="display:none">
-      <div class="row">
-        <div class="label">
-          <div class="k">Analytics</div>
-          <div class="d">Read-only operational stats for this group</div>
-        </div>
-        <div class="actions">
-          <button id="analyticsRefreshBtn" class="btn secondary" style="width:auto">Refresh</button>
-        </div>
-      </div>
-      <div id="analytics_list" class="checklist"></div>
-    </div>
-
-    <div id="settings" class="card" style="display:none">
-      <div class="row">
-        <div class="label">
-          <div class="k">Verification</div>
-          <div class="d">Verify-to-speak flow for new members</div>
-        </div>
-        <div id="verification_enabled" class="toggle" data-on="false"></div>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Timeout</div>
-          <div class="d">How long a user has to verify</div>
-        </div>
-        <select id="verification_timeout">
-          <option value="120">2 minutes</option>
-          <option value="300">5 minutes</option>
-          <option value="600">10 minutes</option>
-          <option value="900">15 minutes</option>
-        </select>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Action on timeout</div>
-          <div class="d">Kick or keep muted</div>
-        </div>
-        <select id="action_on_timeout">
-          <option value="mute">Keep muted</option>
-          <option value="kick">Kick</option>
-        </select>
-      </div>
-
-      <!-- Join gate is MANDATORY - toggle removed -->
-      <div class="row" style="background: rgba(76, 175, 80, 0.1); border: 1px solid rgba(76, 175, 80, 0.3);">
-        <div class="label">
-          <div class="k">✅ Join gate (Always ON)</div>
-          <div class="d">Verify-to-join is mandatory for all groups with join requests enabled</div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Rules acceptance</div>
-          <div class="d">Require users to accept /rules in DM before verifying</div>
-        </div>
-        <div id="require_rules_acceptance" class="toggle" data-on="false"></div>
-      </div>
-
-      <div class="row" style="display:none">
-        <div class="label">
-          <div class="k">Captcha</div>
-          <div class="d">Quick human check in DM before Mercle starts</div>
-        </div>
-        <div id="captcha_enabled" class="toggle" data-on="false"></div>
-      </div>
-
-      <div id="captcha_style_row" class="row" style="display:none">
-        <div class="label">
-          <div class="k">Captcha style</div>
-          <div class="d">Button or math</div>
-        </div>
-        <select id="captcha_style">
-          <option value="button">Button</option>
-          <option value="math">Math</option>
-        </select>
-      </div>
-
-      <div id="captcha_max_attempts_row" class="row" style="display:none">
-        <div class="label">
-          <div class="k">Captcha max attempts</div>
-          <div class="d">1–10</div>
-        </div>
-        <input id="captcha_max_attempts" type="number" min="1" max="10" step="1" value="3" />
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Block no-username</div>
-          <div class="d">Kick/decline unverified users without an @username</div>
-        </div>
-        <div id="block_no_username" class="toggle" data-on="false"></div>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Antiflood</div>
-          <div class="d">Mute users who spam messages quickly</div>
-        </div>
-        <div id="antiflood_enabled" class="toggle" data-on="false"></div>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Antiflood limit</div>
-          <div class="d">Messages per minute</div>
-        </div>
-        <input id="antiflood_limit" type="number" min="1" step="1" />
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Antiflood mute</div>
-          <div class="d">Mute duration (minutes)</div>
-        </div>
-        <input id="antiflood_mute_minutes" type="number" min="1" max="1440" step="1" value="5" />
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Silent automations</div>
-          <div class="d">No “muted/warned” messages in chat (actions still apply + are logged)</div>
-        </div>
-        <div id="silent_automations" class="toggle" data-on="false"></div>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Raid mode</div>
-          <div class="d" id="raid_mode_desc">Block new joins temporarily</div>
-        </div>
-        <div id="raid_mode_enabled" class="toggle" data-on="false"></div>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Raid duration (minutes)</div>
-          <div class="d">1–10080 (7 days)</div>
-        </div>
-        <input id="raid_mode_minutes" type="number" min="1" max="10080" value="15" />
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Lock links</div>
-          <div class="d">Deletes messages that look like URLs</div>
-        </div>
-        <div id="lock_links" class="toggle" data-on="false"></div>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Lock media</div>
-          <div class="d">Deletes photos/videos/documents, etc.</div>
-        </div>
-        <div id="lock_media" class="toggle" data-on="false"></div>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Logs destination</div>
-          <div class="d">Off or “this group” only (advanced setup stays in DM)</div>
-        </div>
-        <select id="logs_mode">
-          <option value="">(no change)</option>
-          <option value="off">Off</option>
-          <option value="group">This group</option>
-        </select>
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Logs status</div>
-          <div class="d" id="logs_current">Off</div>
-        </div>
-        <div class="actions">
-          <button id="logsTestBtn" class="btn secondary" style="width:auto">Send test log</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="onboarding" class="card" style="display:none">
-      <div class="row">
-        <div class="label">
-          <div class="k">Onboarding (DM)</div>
-          <div class="d">After a user verifies for this group, send them an onboarding message in DM</div>
-        </div>
-        <div id="onboarding_enabled" class="toggle" data-on="false"></div>
-      </div>
-      <div class="row">
-        <div class="label">
-          <div class="k">Delay (seconds)</div>
-          <div class="d">Wait before sending the onboarding message</div>
-        </div>
-        <input id="onboarding_delay_seconds" type="number" min="0" step="10" />
-      </div>
-      <div class="row">
-        <div class="label">
-          <div class="k">Message</div>
-          <div class="d">Keep it short and human; Markdown/HTML supported</div>
-        </div>
-      </div>
-      <div class="row">
-        <textarea id="onboarding_text" placeholder="Welcome! Here are the rules…"></textarea>
-      </div>
-      <div class="row">
-        <div class="label">
-          <div class="k">Parse mode</div>
-          <div class="d">Markdown or HTML formatting</div>
-        </div>
-        <select id="onboarding_parse_mode">
-          <option value="Markdown">Markdown</option>
-          <option value="HTML">HTML</option>
-          <option value="">Plain</option>
-        </select>
-      </div>
-
-      <div style="height:12px"></div>
-      <div class="row">
-        <div class="label">
-          <div class="k">Steps</div>
-          <div class="d">Optional follow-ups in DM (max 10 total steps)</div>
-        </div>
-      </div>
-      <div id="onboarding_steps_list" class="checklist"></div>
-      <div class="actions" style="width:100%">
-        <button id="onboardingAddStepBtn" class="btn secondary" style="flex:1">Add step</button>
-        <button id="onboardingRemoveStepBtn" class="btn secondary" style="flex:1">Remove last</button>
-      </div>
-    </div>
-
-    <div id="buttons" class="card" style="display:none">
-      <button id="saveBtn" class="btn">Save</button>
-      <div style="height: 10px"></div>
-      <button id="reloadBtn" class="btn secondary">Reload</button>
-    </div>
-
-    <div id="broadcast" class="card" style="display:none">
-      <div class="row">
-        <div class="label">
-          <div class="k">Announcement</div>
-          <div class="d">Send a message to groups or to opted-in DM subscribers (queued + delivered by the bot)</div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="label">
-          <div class="k">Audience</div>
-          <div class="d">Groups (post in chat) or DM subscribers (direct message)</div>
-        </div>
-        <select id="broadcast_audience">
-          <option value="groups">Groups</option>
-          <option value="dm">DM subscribers</option>
-        </select>
-      </div>
-      <div id="broadcast_dm_row" class="row" style="display:none">
-        <div class="label">
-          <div class="k">DM subscribers</div>
-          <div class="d">Deliverable now: <span id="broadcast_dm_count">…</span>. Max recipients is a safety cap.</div>
-        </div>
-        <input id="broadcast_max_targets" type="number" min="1" max="20000" value="5000" />
-      </div>
-      <div class="row">
-        <textarea id="broadcast_text" placeholder="Write your announcement…"></textarea>
-      </div>
-      <div class="row">
-        <div class="label">
-          <div class="k">Schedule</div>
-          <div class="d">Delay in minutes (0 = send now)</div>
-        </div>
-        <input id="broadcast_delay_minutes" type="number" min="0" max="10080" value="0" />
-      </div>
-      <div class="row">
-        <div class="label">
-          <div class="k">Parse mode</div>
-          <div class="d">Markdown or HTML formatting</div>
-        </div>
-        <select id="broadcast_parse_mode">
-          <option value="Markdown">Markdown</option>
-          <option value="HTML">HTML</option>
-          <option value="">Plain</option>
-        </select>
-      </div>
-      <div id="broadcast_targets_row" class="row" style="flex-direction:column; align-items:stretch">
-        <div class="label" style="margin-bottom:6px">
-          <div class="k">Targets</div>
-          <div class="d">Choose where to post this announcement</div>
-        </div>
-        <div class="actions" style="width:100%">
-          <button id="broadcastAllBtn" class="btn secondary" style="flex:1">Select all</button>
-          <button id="broadcastNoneBtn" class="btn secondary" style="flex:1">Clear</button>
-        </div>
-        <div id="broadcast_targets" class="checklist"></div>
-      </div>
-      <button id="broadcastBtn" class="btn">Send to selected</button>
-
-      <div id="broadcast_history_section">
-        <div style="height:14px"></div>
-        <div class="row" style="justify-content:space-between; align-items:center">
-          <div class="label" style="margin:0">
-            <div class="k">Recent broadcasts</div>
-            <div class="d">Last announcements that targeted this group</div>
+    <div class="container">
+      <!-- Unverified User View -->
+      <div id="unverifiedView" class="hidden fade-in">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">⚠️ Verification Required</div>
           </div>
-          <button id="broadcastHistoryBtn" class="btn secondary" style="width:auto">Refresh</button>
-        </div>
-        <div id="broadcast_history" class="checklist"></div>
-      </div>
-    </div>
-
-    <div id="rules" class="card" style="display:none">
-      <div class="row">
-        <div class="label">
-          <div class="k">Rules (v1)</div>
-          <div class="d">Simple automations: match text → actions (reply/delete/warn/mute/log/sequence/ticket)</div>
+          <div style="padding: var(--spacing-lg);">
+            <div id="unverifiedContent"></div>
+          </div>
         </div>
       </div>
 
-      <div class="row">
-        <input id="rule_pattern" type="text" placeholder="Match pattern (keyword or regex)" />
-      </div>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Match</div>
-          <div class="d">Contains or regex</div>
+      <!-- Group Selection View -->
+      <div id="groupSelectionView" class="fade-in">
+        <div class="search-container">
+          <span class="search-icon">🔍</span>
+          <input 
+            type="text" 
+            class="search-input" 
+            id="groupSearch" 
+            placeholder="Search groups..."
+            oninput="filterGroups()"
+          />
         </div>
-        <select id="rule_match_type">
-          <option value="contains">Contains</option>
-          <option value="regex">Regex</option>
-        </select>
-      </div>
+        
+        <div class="group-grid" id="groupGrid"></div>
 
-      <div class="row">
-        <div class="label">
-          <div class="k">Action</div>
-          <div class="d">What should the bot do when it matches?</div>
-        </div>
-        <select id="rule_action_type">
-          <option value="delete">Delete message</option>
-          <option value="warn">Warn user</option>
-          <option value="mute">Mute user</option>
-          <option value="reply">Reply</option>
-          <option value="log">Log to mod channel</option>
-          <option value="start_sequence">Start DM sequence</option>
-          <option value="create_ticket">Create ticket</option>
-        </select>
-      </div>
-
-      <div id="rule_reply_wrap" class="row" style="display:none">
-        <textarea id="rule_reply_text" placeholder="Reply text…"></textarea>
-      </div>
-
-      <div id="rule_mute_wrap" class="row" style="display:none">
-        <div class="label">
-          <div class="k">Mute duration (seconds)</div>
-          <div class="d">30–604800</div>
-        </div>
-        <input id="rule_mute_seconds" type="number" min="30" step="30" value="300" />
-      </div>
-
-      <div id="rule_log_wrap" class="row" style="display:none">
-        <textarea id="rule_log_text" placeholder="Log note (optional)…"></textarea>
-      </div>
-
-      <div id="rule_sequence_wrap" class="row" style="display:none">
-        <div class="label">
-          <div class="k">Sequence key</div>
-          <div class="d">Starts a DM sequence for the user (example: onboarding_verified)</div>
-        </div>
-        <input id="rule_sequence_key" type="text" value="onboarding_verified" />
-      </div>
-
-      <div id="rule_ticket_wrap" class="row" style="display:none">
-        <div class="label">
-          <div class="k">Ticket subject (optional)</div>
-          <div class="d">Creates a staff ticket in the logs destination</div>
-        </div>
-        <input id="rule_ticket_subject" type="text" placeholder="Rule: ..." />
-      </div>
-
-      <button id="ruleAddBtn" class="btn">Add rule</button>
-
-      <div class="row">
-        <div class="label">
-          <div class="k">Existing rules</div>
-          <div class="d">Rules are evaluated before filters/notes</div>
+        <div class="empty-state hidden" id="noGroupsState">
+          <div class="empty-state-icon">📭</div>
+          <div class="empty-state-title">No groups found</div>
+          <div class="text-secondary">Add the bot to a group to get started</div>
         </div>
       </div>
-      <div id="rules_list" class="checklist"></div>
 
-      <div style="height:14px"></div>
-      <div class="row">
-        <div class="label">
-          <div class="k">Test console</div>
-          <div class="d">Paste a sample message to see which rules would fire (dry-run)</div>
+      <!-- Dashboard View -->
+      <div id="dashboardView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title" id="dashboardGroupName">Group Name</div>
+              <div class="card-subtitle" id="dashboardGroupStats">Loading...</div>
+            </div>
+          </div>
+          
+          <div class="dashboard-grid" id="dashboardGrid"></div>
         </div>
       </div>
-      <div class="row">
-        <textarea id="rules_test_text" placeholder="Type a message to test…"></textarea>
-      </div>
-      <button id="rulesTestBtn" class="btn secondary">Test rules</button>
-      <div id="rules_test_results" class="checklist"></div>
-    </div>
 
-    <div id="tickets" class="card" style="display:none">
-      <div class="row">
-        <div class="label">
-          <div class="k">Tickets (v1)</div>
-          <div class="d">Recent open tickets created via /ticket (read-only)</div>
-        </div>
-        <div class="actions">
-          <button id="ticketsRefreshBtn" class="btn secondary" style="width:auto">Refresh</button>
+      <!-- Settings View -->
+      <div id="settingsView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">⚙️ Settings</div>
+          </div>
+          <div id="settingsContent"></div>
+          <button class="btn btn-primary btn-full mt-md" onclick="saveSettings()">Save Settings</button>
         </div>
       </div>
-      <div id="tickets_list" class="checklist"></div>
+
+      <!-- Tickets View -->
+      <div id="ticketsView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🎫 Support Tickets</div>
+            <button class="btn btn-secondary btn-sm" onclick="refreshTickets()">🔄 Refresh</button>
+          </div>
+          <div id="ticketsContent"></div>
+        </div>
+      </div>
+
+      <!-- Analytics View -->
+      <div id="analyticsView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📊 Analytics</div>
+            <button class="btn btn-secondary btn-sm" onclick="refreshAnalytics()">🔄 Refresh</button>
+          </div>
+          <div id="analyticsContent"></div>
+        </div>
+      </div>
+
+      <!-- Broadcast View -->
+      <div id="broadcastView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📣 Broadcast</div>
+          </div>
+          <div id="broadcastContent"></div>
+        </div>
+      </div>
+
+      <!-- Rules View -->
+      <div id="rulesView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📋 Auto-Moderation Rules</div>
+            <div style="display: flex; gap: var(--spacing-sm);">
+              <button class="btn btn-secondary" onclick="showTestRules()">🧪 Test</button>
+              <button class="btn btn-primary" onclick="showCreateRule()">+ New Rule</button>
+            </div>
+          </div>
+          <div id="rulesContent"></div>
+        </div>
+      </div>
+
+      <!-- Onboarding View -->
+      <div id="onboardingView" class="hidden">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">👋 Welcome Message</div>
+          </div>
+          <div id="onboardingContent"></div>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
-    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-    const initData = tg ? tg.initData : "";
+    const tg = window.Telegram?.WebApp;
+    const initData = tg?.initData || "";
 
-    const $ = (id) => document.getElementById(id);
+    const state = {
+      groups: [],
+      selectedGroup: null,
+      currentView: 'groupSelection',
+      viewHistory: [],
+      verification: null,
+      user: null,
+    };
 
-    function setError(msg) {
-      $("errText").textContent = msg;
-      $("err").style.display = msg ? "block" : "none";
-    }
-
-    function setPill(id, ok) {
-      const el = $(id);
-      el.classList.remove("ok", "bad");
-      el.classList.add(ok ? "ok" : "bad");
-    }
-
-    function toggleEl(id) {
-      const el = $(id);
-      el.addEventListener("click", () => {
-        const on = el.getAttribute("data-on") === "true";
-        el.setAttribute("data-on", (!on).toString());
-      });
-    }
-
-    function updateCaptchaUI() {
-      const enabledEl = $("captcha_enabled");
-      const styleRow = $("captcha_style_row");
-      const maxRow = $("captcha_max_attempts_row");
-      if (!enabledEl || !styleRow || !maxRow) return;
-      const enabled = enabledEl.getAttribute("data-on") === "true";
-      styleRow.style.display = enabled ? "flex" : "none";
-      maxRow.style.display = enabled ? "flex" : "none";
-    }
-
-    async function api(path, body) {
+    // ===== API =====
+    async function api(path, body = {}) {
       const res = await fetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, initData }),
       });
+      
       if (!res.ok) {
-        let detail = "";
-        try {
-          const json = await res.json();
-          detail = json.detail ? String(json.detail) : JSON.stringify(json);
-        } catch (_) {
-          detail = await res.text();
-        }
-        throw new Error(detail || `HTTP ${res.status}`);
+        const error = await res.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(error.detail || `HTTP ${res.status}`);
       }
+      
       return await res.json();
     }
 
-    function showLoading(buttonId) {
-      const btn = $(buttonId);
-      if (!btn) return;
-      btn.disabled = true;
-      btn.dataset.originalText = btn.textContent;
-      btn.innerHTML = '<span class="loading"></span>';
-    }
-
-    function hideLoading(buttonId) {
-      const btn = $(buttonId);
-      if (!btn) return;
-      btn.disabled = false;
-      if (btn.dataset.originalText) {
-        btn.textContent = btn.dataset.originalText;
-        delete btn.dataset.originalText;
+    function showError(message) {
+      if (tg?.showPopup) {
+        tg.showPopup({ title: 'Error', message, buttons: [{ type: 'ok' }] });
+      } else {
+        alert(message);
       }
     }
 
-    let state = { groups: [], selected: null, onboarding_steps: [] };
-    let mobileMode = true;  // Enable mobile UI by default
+    function showSuccess(message) {
+      if (tg?.showPopup) {
+        tg.showPopup({ title: 'Success', message, buttons: [{ type: 'ok' }] });
+      } else {
+        alert(message);
+      }
+    }
 
-    function renderBroadcastTargets(defaultGroupId) {
-      const wrap = $("broadcast_targets");
-      wrap.innerHTML = "";
-      const selected = new Set((state.broadcast_targets || []).map(Number));
-      for (const g of state.groups) {
-        const id = Number(g.group_id);
-        const label = document.createElement("label");
-        label.className = "check";
-        const input = document.createElement("input");
-        input.type = "checkbox";
-        input.dataset.gid = String(id);
-        input.checked = selected.has(id) || id === Number(defaultGroupId);
-        input.addEventListener("change", () => {
-          const gid = Number(input.dataset.gid);
-          const next = new Set((state.broadcast_targets || []).map(Number));
-          if (input.checked) next.add(gid);
-          else next.delete(gid);
-          state.broadcast_targets = Array.from(next);
-        });
-        const name = document.createElement("div");
-        name.textContent = g.group_name || String(g.group_id);
-        label.appendChild(input);
-        label.appendChild(name);
-        wrap.appendChild(label);
+    // ===== NAVIGATION =====
+    function showView(viewName, addToHistory = true) {
+      document.querySelectorAll('[id$="View"]').forEach(view => {
+        view.classList.add('hidden');
+      });
+
+      const view = document.getElementById(viewName + 'View');
+      if (view) {
+        view.classList.remove('hidden');
+        view.classList.add('fade-in');
       }
 
-      // Ensure default is selected on first render.
-      if (!state.broadcast_targets || !state.broadcast_targets.length) {
-        state.broadcast_targets = [Number(defaultGroupId)];
+      const backBtn = document.getElementById('backBtn');
+      if (viewName === 'groupSelection') {
+        backBtn.classList.add('hidden');
+        document.getElementById('headerText').textContent = 'Bot Dashboard';
+      } else {
+        backBtn.classList.remove('hidden');
+      }
+
+      if (addToHistory && state.currentView !== viewName) {
+        state.viewHistory.push(state.currentView);
+      }
+      state.currentView = viewName;
+    }
+
+    function goBack() {
+      if (state.viewHistory.length > 0) {
+        const previousView = state.viewHistory.pop();
+        showView(previousView, false);
+      } else {
+        showView('groupSelection', false);
+      }
+    }
+
+    // ===== GROUP SELECTION =====
+    async function loadGroups() {
+      try {
+        const data = await api('/api/app/bootstrap');
+        state.groups = data.groups || [];
+        state.verification = data.verification || {};
+        state.user = data.user || {};
+        
+        // If user is not verified, show unverified view instead
+        if (!state.verification.is_verified) {
+          showView('unverified', false);
+          renderUnverifiedView();
+        } else {
+          renderGroups();
+        }
+      } catch (error) {
+        console.error('Failed to load groups:', error);
+        showError('Failed to load groups: ' + error.message);
       }
     }
 
     function renderGroups() {
-      if (mobileMode) {
-        // Hide old dropdown selector card
-        const cards = document.querySelectorAll('.card');
-        for (const card of cards) {
-          if (card.querySelector('#groupSelect')) {
-            card.style.display = 'none';
-            break;
+      const grid = document.getElementById('groupGrid');
+      const noGroupsState = document.getElementById('noGroupsState');
+      
+      if (state.groups.length === 0) {
+        grid.innerHTML = '';
+        noGroupsState.classList.remove('hidden');
+        return;
+      }
+
+      noGroupsState.classList.add('hidden');
+      
+      grid.innerHTML = state.groups.map(group => {
+        const initial = (group.group_name || 'G')[0].toUpperCase();
+        const memberCount = group.member_count || 0;
+        const settings = group.settings || {};
+        
+        return `
+          <div class="group-card" onclick="selectGroup(${group.group_id})">
+            <div class="group-card-header">
+              <div class="group-avatar">${initial}</div>
+              <div class="group-info">
+                <div class="group-name">${group.group_name || `Group ${group.group_id}`}</div>
+                <div class="group-stats">
+                  <span class="group-stat">
+                    <span>👥</span>
+                    <span>${memberCount.toLocaleString()}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="group-badges">
+              ${settings.verification_enabled ? '<span class="badge badge-success">✓ Verification</span>' : ''}
+              ${settings.raid_mode_enabled ? '<span class="badge badge-warning">🚨 Raid Mode</span>' : ''}
+              ${settings.antiflood_enabled ? '<span class="badge badge-info">🌊 Anti-Flood</span>' : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function filterGroups() {
+      const query = document.getElementById('groupSearch').value.toLowerCase();
+      const cards = document.querySelectorAll('.group-card');
+      cards.forEach(card => {
+        const text = card.textContent.toLowerCase();
+        card.style.display = text.includes(query) ? 'block' : 'none';
+      });
+    }
+
+    // ===== UNVERIFIED VIEW =====
+    function renderUnverifiedView() {
+      const content = document.getElementById('unverifiedContent');
+      const username = state.user?.username ? `@${state.user.username}` : 'User';
+      
+      content.innerHTML = `
+        <div style="text-align: center; margin-bottom: var(--spacing-lg);">
+          <div style="font-size: 64px; margin-bottom: var(--spacing-md);">🔒</div>
+          <h2 style="margin-bottom: var(--spacing-sm);">Welcome, ${username}!</h2>
+          <p style="color: var(--text-secondary); margin-bottom: var(--spacing-lg);">
+            You need to verify your identity to access the admin dashboard.
+          </p>
+        </div>
+
+        <div class="card" style="background: var(--bg); margin-bottom: var(--spacing-md);">
+          <div style="padding: var(--spacing-md);">
+            <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-sm);">
+              <span style="font-size: 24px;">❌</span>
+              <div>
+                <div style="font-weight: 600;">Verification Status</div>
+                <div style="color: var(--danger); font-size: 14px;">Not Verified</div>
+              </div>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 14px; margin-top: var(--spacing-sm);">
+              Complete verification to manage group settings, view analytics, and access all features.
+            </p>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: var(--spacing-md);">
+          <button class="btn btn-primary" onclick="startVerification()" style="width: 100%;">
+            ✅ Verify Now
+          </button>
+          <button class="btn btn-danger" onclick="deleteMyData()" style="width: 100%;">
+            🗑️ Delete My Data
+          </button>
+        </div>
+
+        <div style="margin-top: var(--spacing-lg); padding: var(--spacing-md); background: rgba(255, 255, 255, 0.05); border-radius: var(--radius-md);">
+          <div style="font-size: 14px; color: var(--text-secondary);">
+            <strong>Why verify?</strong><br>
+            Verification ensures secure access to admin features and protects your groups from unauthorized access.
+          </div>
+        </div>
+      `;
+    }
+
+    async function startVerification() {
+      try {
+        // Close the Mini App and send /verify command
+        if (tg?.close) {
+          // Send message to bot to start verification
+          tg.sendData('verify');
+          tg.close();
+        } else {
+          showError('Please use the /verify command in the bot chat to start verification.');
+        }
+      } catch (error) {
+        showError('Failed to start verification: ' + error.message);
+      }
+    }
+
+    async function deleteMyData() {
+      if (tg?.showConfirm) {
+        tg.showConfirm('Are you sure you want to delete all your data? This action cannot be undone.', async (confirmed) => {
+          if (confirmed) {
+            try {
+              await api('/api/app/delete-my-data');
+              showSuccess('Your data has been deleted.');
+              if (tg?.close) tg.close();
+            } catch (error) {
+              showError('Failed to delete data: ' + error.message);
+            }
+          }
+        });
+      } else {
+        if (confirm('Are you sure you want to delete all your data? This action cannot be undone.')) {
+          try {
+            await api('/api/app/delete-my-data');
+            showSuccess('Your data has been deleted.');
+          } catch (error) {
+            showError('Failed to delete data: ' + error.message);
           }
         }
-        // Show mobile group selection UI
-        $("mobileGroupSelection").style.display = "block";
-        renderMobileGroupGrid();
-        return;  // Don't auto-select any group
       }
-
-      // Original dropdown logic (fallback for non-mobile)
-      const sel = $("groupSelect");
-      sel.innerHTML = "";
-      if (!state.groups.length) {
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "No groups available";
-        sel.appendChild(opt);
-        return;
-      }
-      for (const g of state.groups) {
-        const opt = document.createElement("option");
-        opt.value = String(g.group_id);
-        opt.textContent = g.group_name || String(g.group_id);
-        sel.appendChild(opt);
-      }
-      // Removed auto-selection - let user choose
     }
 
-    function selectGroup(groupIdStr) {
-      const gid = Number(groupIdStr);
-      state.selected = state.groups.find((g) => g.group_id === gid) || null;
-      if (!state.selected) return;
-
-      $("preflight").style.display = "block";
-      $("analytics").style.display = "block";
-      $("settings").style.display = "block";
-      $("onboarding").style.display = "block";
-      $("buttons").style.display = "block";
-      $("broadcast").style.display = "block";
-      $("rules").style.display = "block";
-      $("tickets").style.display = "block";
-
-      const pf = state.selected.preflight || {};
-      setPill("pf_admin", !!pf.bot_admin);
-      setPill("pf_restrict", !!pf.restrict_ok);
-      setPill("pf_delete", !!pf.delete_ok);
-      setPill("pf_joinreq", !!pf.join_by_request);
-      setPill("pf_invite", !!pf.invite_ok);
-
-      const s = state.selected.settings || {};
-      $("verification_enabled").setAttribute("data-on", (!!s.verification_enabled).toString());
-      $("verification_timeout").value = String(s.verification_timeout || 300);
-      $("action_on_timeout").value = s.action_on_timeout || "mute";
-      // join_gate_enabled removed - always true (mandatory)
-      $("require_rules_acceptance").setAttribute("data-on", (!!s.require_rules_acceptance).toString());
-      $("captcha_enabled").setAttribute("data-on", (!!s.captcha_enabled).toString());
-      $("captcha_style").value = String(s.captcha_style || "button");
-      $("captcha_max_attempts").value = String(s.captcha_max_attempts || 3);
-      $("block_no_username").setAttribute("data-on", (!!s.block_no_username).toString());
-      $("antiflood_enabled").setAttribute("data-on", (!!s.antiflood_enabled).toString());
-      $("antiflood_limit").value = String(s.antiflood_limit || 10);
-      const afSecs = Number(s.antiflood_mute_seconds || 300);
-      $("antiflood_mute_minutes").value = String(Math.max(1, Math.round(afSecs / 60)));
-      $("silent_automations").setAttribute("data-on", (!!s.silent_automations).toString());
-      $("raid_mode_enabled").setAttribute("data-on", (!!s.raid_mode_enabled).toString());
-      const rem = Number(s.raid_mode_remaining_seconds || 0);
-      if (rem > 0) {
-        $("raid_mode_minutes").value = String(Math.max(1, Math.ceil(rem / 60)));
-        $("raid_mode_desc").textContent = `Active (${Math.max(1, Math.ceil(rem / 60))}m remaining)`;
-      } else {
-        $("raid_mode_desc").textContent = "Block new joins temporarily";
-      }
-      $("lock_links").setAttribute("data-on", (!!s.lock_links).toString());
-      $("lock_media").setAttribute("data-on", (!!s.lock_media).toString());
-      $("logs_mode").value = "";
-
-      const logsEnabled = !!(s.logs_enabled && s.logs_chat_id);
-      const dest = logsEnabled ? `Chat ${s.logs_chat_id}${s.logs_thread_id ? " • thread " + s.logs_thread_id : ""}` : "Off";
-      $("logs_current").textContent = dest;
-      $("logsTestBtn").disabled = !logsEnabled;
-
-      updateCaptchaUI();
-
-      const ob = state.selected.onboarding || {};
-      $("onboarding_enabled").setAttribute("data-on", (!!ob.enabled).toString());
-      $("onboarding_delay_seconds").value = String(ob.delay_seconds || 0);
-      $("onboarding_text").value = String(ob.text || "");
-      const pm = ob.parse_mode;
-      $("onboarding_parse_mode").value = pm === null ? "" : (pm || "Markdown");
-      state.onboarding_steps = [];
-      renderOnboardingSteps();
-
-      renderBroadcastTargets(gid);
-
-      loadOnboardingDetail(gid).catch((e) => setError(String(e.message || e)));
-      loadRules(gid).catch((e) => setError(String(e.message || e)));
-      loadTickets(gid).catch((e) => setError(String(e.message || e)));
-      loadAnalytics(gid).catch((e) => setError(String(e.message || e)));
-      loadBroadcastHistory(gid).catch((e) => setError(String(e.message || e)));
+    // ===== DASHBOARD =====
+    async function selectGroup(groupId) {
+      const group = state.groups.find(g => g.group_id === groupId);
+      if (!group) return;
+      
+      state.selectedGroup = group;
+      document.getElementById('headerText').textContent = group.group_name || `Group ${groupId}`;
+      renderDashboard();
+      showView('dashboard');
     }
 
-    async function bootstrap() {
-      setError("");
-      const data = await api("/api/app/bootstrap", { initData });
-      state.groups = data.groups || [];
-      renderGroups();
-    }
-
-    function formatCounts(obj) {
-      if (!obj) return "0";
-      const entries = Object.entries(obj).filter(([, v]) => Number(v) > 0);
-      if (!entries.length) return "0";
-      return entries
-        .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(", ");
-    }
-
-    function renderAnalytics(res) {
-      const wrap = $("analytics_list");
-      if (!wrap) return;
-      wrap.innerHTML = "";
-
-      const items = [
-        { k: "Pending joins", d: formatCounts(res.pending_join_verifications) },
-        { k: "Verification sessions", d: formatCounts(res.verification_sessions) },
-        { k: "Warnings (total)", d: String(res.warnings_total ?? 0) },
-        { k: "Admin actions (24h)", d: formatCounts(res.admin_actions_24h) },
+    function renderDashboard() {
+      const group = state.selectedGroup;
+      if (!group) return;
+      
+      document.getElementById('dashboardGroupName').textContent = group.group_name || `Group ${group.group_id}`;
+      document.getElementById('dashboardGroupStats').textContent = `${group.member_count || 0} members`;
+      
+      const grid = document.getElementById('dashboardGrid');
+      const cards = [
+        { icon: '⚙️', title: 'Settings', subtitle: 'Configure bot', action: 'showSettings' },
+        { icon: '🎫', title: 'Tickets', subtitle: 'Support', action: 'showTickets' },
+        { icon: '📊', title: 'Analytics', subtitle: 'View stats', action: 'showAnalytics' },
+        { icon: '📣', title: 'Broadcast', subtitle: 'Send messages', action: 'showBroadcast' },
+        { icon: '📋', title: 'Rules', subtitle: 'Auto-moderation', action: 'showRules' },
+        { icon: '👋', title: 'Onboarding', subtitle: 'Welcome flow', action: 'showOnboarding' },
       ];
-      const fedId = res.federation_id ? String(res.federation_id) : "Off";
-      items.push({ k: "Federation", d: res.federation_id ? `${fedId} • bans: ${res.federation_bans ?? 0}` : "Off" });
-      if (res.as_of) items.push({ k: "As of", d: String(res.as_of) });
-
-      for (const it of items) {
-        const row = document.createElement("div");
-        row.className = "check";
-        const left = document.createElement("div");
-        left.className = "label";
-        const k = document.createElement("div");
-        k.className = "k";
-        k.textContent = it.k;
-        const d = document.createElement("div");
-        d.className = "d";
-        d.textContent = it.d;
-        left.appendChild(k);
-        left.appendChild(d);
-        row.appendChild(left);
-        wrap.appendChild(row);
-      }
+      
+      grid.innerHTML = cards.map(card => `
+        <div class="dashboard-card" onclick="${card.action}()">
+          <span class="dashboard-icon">${card.icon}</span>
+          <div class="dashboard-title">${card.title}</div>
+          <div class="dashboard-subtitle">${card.subtitle}</div>
+        </div>
+      `).join('');
     }
 
-    async function loadAnalytics(groupId) {
-      const res = await api(`/api/app/group/${groupId}/analytics`, { initData });
-      renderAnalytics(res);
+    // ===== SETTINGS =====
+    async function showSettings() {
+      document.getElementById('headerText').textContent = 'Settings';
+      showView('settings');
+      
+      const group = state.selectedGroup;
+      const settings = group.settings || {};
+      
+      const content = document.getElementById('settingsContent');
+      content.innerHTML = `
+        <!-- Verification -->
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Verification</div>
+            <div class="settings-label-desc">Verify-to-speak flow for new members</div>
+          </div>
+          <div class="toggle" data-on="${!!settings.verification_enabled}" onclick="toggleSetting(this)"></div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Verification Timeout</div>
+            <div class="settings-label-desc">How long a user has to verify</div>
+          </div>
+          <select id="verification_timeout">
+            <option value="120" ${settings.verification_timeout == 120 ? 'selected' : ''}>2 minutes</option>
+            <option value="300" ${settings.verification_timeout == 300 ? 'selected' : ''}>5 minutes</option>
+            <option value="600" ${settings.verification_timeout == 600 ? 'selected' : ''}>10 minutes</option>
+            <option value="900" ${settings.verification_timeout == 900 ? 'selected' : ''}>15 minutes</option>
+          </select>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Action on Timeout</div>
+            <div class="settings-label-desc">What happens when verification times out</div>
+          </div>
+          <select id="action_on_timeout">
+            <option value="mute" ${settings.action_on_timeout == 'mute' ? 'selected' : ''}>Keep muted</option>
+            <option value="kick" ${settings.action_on_timeout == 'kick' ? 'selected' : ''}>Kick</option>
+          </select>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Rules Acceptance</div>
+            <div class="settings-label-desc">Require users to accept /rules before verifying</div>
+          </div>
+          <div class="toggle" data-on="${!!settings.require_rules_acceptance}" onclick="toggleSetting(this)"></div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Block No-Username</div>
+            <div class="settings-label-desc">Kick users without an @username</div>
+          </div>
+          <div class="toggle" data-on="${!!settings.block_no_username}" onclick="toggleSetting(this)"></div>
+        </div>
+        
+        <!-- Anti-Flood -->
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Anti-Flood</div>
+            <div class="settings-label-desc">Mute users who spam messages</div>
+          </div>
+          <div class="toggle" data-on="${!!settings.antiflood_enabled}" onclick="toggleSetting(this)"></div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Anti-Flood Limit</div>
+            <div class="settings-label-desc">Messages per minute before muting</div>
+          </div>
+          <input id="antiflood_limit" type="number" min="1" max="100" step="1" value="${settings.antiflood_limit || 10}" style="width: 100px;">
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Anti-Flood Mute Duration</div>
+            <div class="settings-label-desc">How long to mute spammers (minutes)</div>
+          </div>
+          <input id="antiflood_mute_minutes" type="number" min="1" max="1440" step="1" value="${Math.round((settings.antiflood_mute_seconds || 300) / 60)}" style="width: 100px;">
+        </div>
+        
+        <!-- Raid Mode -->
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Raid Mode</div>
+            <div class="settings-label-desc">Block new joins temporarily</div>
+          </div>
+          <div class="toggle" data-on="${!!settings.raid_mode_enabled}" onclick="toggleSetting(this)"></div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Raid Mode Duration</div>
+            <div class="settings-label-desc">How long to block joins (minutes, max 7 days)</div>
+          </div>
+          <input id="raid_mode_minutes" type="number" min="1" max="10080" step="1" value="15" style="width: 100px;">
+        </div>
+        
+        <!-- Content Locks -->
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Lock Links</div>
+            <div class="settings-label-desc">Delete messages with URLs</div>
+          </div>
+          <div class="toggle" data-on="${!!settings.lock_links}" onclick="toggleSetting(this)"></div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Lock Media</div>
+            <div class="settings-label-desc">Delete photos/videos/documents</div>
+          </div>
+          <div class="toggle" data-on="${!!settings.lock_media}" onclick="toggleSetting(this)"></div>
+        </div>
+        
+        <!-- Other -->
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Silent Automations</div>
+            <div class="settings-label-desc">No notification messages in chat</div>
+          </div>
+          <div class="toggle" data-on="${!!settings.silent_automations}" onclick="toggleSetting(this)"></div>
+        </div>
+        
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Logs Destination</div>
+            <div class="settings-label-desc">Where to send moderation logs</div>
+          </div>
+          <select id="logs_mode">
+            <option value="">(no change)</option>
+            <option value="off">Off</option>
+            <option value="group">This group</option>
+          </select>
+        </div>
+      `;
     }
 
-    async function save() {
-      if (!state.selected) return;
-      setError("");
-      showLoading("saveBtn");
+    function toggleSetting(el) {
+      const on = el.getAttribute('data-on') === 'true';
+      el.setAttribute('data-on', (!on).toString());
+    }
 
+    async function saveSettings() {
+      const group = state.selectedGroup;
+      if (!group) return;
+      
+      const toggles = document.querySelectorAll('#settingsContent .toggle');
+      const payload = {
+        verification_enabled: toggles[0].getAttribute('data-on') === 'true',
+        verification_timeout: parseInt(document.getElementById('verification_timeout').value),
+        action_on_timeout: document.getElementById('action_on_timeout').value,
+        require_rules_acceptance: toggles[1].getAttribute('data-on') === 'true',
+        block_no_username: toggles[2].getAttribute('data-on') === 'true',
+        antiflood_enabled: toggles[3].getAttribute('data-on') === 'true',
+        antiflood_limit: parseInt(document.getElementById('antiflood_limit').value),
+        antiflood_mute_seconds: parseInt(document.getElementById('antiflood_mute_minutes').value) * 60,
+        raid_mode_enabled: toggles[4].getAttribute('data-on') === 'true',
+        raid_mode_minutes: parseInt(document.getElementById('raid_mode_minutes').value),
+        lock_links: toggles[5].getAttribute('data-on') === 'true',
+        lock_media: toggles[6].getAttribute('data-on') === 'true',
+        silent_automations: toggles[7].getAttribute('data-on') === 'true',
+        logs_mode: document.getElementById('logs_mode').value || null,
+      };
+      
       try {
-        const gid = state.selected.group_id;
-
-        const payload = {
-          initData,
-          verification_enabled: $("verification_enabled").getAttribute("data-on") === "true",
-          verification_timeout: Number($("verification_timeout").value || 300),
-          action_on_timeout: $("action_on_timeout").value,
-          join_gate_enabled: true,  // MANDATORY - always enabled
-          require_rules_acceptance: $("require_rules_acceptance").getAttribute("data-on") === "true",
-          captcha_enabled: false,  // REMOVED - Mercle SDK only
-          captcha_style: $("captcha_style").value || "button",
-          captcha_max_attempts: Number($("captcha_max_attempts").value || 3),
-          block_no_username: $("block_no_username").getAttribute("data-on") === "true",
-          antiflood_enabled: $("antiflood_enabled").getAttribute("data-on") === "true",
-          antiflood_limit: Number($("antiflood_limit").value || 10),
-          antiflood_mute_seconds: Number($("antiflood_mute_minutes").value || 5) * 60,
-          silent_automations: $("silent_automations").getAttribute("data-on") === "true",
-          raid_mode_enabled: $("raid_mode_enabled").getAttribute("data-on") === "true",
-          raid_mode_minutes: Number($("raid_mode_minutes").value || 15),
-          lock_links: $("lock_links").getAttribute("data-on") === "true",
-          lock_media: $("lock_media").getAttribute("data-on") === "true",
-          logs_mode: $("logs_mode").value || null,
-        };
-
-        const updated = await api(`/api/app/group/${gid}/settings`, payload);
-        const idx = state.groups.findIndex((g) => g.group_id === gid);
-        if (idx >= 0) state.groups[idx] = updated;
-
-        const steps = [];
-        steps.push({
-          delay_seconds: Number($("onboarding_delay_seconds").value || 0),
-          text: String($("onboarding_text").value || ""),
-          parse_mode: $("onboarding_parse_mode").value || null,
-        });
-        for (const s of (state.onboarding_steps || [])) {
-          steps.push({
-            delay_seconds: Number(s.delay_seconds || 0),
-            text: String(s.text || ""),
-            parse_mode: s.parse_mode ? String(s.parse_mode) : null,
-          });
-        }
-        const onboardingPayload = {
-          initData,
-          enabled: $("onboarding_enabled").getAttribute("data-on") === "true",
-          steps,
-        };
-        await api(`/api/app/group/${gid}/onboarding/steps`, onboardingPayload);
-
-        selectGroup(String(gid));
-
-        if (tg && tg.showPopup) {
-          tg.showPopup({ title: "Saved", message: "Settings updated.", buttons: [{ type: "ok" }] });
-        }
-      } catch (e) {
-        setError(String(e.message || e));
-      } finally {
-        hideLoading("saveBtn");
+        await api(`/api/app/group/${group.group_id}/settings`, payload);
+        showSuccess('Settings saved successfully!');
+        // Reload groups to update badges
+        await loadGroups();
+      } catch (error) {
+        showError('Failed to save settings: ' + error.message);
       }
     }
 
-    function renderOnboardingSteps() {
-      const wrap = $("onboarding_steps_list");
-      if (!wrap) return;
-      wrap.innerHTML = "";
+    // ===== TICKETS =====
+    async function showTickets() {
+      document.getElementById('headerText').textContent = 'Support Tickets';
+      showView('tickets');
+      refreshTickets();
+    }
 
-      const steps = state.onboarding_steps || [];
-      const addBtn = $("onboardingAddStepBtn");
-      const removeBtn = $("onboardingRemoveStepBtn");
-      if (addBtn) addBtn.disabled = steps.length >= 9;
-      if (removeBtn) removeBtn.disabled = steps.length <= 0;
-
-      if (!steps.length) {
-        const div = document.createElement("div");
-        div.className = "pill";
-        div.textContent = "No extra steps";
-        wrap.appendChild(div);
-        return;
-      }
-
-      for (let idx = 0; idx < steps.length; idx++) {
-        const step = steps[idx];
-        const stepNo = idx + 2;
-
-        const row = document.createElement("div");
-        row.className = "check";
-        row.style.flexDirection = "column";
-        row.style.alignItems = "stretch";
-        row.style.gap = "8px";
-
-        const head = document.createElement("div");
-        head.style.display = "flex";
-        head.style.justifyContent = "space-between";
-        head.style.alignItems = "center";
-
-        const title = document.createElement("div");
-        title.textContent = `Step ${stepNo}`;
-
-        const meta = document.createElement("div");
-        meta.className = "pill";
-        meta.textContent = `delay ${(step.delay_seconds || 0)}s`;
-
-        head.appendChild(title);
-        head.appendChild(meta);
-
-        const controls = document.createElement("div");
-        controls.className = "actions";
-        controls.style.width = "100%";
-
-        const delayInput = document.createElement("input");
-        delayInput.type = "number";
-        delayInput.min = "0";
-        delayInput.step = "10";
-        delayInput.value = String(step.delay_seconds || 0);
-        delayInput.style.flex = "1";
-        delayInput.addEventListener("input", () => {
-          step.delay_seconds = Number(delayInput.value || 0);
-          meta.textContent = `delay ${(step.delay_seconds || 0)}s`;
-        });
-
-        const parseSelect = document.createElement("select");
-        parseSelect.style.flex = "1";
-        parseSelect.innerHTML = `
-            <option value="Markdown">Markdown</option>
-            <option value="HTML">HTML</option>
-            <option value="">Plain</option>
+    async function refreshTickets() {
+      const group = state.selectedGroup;
+      if (!group) return;
+      
+      const content = document.getElementById('ticketsContent');
+      content.innerHTML = '<div class="text-secondary text-center">Loading...</div>';
+      
+      try {
+        const data = await api(`/api/app/group/${group.group_id}/tickets`, { status: 'open' });
+        const tickets = data.tickets || [];
+        
+        if (tickets.length === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-state-icon">🎫</div>
+              <div class="empty-state-title">No open tickets</div>
+              <div class="text-secondary">All support requests have been handled</div>
+            </div>
           `;
-        parseSelect.value = (step.parse_mode === null || step.parse_mode === undefined) ? "Markdown" : String(step.parse_mode);
-        parseSelect.addEventListener("change", () => {
-          step.parse_mode = parseSelect.value;
-        });
-
-        controls.appendChild(delayInput);
-        controls.appendChild(parseSelect);
-
-        const textarea = document.createElement("textarea");
-        textarea.placeholder = "Step message…";
-        textarea.value = String(step.text || "");
-        textarea.addEventListener("input", () => {
-          step.text = textarea.value;
-        });
-
-        row.appendChild(head);
-        row.appendChild(controls);
-        row.appendChild(textarea);
-        wrap.appendChild(row);
+          return;
+        }
+        
+        content.innerHTML = tickets.map(ticket => `
+          <div class="settings-row">
+            <div class="settings-label">
+              <div class="settings-label-title">Ticket #${ticket.id} - User ${ticket.user_id}</div>
+              <div class="settings-label-desc">${ticket.subject || '(no subject)'} • ${ticket.created_at || ''}</div>
+            </div>
+          </div>
+        `).join('');
+      } catch (error) {
+        content.innerHTML = `<div class="text-secondary text-center">Failed to load tickets</div>`;
       }
     }
 
-    async function loadOnboardingDetail(groupId) {
-      const res = await api(`/api/app/group/${groupId}/onboarding/get`, { initData });
-      const ob = res.onboarding || {};
-
-      $("onboarding_enabled").setAttribute("data-on", (!!ob.enabled).toString());
-
-      const steps = ob.steps || [];
-      if (steps.length) {
-        const first = steps[0] || {};
-        $("onboarding_delay_seconds").value = String(first.delay_seconds || 0);
-        $("onboarding_text").value = String(first.text || "");
-        const pm = first.parse_mode;
-        $("onboarding_parse_mode").value = pm === null ? "" : (pm || "Markdown");
-
-        state.onboarding_steps = steps.slice(1).map((s) => {
-          const pm2 = s.parse_mode;
-          return {
-            delay_seconds: Number(s.delay_seconds || 0),
-            text: String(s.text || ""),
-            parse_mode: pm2 === null ? "" : (pm2 || "Markdown"),
-          };
-        });
-      } else {
-        state.onboarding_steps = [];
-      }
-
-      renderOnboardingSteps();
+    // ===== ANALYTICS =====
+    async function showAnalytics() {
+      document.getElementById('headerText').textContent = 'Analytics';
+      showView('analytics');
+      refreshAnalytics();
     }
 
-    async function refreshDmSubscribersCount() {
-      const el = $("broadcast_dm_count");
-      if (!el) return;
-      el.textContent = "…";
+    async function refreshAnalytics() {
+      const group = state.selectedGroup;
+      if (!group) return;
+      
+      const content = document.getElementById('analyticsContent');
+      content.innerHTML = '<div class="text-secondary text-center">Loading...</div>';
+      
       try {
-        const res = await api("/api/app/dm/subscribers", { initData });
-        el.textContent = String(res.deliverable ?? "0");
-      } catch (_) {
-        el.textContent = "—";
+        const data = await api(`/api/app/group/${group.group_id}/analytics`);
+        
+        content.innerHTML = `
+          <div class="settings-row">
+            <div class="settings-label">
+              <div class="settings-label-title">Warnings (Total)</div>
+              <div class="settings-label-desc">${data.warnings_total || 0}</div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-label">
+              <div class="settings-label-title">Pending Verifications</div>
+              <div class="settings-label-desc">${JSON.stringify(data.pending_join_verifications || {})}</div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div class="settings-label">
+              <div class="settings-label-title">Admin Actions (24h)</div>
+              <div class="settings-label-desc">${JSON.stringify(data.admin_actions_24h || {})}</div>
+            </div>
+          </div>
+        `;
+      } catch (error) {
+        content.innerHTML = `<div class="text-secondary text-center">Failed to load analytics</div>`;
       }
     }
 
-    function updateBroadcastAudienceUI() {
-      const aud = ($("broadcast_audience") && $("broadcast_audience").value) ? $("broadcast_audience").value : "groups";
-      const isDm = aud === "dm";
-
-      if ($("broadcast_targets_row")) $("broadcast_targets_row").style.display = isDm ? "none" : "flex";
-      if ($("broadcast_history_section")) $("broadcast_history_section").style.display = isDm ? "none" : "block";
-      if ($("broadcast_dm_row")) $("broadcast_dm_row").style.display = isDm ? "flex" : "none";
-      if ($("broadcastBtn")) $("broadcastBtn").textContent = isDm ? "Send DM broadcast" : "Send to selected";
-
-      if (isDm) refreshDmSubscribersCount();
+    // ===== BROADCAST =====
+    async function showBroadcast() {
+      document.getElementById('headerText').textContent = 'Broadcast';
+      showView('broadcast');
+      
+      const content = document.getElementById('broadcastContent');
+      content.innerHTML = `
+        <div class="settings-row">
+          <div class="settings-label">
+            <div class="settings-label-title">Message</div>
+            <div class="settings-label-desc">Compose your announcement</div>
+          </div>
+        </div>
+        <textarea id="broadcastText" placeholder="Write your announcement..."></textarea>
+        <button class="btn btn-primary btn-full mt-md" onclick="sendBroadcast()">Send Broadcast</button>
+      `;
     }
 
     async function sendBroadcast() {
-      if (!state.selected) return;
-      setError("");
-      const text = String($("broadcast_text").value || "").trim();
+      const text = document.getElementById('broadcastText').value.trim();
       if (!text) {
-        setError("Announcement text is empty.");
+        showError('Please enter a message');
         return;
       }
-      const delay_minutes = Number($("broadcast_delay_minutes").value || 0);
-      if (!Number.isFinite(delay_minutes) || delay_minutes < 0) {
-        setError("Delay must be a positive number of minutes.");
-        return;
-      }
-      const delay_seconds = Math.min(7 * 24 * 3600, Math.floor(delay_minutes * 60));
-      const parse_mode = $("broadcast_parse_mode").value || null;
-
-      const audience = $("broadcast_audience") ? ($("broadcast_audience").value || "groups") : "groups";
-      if (audience === "dm") {
-        const max_targets = Number($("broadcast_max_targets").value || 5000);
-        if (!Number.isFinite(max_targets) || max_targets <= 0) {
-          setError("Max targets must be a positive number.");
-          return;
-        }
-
-        const when = delay_seconds > 0 ? `in ${delay_minutes} minute(s)` : "now";
-        const ok = window.confirm(`Send this DM announcement ${when} to up to ${Math.floor(max_targets)} subscriber(s)?`);
-        if (!ok) return;
-
-        const res = await api(`/api/app/broadcast/dm`, {
-          initData,
+      
+      const group = state.selectedGroup;
+      if (!group) return;
+      
+      try {
+        await api('/api/app/broadcast', {
+          group_ids: [group.group_id],
           text,
-          delay_seconds,
-          parse_mode,
-          disable_web_page_preview: true,
-          max_targets: Math.floor(max_targets),
+          delay_seconds: 0,
         });
-        $("broadcast_text").value = "";
-        if (tg && tg.showPopup) {
-          tg.showPopup({
-            title: "Queued",
-            message: `DM broadcast queued (id ${res.broadcast_id}). Targets: ${res.total_targets}.`,
-            buttons: [{ type: "ok" }],
-          });
-        }
-        return;
-      }
-
-      const targets = Array.from(
-        document.querySelectorAll("#broadcast_targets input[type=checkbox]:checked")
-      ).map((el) => Number(el.dataset.gid));
-      if (!targets.length) {
-        setError("Select at least one target group.");
-        return;
-      }
-
-      const when = delay_seconds > 0 ? `in ${delay_minutes} minute(s)` : "now";
-      const ok = window.confirm(`Send this announcement ${when} to ${targets.length} group(s)?`);
-      if (!ok) return;
-
-      const res = await api(`/api/app/broadcast`, {
-        initData,
-        group_ids: targets,
-        text,
-        delay_seconds,
-        parse_mode,
-        disable_web_page_preview: true,
-      });
-      $("broadcast_text").value = "";
-      if (tg && tg.showPopup) {
-        tg.showPopup({
-          title: "Queued",
-          message: `Broadcast queued (id ${res.broadcast_id}). Targets: ${res.total_targets}.`,
-          buttons: [{ type: "ok" }],
-        });
+        showSuccess('Broadcast sent successfully!');
+        document.getElementById('broadcastText').value = '';
+      } catch (error) {
+        showError('Failed to send broadcast: ' + error.message);
       }
     }
 
-    async function loadBroadcastHistory(groupId) {
-      const res = await api(`/api/app/group/${groupId}/broadcasts`, { initData, limit: 15 });
-      renderBroadcastHistory(res.broadcasts || []);
+    // ===== RULES =====
+    async function showRules() {
+      document.getElementById('headerText').textContent = 'Rules';
+      showView('rules');
+      await refreshRules();
     }
 
-    function renderBroadcastHistory(items) {
-      const wrap = $("broadcast_history");
-      wrap.innerHTML = "";
-      if (!items.length) {
-        const div = document.createElement("div");
-        div.className = "pill";
-        div.textContent = "No broadcasts yet";
-        wrap.appendChild(div);
-        return;
-      }
-      for (const b of items) {
-        const row = document.createElement("div");
-        row.className = "check";
-        const left = document.createElement("div");
-        left.style.display = "flex";
-        left.style.flexDirection = "column";
-        left.style.gap = "2px";
-
-        const k = document.createElement("div");
-        const sched = b.scheduled_at || b.created_at || "";
-        const shortTime = sched ? String(sched).replace("T", " ").replace("Z", "") : "";
-        k.textContent = `#${b.id} • ${b.status}${shortTime ? " • " + shortTime : ""}`;
-
-        const d = document.createElement("div");
-        d.className = "d";
-        const tgt = b.target_status ? ` • this group: ${b.target_status}` : "";
-        d.textContent = `${b.text_preview || ""} • ${b.sent_count || 0}/${b.total_targets || 0} sent${tgt}`;
-
-        left.appendChild(k);
-        left.appendChild(d);
-        row.appendChild(left);
-        wrap.appendChild(row);
-      }
-    }
-
-    async function loadRules(groupId) {
-      const res = await api(`/api/app/group/${groupId}/rules`, { initData });
-      renderRules(res.rules || []);
-    }
-
-    function renderRules(rules) {
-      const wrap = $("rules_list");
-      wrap.innerHTML = "";
-      if (!rules.length) {
-        const div = document.createElement("div");
-        div.className = "pill";
-        div.textContent = "No rules yet";
-        wrap.appendChild(div);
-        return;
-      }
-      for (const r of rules) {
-        const row = document.createElement("div");
-        row.className = "check";
-        const left = document.createElement("div");
-        left.style.display = "flex";
-        left.style.flexDirection = "column";
-        left.style.gap = "2px";
-        const k = document.createElement("div");
-        k.textContent = `${r.match_type}: ${r.pattern}`;
-        const d = document.createElement("div");
-        d.className = "d";
-        const act = (r.actions && r.actions.length) ? r.actions[0].type : "action";
-        d.textContent = `${act} • priority ${r.priority}`;
-        left.appendChild(k);
-        left.appendChild(d);
-
-        const del = document.createElement("button");
-        del.className = "btn secondary";
-        del.style.width = "auto";
-        del.textContent = "Delete";
-        del.addEventListener("click", () => {
-          if (!state.selected) return;
-          api(`/api/app/group/${state.selected.group_id}/rules/delete`, { initData, rule_id: r.id })
-            .then((res) => renderRules(res.rules || []))
-            .catch((e) => setError(String(e.message || e)));
-        });
-
-        row.appendChild(left);
-        row.appendChild(del);
-        wrap.appendChild(row);
-      }
-    }
-
-    async function addRule() {
-      if (!state.selected) return;
-      setError("");
-      const gid = state.selected.group_id;
-      const pattern = String($("rule_pattern").value || "").trim();
-      if (!pattern) {
-        setError("Rule pattern is empty.");
-        return;
-      }
-      const match_type = $("rule_match_type").value;
-      const action_type = $("rule_action_type").value;
-      const payload = {
-        initData,
-        name: "Rule",
-        match_type,
-        pattern,
-        action_type,
-        case_sensitive: false,
-        stop_processing: true,
-        priority: 100,
-        reply_text: null,
-        mute_duration_seconds: null,
-        log_text: null,
-        sequence_key: null,
-        sequence_trigger_key: null,
-        ticket_subject: null,
-      };
-      if (action_type === "reply") payload.reply_text = String($("rule_reply_text").value || "").trim();
-      if (action_type === "mute") payload.mute_duration_seconds = Number($("rule_mute_seconds").value || 300);
-      if (action_type === "log") payload.log_text = String($("rule_log_text").value || "").trim();
-      if (action_type === "start_sequence") payload.sequence_key = String($("rule_sequence_key").value || "").trim();
-      if (action_type === "create_ticket") payload.ticket_subject = String($("rule_ticket_subject").value || "").trim();
-      const res = await api(`/api/app/group/${gid}/rules/create`, payload);
-      $("rule_pattern").value = "";
-      $("rule_reply_text").value = "";
-      $("rule_log_text").value = "";
-      $("rule_ticket_subject").value = "";
-      renderRules(res.rules || []);
-      if (tg && tg.showPopup) {
-        tg.showPopup({ title: "Added", message: "Rule created.", buttons: [{ type: "ok" }] });
-      }
-    }
-
-    async function testRules() {
-      if (!state.selected) return;
-      setError("");
-      const gid = state.selected.group_id;
-      const text = String($("rules_test_text").value || "").trim();
-      if (!text) {
-        setError("Test text is empty.");
-        return;
-      }
-      const res = await api(`/api/app/group/${gid}/rules/test`, { initData, text, limit: 10 });
-      renderRulesTestResults(res.matches || []);
-    }
-
-    async function sendLogTest() {
-      if (!state.selected) return;
-      setError("");
-      const gid = state.selected.group_id;
-      const res = await api(`/api/app/group/${gid}/logs/test`, { initData });
-      if (tg && tg.showPopup) {
-        tg.showPopup({
-          title: "Sent",
-          message: `Test log sent to ${res.logs_chat_id}${res.logs_thread_id ? " (thread " + res.logs_thread_id + ")" : ""}.`,
-          buttons: [{ type: "ok" }],
-        });
-      }
-    }
-
-    function renderRulesTestResults(matches) {
-      const wrap = $("rules_test_results");
-      wrap.innerHTML = "";
-      if (!matches.length) {
-        const div = document.createElement("div");
-        div.className = "pill";
-        div.textContent = "No matches";
-        wrap.appendChild(div);
-        return;
-      }
-      for (const m of matches) {
-        const row = document.createElement("div");
-        row.className = "check";
-        const left = document.createElement("div");
-        left.style.display = "flex";
-        left.style.flexDirection = "column";
-        left.style.gap = "2px";
-        const k = document.createElement("div");
-        k.textContent = `#${m.id} • ${m.match_type}: ${m.pattern}`;
-        const d = document.createElement("div");
-        d.className = "d";
-        const acts = (m.actions || []).map((a) => a.type).join(", ") || "no actions";
-        d.textContent = `priority ${m.priority} • actions: ${acts}${m.stop_processing ? " • stop" : ""}`;
-        left.appendChild(k);
-        left.appendChild(d);
-        row.appendChild(left);
-        wrap.appendChild(row);
-      }
-    }
-
-    async function loadTickets(groupId) {
-      const res = await api(`/api/app/group/${groupId}/tickets`, { initData, status: "open" });
-      renderTickets(res.tickets || []);
-    }
-
-    function renderTickets(tickets) {
-      const wrap = $("tickets_list");
-      wrap.innerHTML = "";
-      if (!tickets.length) {
-        const div = document.createElement("div");
-        div.className = "pill";
-        div.textContent = "No open tickets";
-        wrap.appendChild(div);
-        return;
-      }
-      for (const t of tickets) {
-        const row = document.createElement("div");
-        row.className = "check";
-        const left = document.createElement("div");
-        left.style.display = "flex";
-        left.style.flexDirection = "column";
-        left.style.gap = "2px";
-        const k = document.createElement("div");
-        k.textContent = `#${t.id} • user ${t.user_id}`;
-        const d = document.createElement("div");
-        d.className = "d";
-        const subject = (t.subject || "").trim() || "(no subject)";
-        d.textContent = `${subject}${t.created_at ? " • " + t.created_at : ""}`;
-        left.appendChild(k);
-        left.appendChild(d);
-        row.appendChild(left);
-        wrap.appendChild(row);
-      }
-    }
-
-    if (!tg || !initData) {
-      $("notg").style.display = "block";
-    } else {
-      tg.ready();
-      try { tg.expand(); } catch (_) { }
-
-      toggleEl("verification_enabled");
-      // toggleEl("join_gate_enabled"); // Removed - join gate is mandatory
-      toggleEl("require_rules_acceptance");
-      toggleEl("captcha_enabled");
-      toggleEl("block_no_username");
-      toggleEl("antiflood_enabled");
-      toggleEl("silent_automations");
-      toggleEl("raid_mode_enabled");
-      toggleEl("lock_links");
-      toggleEl("lock_media");
-      toggleEl("onboarding_enabled");
-      renderOnboardingSteps();
-
-      $("captcha_enabled").addEventListener("click", () => updateCaptchaUI());
-      $("captcha_style").addEventListener("change", () => updateCaptchaUI());
-      updateCaptchaUI();
-
-      function onRuleActionChange() {
-        const t = $("rule_action_type").value;
-        $("rule_reply_wrap").style.display = t === "reply" ? "block" : "none";
-        $("rule_mute_wrap").style.display = t === "mute" ? "flex" : "none";
-        $("rule_log_wrap").style.display = t === "log" ? "block" : "none";
-        $("rule_sequence_wrap").style.display = t === "start_sequence" ? "flex" : "none";
-        $("rule_ticket_wrap").style.display = t === "create_ticket" ? "flex" : "none";
-      }
-      $("rule_action_type").addEventListener("change", onRuleActionChange);
-      onRuleActionChange();
-
-      $("groupSelect").addEventListener("change", (e) => selectGroup(e.target.value));
-      $("onboardingAddStepBtn").addEventListener("click", () => {
-        const steps = state.onboarding_steps || [];
-        if (steps.length >= 9) return;
-        steps.push({ delay_seconds: 0, text: "", parse_mode: "Markdown" });
-        state.onboarding_steps = steps;
-        renderOnboardingSteps();
-      });
-      $("onboardingRemoveStepBtn").addEventListener("click", () => {
-        const steps = state.onboarding_steps || [];
-        if (!steps.length) return;
-        steps.pop();
-        state.onboarding_steps = steps;
-        renderOnboardingSteps();
-      });
-      $("saveBtn").addEventListener("click", () => save().catch((e) => setError(String(e.message || e))));
-      $("reloadBtn").addEventListener("click", () => bootstrap().catch((e) => setError(String(e.message || e))));
-      $("broadcastBtn").addEventListener("click", () => sendBroadcast().catch((e) => setError(String(e.message || e))));
-      $("broadcast_audience").addEventListener("change", () => updateBroadcastAudienceUI());
-      $("broadcastAllBtn").addEventListener("click", () => {
-        state.broadcast_targets = state.groups.map((g) => Number(g.group_id));
-        renderBroadcastTargets(state.selected ? state.selected.group_id : 0);
-      });
-      $("broadcastNoneBtn").addEventListener("click", () => {
-        state.broadcast_targets = [];
-        renderBroadcastTargets(state.selected ? state.selected.group_id : 0);
-      });
-      $("broadcastHistoryBtn").addEventListener("click", () => {
-        if (!state.selected) return;
-        loadBroadcastHistory(state.selected.group_id).catch((e) => setError(String(e.message || e)));
-      });
-      $("logsTestBtn").addEventListener("click", () => sendLogTest().catch((e) => setError(String(e.message || e))));
-      $("ruleAddBtn").addEventListener("click", () => addRule().catch((e) => setError(String(e.message || e))));
-      $("rulesTestBtn").addEventListener("click", () => testRules().catch((e) => setError(String(e.message || e))));
-      $("ticketsRefreshBtn").addEventListener("click", () => {
-        if (!state.selected) return;
-        loadTickets(state.selected.group_id).catch((e) => setError(String(e.message || e)));
-      });
-      $("analyticsRefreshBtn").addEventListener("click", () => {
-        if (!state.selected) return;
-        loadAnalytics(state.selected.group_id).catch((e) => setError(String(e.message || e)));
-      });
-
-      $("backToGroups").addEventListener("click", () => backToMobileGroups());
-
-      bootstrap().catch((e) => setError(String(e.message || e)));
-      updateBroadcastAudienceUI();
-      // ========== PHASE 4: MOBILE UI JAVASCRIPT ==========
-
-      function renderMobileGroupGrid() {
-        const grid = $("groupGrid");
-        if (!grid) return;
-        grid.innerHTML = "";
-        if (!state.groups || state.groups.length === 0) {
-          grid.innerHTML = '<div style="text-align:center;padding:40px;color:var(--hint)">No groups found</div>';
+    async function refreshRules() {
+      const content = document.getElementById('rulesContent');
+      content.innerHTML = '<div class="text-secondary" style="padding: var(--spacing-md);">Loading...</div>';
+      
+      try {
+        const { rules } = await api(`/api/app/group/${state.selectedGroup.group_id}/rules`, {});
+        
+        if (!rules || rules.length === 0) {
+          content.innerHTML = `
+            <div class="empty-state">
+              <div class="empty-state-icon">📋</div>
+              <div class="empty-state-title">No Rules Yet</div>
+              <div class="text-secondary">Create auto-moderation rules to filter messages</div>
+            </div>
+          `;
           return;
         }
-        state.groups.forEach(group => {
-          const card = document.createElement("div");
-          card.className = "group-card";
-          card.onclick = () => selectMobileGroup(group.group_id);
-          const initial = (group.group_name || "G").charAt(0).toUpperCase();
-          card.innerHTML = `<div class="group-card-header"><div class="group-avatar">${initial}</div><div class="group-info"><div class="group-name">${group.group_name || `Group ${group.group_id}`}</div><div class="group-stats">${group.member_count || 0} members</div></div></div>`;
-          grid.appendChild(card);
-        });
-      }
-
-      function selectMobileGroup(groupId) {
-        selectGroup(String(groupId));
-        showMobileActionGrid();
-      }
-
-      function showMobileActionGrid() {
-        $("mobileGroupSelection").style.display = "none";
-        $("mobileActionGrid").style.display = "block";
-        if (state.selected) $("currentGroupName").textContent = state.selected.group_name || `Group ${state.selected.group_id}`;
-        renderMobileActionGrid();
-      }
-
-      function renderMobileActionGrid() {
-        const grid = $("actionGrid");
-        if (!grid) return;
-        grid.innerHTML = "";
-        const actions = [
-          { icon: "⚙️", name: "Verification", id: "settings" },
-          { icon: "🚪", name: "Join Gate", id: "settings" },
-          { icon: "🌊", name: "Anti-Flood", id: "settings" },
-          { icon: "🔗", name: "Lock Links", id: "settings" },
-          { icon: "📷", name: "Lock Media", id: "settings" },
-          { icon: "🔇", name: "Silent", id: "settings" },
-          { icon: "🚨", name: "Raid Mode", id: "settings" },
-          { icon: "👋", name: "Onboarding", id: "onboarding" },
-          { icon: "📋", name: "Rules", id: "rules" },
-          { icon: "📣", name: "Broadcast", id: "broadcast" },
-          { icon: "📝", name: "Logs", id: "settings" },
-          { icon: "📊", name: "Analytics", id: "analytics" }
-        ];
-        actions.forEach(action => {
-          const card = document.createElement("div");
-          card.className = "action-card";
-          card.onclick = () => { const el = $(action.id); if (el) { el.style.display = "block"; el.scrollIntoView({ behavior: "smooth" }); } };
-          card.innerHTML = `<div class="action-icon">${action.icon}</div><div class="action-name">${action.name}</div>`;
-          grid.appendChild(card);
-        });
-      }
-
-      function backToMobileGroups() {
-        $("mobileActionGrid").style.display = "none";
-        $("mobileGroupSelection").style.display = "block";
+        
+        content.innerHTML = rules.map(rule => `
+          <div class="settings-item" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: var(--spacing-md);">
+            <div style="display: flex; justify-content: space-between; align-items: start;">
+              <div style="flex: 1;">
+                <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(rule.name || 'Rule')}</div>
+                <div class="text-secondary" style="font-size: 13px;">
+                  ${rule.match_type}: ${escapeHtml(rule.pattern || '')}
+                </div>
+                <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                  <span class="badge" style="background: var(--accent); color: var(--accent-text);">
+                    ${rule.action_type}
+                  </span>
+                  <span class="badge" style="background: var(--bg-secondary);">
+                    Priority: ${rule.priority || 100}
+                  </span>
+                  ${rule.enabled ? '<span class="badge" style="background: var(--success);">Active</span>' : '<span class="badge" style="background: var(--text-secondary);">Disabled</span>'}
+                </div>
+              </div>
+              <button class="btn btn-danger" style="padding: 8px 12px; font-size: 14px;" onclick="deleteRule(${rule.id})">Delete</button>
+            </div>
+          </div>
+        `).join('');
+        
+      } catch (error) {
+        content.innerHTML = `<div class="text-secondary" style="padding: var(--spacing-md);">Error: ${error.message}</div>`;
       }
     }
+
+    function showTestRules() {
+      const content = document.getElementById('rulesContent');
+      content.innerHTML = `
+        <div style="padding: var(--spacing-md);">
+          <div class="form-group">
+            <label>Test Message</label>
+            <textarea id="testRuleText" class="form-input" rows="4" placeholder="Enter a message to test against your rules..."></textarea>
+            <div class="text-secondary" style="font-size: 13px; margin-top: 4px;">
+              This will check which rules would trigger for this message
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: var(--spacing-sm);">
+            <button class="btn btn-primary" onclick="runTestRules()">Test Rules</button>
+            <button class="btn btn-secondary" onclick="refreshRules()">Back</button>
+          </div>
+          
+          <div id="testRulesResult" style="margin-top: var(--spacing-lg);"></div>
+        </div>
+      `;
+    }
+
+    async function runTestRules() {
+      const text = document.getElementById('testRuleText').value.trim();
+      const resultDiv = document.getElementById('testRulesResult');
+      
+      if (!text) {
+        showError('Please enter a message to test');
+        return;
+      }
+      
+      resultDiv.innerHTML = '<div class="text-secondary">Testing...</div>';
+      
+      try {
+        const { matches } = await api(`/api/app/group/${state.selectedGroup.group_id}/rules/test`, { text });
+        
+        if (!matches || matches.length === 0) {
+          resultDiv.innerHTML = `
+            <div class="card" style="background: var(--bg-secondary); padding: var(--spacing-md);">
+              <div style="color: var(--success); font-weight: 600; margin-bottom: 4px;">✅ No Rules Triggered</div>
+              <div class="text-secondary" style="font-size: 13px;">This message would pass all rules</div>
+            </div>
+          `;
+          return;
+        }
+        
+        resultDiv.innerHTML = `
+          <div class="card" style="background: var(--bg-secondary); padding: var(--spacing-md);">
+            <div style="color: var(--warning); font-weight: 600; margin-bottom: var(--spacing-md);">⚠️ ${matches.length} Rule(s) Triggered</div>
+            ${matches.map(match => `
+              <div style="padding: var(--spacing-sm); background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 8px;">
+                <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(match.name || 'Rule')}</div>
+                <div class="text-secondary" style="font-size: 13px;">
+                  Action: <span style="color: var(--accent);">${match.action_type}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+        
+      } catch (error) {
+        resultDiv.innerHTML = `<div class="text-secondary">Error: ${error.message}</div>`;
+      }
+    }
+
+    function showCreateRule() {
+      const content = document.getElementById('rulesContent');
+      content.innerHTML = `
+        <div style="padding: var(--spacing-md);">
+          <div class="form-group">
+            <label>Rule Name</label>
+            <input type="text" id="ruleName" class="form-input" placeholder="e.g., Block spam links" />
+          </div>
+          
+          <div class="form-group">
+            <label>Match Type</label>
+            <select id="ruleMatchType" class="form-input">
+              <option value="contains">Contains</option>
+              <option value="regex">Regex</option>
+              <option value="exact">Exact Match</option>
+              <option value="starts_with">Starts With</option>
+              <option value="ends_with">Ends With</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label>Pattern</label>
+            <input type="text" id="rulePattern" class="form-input" placeholder="e.g., spam, http://, etc." />
+          </div>
+          
+          <div class="form-group">
+            <label>Action</label>
+            <select id="ruleAction" class="form-input" onchange="updateRuleActionFields()">
+              <option value="delete">Delete Message</option>
+              <option value="warn">Warn User</option>
+              <option value="mute">Mute User</option>
+              <option value="kick">Kick User</option>
+              <option value="ban">Ban User</option>
+              <option value="reply">Reply</option>
+              <option value="log">Log Only</option>
+            </select>
+          </div>
+          
+          <div id="ruleActionFields"></div>
+          
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="ruleCaseSensitive" /> Case Sensitive
+            </label>
+          </div>
+          
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="ruleStopProcessing" checked /> Stop Processing Other Rules
+            </label>
+          </div>
+          
+          <div style="display: flex; gap: var(--spacing-sm);">
+            <button class="btn btn-primary" onclick="createRule()">Create Rule</button>
+            <button class="btn btn-secondary" onclick="refreshRules()">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function updateRuleActionFields() {
+      const action = document.getElementById('ruleAction').value;
+      const fields = document.getElementById('ruleActionFields');
+      
+      if (action === 'reply') {
+        fields.innerHTML = `
+          <div class="form-group">
+            <label>Reply Text</label>
+            <textarea id="ruleReplyText" class="form-input" rows="3" placeholder="Message to send..."></textarea>
+          </div>
+        `;
+      } else if (action === 'mute') {
+        fields.innerHTML = `
+          <div class="form-group">
+            <label>Mute Duration (seconds)</label>
+            <input type="number" id="ruleMuteDuration" class="form-input" value="300" />
+          </div>
+        `;
+      } else {
+        fields.innerHTML = '';
+      }
+    }
+
+    async function createRule() {
+      const name = document.getElementById('ruleName').value.trim();
+      const matchType = document.getElementById('ruleMatchType').value;
+      const pattern = document.getElementById('rulePattern').value.trim();
+      const actionType = document.getElementById('ruleAction').value;
+      const caseSensitive = document.getElementById('ruleCaseSensitive').checked;
+      const stopProcessing = document.getElementById('ruleStopProcessing').checked;
+      
+      if (!name || !pattern) {
+        showError('Please fill in all required fields');
+        return;
+      }
+      
+      const payload = {
+        name,
+        match_type: matchType,
+        pattern,
+        action_type: actionType,
+        case_sensitive: caseSensitive,
+        stop_processing: stopProcessing,
+        priority: 100,
+      };
+      
+      if (actionType === 'reply') {
+        const replyText = document.getElementById('ruleReplyText')?.value.trim();
+        if (!replyText) {
+          showError('Reply text is required');
+          return;
+        }
+        payload.reply_text = replyText;
+      } else if (actionType === 'mute') {
+        payload.mute_duration_seconds = parseInt(document.getElementById('ruleMuteDuration')?.value || 300);
+      }
+      
+      try {
+        await api(`/api/app/group/${state.selectedGroup.group_id}/rules/create`, payload);
+        showSuccess('Rule created successfully');
+        await refreshRules();
+      } catch (error) {
+        showError(error.message);
+      }
+    }
+
+    async function deleteRule(ruleId) {
+      if (!confirm('Delete this rule?')) return;
+      
+      try {
+        await api(`/api/app/group/${state.selectedGroup.group_id}/rules/delete`, { rule_id: ruleId });
+        showSuccess('Rule deleted');
+        await refreshRules();
+      } catch (error) {
+        showError(error.message);
+      }
+    }
+
+    // ===== ONBOARDING =====
+    async function showOnboarding() {
+      document.getElementById('headerText').textContent = 'Onboarding';
+      showView('onboarding');
+      await refreshOnboarding();
+    }
+
+    async function refreshOnboarding() {
+      const content = document.getElementById('onboardingContent');
+      content.innerHTML = '<div class="text-secondary" style="padding: var(--spacing-md);">Loading...</div>';
+      
+      try {
+        const { onboarding } = await api(`/api/app/group/${state.selectedGroup.group_id}/onboarding/get`, {});
+        
+        const enabled = onboarding?.enabled || false;
+        const text = onboarding?.text || '';
+        const delaySeconds = onboarding?.delay_seconds || 0;
+        const parseMode = onboarding?.parse_mode || 'HTML';
+        
+        content.innerHTML = `
+          <div style="padding: var(--spacing-md);">
+            <div class="settings-item">
+              <div class="settings-label">
+                <div class="settings-label-title">Enable Welcome Message</div>
+                <div class="settings-label-desc">Send a message when users join</div>
+              </div>
+              <div class="toggle" data-on="${enabled}" onclick="toggleSetting(this)"></div>
+            </div>
+            
+            <div class="form-group" style="margin-top: var(--spacing-lg);">
+              <label>Welcome Message</label>
+              <textarea id="onboardingText" class="form-input" rows="5" placeholder="Welcome to the group! 👋">${escapeHtml(text)}</textarea>
+              <div class="text-secondary" style="font-size: 13px; margin-top: 4px;">
+                Use HTML or Markdown formatting
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>Delay (seconds)</label>
+              <input type="number" id="onboardingDelay" class="form-input" value="${delaySeconds}" min="0" max="3600" />
+              <div class="text-secondary" style="font-size: 13px; margin-top: 4px;">
+                Wait before sending (0 = immediate)
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>Format</label>
+              <select id="onboardingParseMode" class="form-input">
+                <option value="HTML" ${parseMode === 'HTML' ? 'selected' : ''}>HTML</option>
+                <option value="Markdown" ${parseMode === 'Markdown' ? 'selected' : ''}>Markdown</option>
+              </select>
+            </div>
+            
+            <button class="btn btn-primary" onclick="saveOnboarding()">Save Changes</button>
+          </div>
+        `;
+        
+      } catch (error) {
+        content.innerHTML = `<div class="text-secondary" style="padding: var(--spacing-md);">Error: ${error.message}</div>`;
+      }
+    }
+
+    async function saveOnboarding() {
+      const enabled = document.querySelector('#onboardingContent .toggle').getAttribute('data-on') === 'true';
+      const text = document.getElementById('onboardingText').value.trim();
+      const delaySeconds = parseInt(document.getElementById('onboardingDelay').value || 0);
+      const parseMode = document.getElementById('onboardingParseMode').value;
+      
+      try {
+        await api(`/api/app/group/${state.selectedGroup.group_id}/onboarding`, {
+          enabled,
+          text,
+          delay_seconds: delaySeconds,
+          parse_mode: parseMode,
+        });
+        showSuccess('Onboarding settings saved');
+      } catch (error) {
+        showError(error.message);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // ===== INIT =====
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    loadGroups();
   </script>
 </body>
-
 </html>
+

@@ -1107,8 +1107,8 @@ def dm_status_text(*, is_verified: bool, mercle_user_id: str | None, verified_un
         # Calculate time remaining
         timer_text = ""
         if verified_until:
-            from datetime import datetime, timezone
-            remaining = verified_until - datetime.now(timezone.utc)
+            from datetime import datetime
+            remaining = verified_until - datetime.utcnow()
             if remaining.total_seconds() > 0:
                 days = remaining.days
                 hours = remaining.seconds // 3600
@@ -1140,7 +1140,7 @@ def dm_status_keyboard(*, is_verified: bool) -> InlineKeyboardMarkup:
 
 async def show_dm_status(bot, container: ServiceContainer, user_id: int):
     user = await container.user_manager.get_user(user_id)
-    is_verified = user is not None and (user.verified_until and user.verified_until > datetime.now(timezone.utc) if user.verified_until else False)
+    is_verified = user is not None and (user.verified_until and user.verified_until > datetime.utcnow() if user.verified_until else False)
     verified_until = user.verified_until if user else None
     text = dm_status_text(is_verified=is_verified, mercle_user_id=(user.mercle_user_id if user else None), verified_until=verified_until)
     kb = dm_status_keyboard(is_verified=is_verified)
