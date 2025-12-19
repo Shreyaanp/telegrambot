@@ -1375,7 +1375,8 @@ async def app_delete_my_data(payload: _InitDataPayload):
     user_id = int(auth.user["id"])
     
     try:
-        async with container.db.session() as session:
+        from database.db import db
+        async with db.session() as session:
             from sqlalchemy import delete
             from database.models import (
                 User, VerificationSession, PendingJoinVerification,

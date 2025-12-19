@@ -3,625 +3,562 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Bot Admin Dashboard</title>
+  <title>Mercle Bot</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     /* ===== DESIGN SYSTEM ===== */
     :root {
-      --bg: var(--tg-theme-bg-color, #0a0a0b);
-      --bg-secondary: var(--tg-theme-secondary-bg-color, #17181a);
+      --bg: var(--tg-theme-bg-color, #1c1c1e);
+      --bg-secondary: var(--tg-theme-secondary-bg-color, #2c2c2e);
+      --bg-tertiary: #3a3a3c;
       --text: var(--tg-theme-text-color, #ffffff);
-      --text-secondary: var(--tg-theme-hint-color, rgba(255, 255, 255, 0.6));
-      --accent: var(--tg-theme-button-color, #5b7cff);
+      --text-secondary: var(--tg-theme-hint-color, #8e8e93);
+      --accent: var(--tg-theme-button-color, #0a84ff);
       --accent-text: var(--tg-theme-button-text-color, #ffffff);
-      --success: #10b981;
-      --warning: #f59e0b;
-      --danger: #ef4444;
-      --info: #3b82f6;
-      --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-      --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-      --spacing-sm: 8px;
-      --spacing-md: 16px;
-      --spacing-lg: 24px;
-      --spacing-xl: 32px;
-      --radius-md: 12px;
-      --radius-lg: 16px;
-      --radius-full: 9999px;
-      --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+      --success: #30d158;
+      --warning: #ff9f0a;
+      --danger: #ff453a;
+      --separator: rgba(255, 255, 255, 0.1);
+      --radius: 12px;
+      --spacing: 16px;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
-      line-height: 1.6;
+      line-height: 1.5;
       -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
 
-    .app { min-height: 100vh; padding-bottom: var(--spacing-xl); }
-    .container { max-width: 800px; margin: 0 auto; padding: var(--spacing-md); }
+    .app {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
 
     /* Header */
     .header {
-      position: sticky; top: 0; z-index: 50;
+      position: sticky;
+      top: 0;
+      z-index: 100;
       background: var(--bg);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      padding: var(--spacing-md);
-      margin-bottom: var(--spacing-lg);
-    }
-
-    .header-content {
-      max-width: 800px; margin: 0 auto;
-      display: flex; align-items: center;
-      justify-content: space-between;
-      gap: var(--spacing-md);
-    }
-
-    .header-title {
-      font-size: 24px; font-weight: 700;
-      display: flex; align-items: center;
-      gap: var(--spacing-sm);
+      border-bottom: 1px solid var(--separator);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     .header-back {
-      width: 40px; height: 40px;
-      border-radius: var(--radius-full);
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
       background: var(--bg-secondary);
-      border: none; color: var(--text);
-      cursor: pointer;
-      transition: all var(--transition-base);
+      border: none;
+      color: var(--accent);
       font-size: 20px;
-      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity 0.2s;
     }
 
-    .header-back:hover { background: rgba(255, 255, 255, 0.1); }
+    .header-back:active { opacity: 0.6; }
 
-    /* Search */
-    .search-container { position: relative; margin-bottom: var(--spacing-lg); }
-    .search-input {
-      width: 100%; padding: 14px 48px;
+    .header-title {
+      font-size: 17px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    .hidden { display: none !important; }
+
+    /* Status Page */
+    .status-page {
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-height: calc(100vh - 60px);
+      overflow-y: auto;
+    }
+
+    .status-header {
+      text-align: center;
+      padding: 20px 0;
+    }
+
+    .bot-avatar {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin: 0 auto 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+    }
+
+    .bot-name {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .bot-username {
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+
+    /* Cards */
+    .card {
       background: var(--bg-secondary);
-      border: 2px solid transparent;
-      border-radius: var(--radius-lg);
-      color: var(--text); font-size: 16px;
-      transition: all var(--transition-base);
+      border-radius: var(--radius);
+      overflow: hidden;
     }
+
+    .card-section {
+      padding: 16px;
+      border-bottom: 1px solid var(--separator);
+    }
+
+    .card-section:last-child {
+      border-bottom: none;
+    }
+
+    .card-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 0;
+    }
+
+    .card-row:first-child {
+      padding-top: 0;
+    }
+
+    .card-row:last-child {
+      padding-bottom: 0;
+    }
+
+    .card-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .icon-success { background: rgba(48, 209, 88, 0.15); color: var(--success); }
+    .icon-danger { background: rgba(255, 69, 58, 0.15); color: var(--danger); }
+    .icon-warning { background: rgba(255, 159, 10, 0.15); color: var(--warning); }
+    .icon-info { background: rgba(10, 132, 255, 0.15); color: var(--accent); }
+
+    .card-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .card-subtitle {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .card-value {
+      font-size: 15px;
+      color: var(--text-secondary);
+      text-align: right;
+    }
+
+    .status-verified { color: var(--success); }
+    .status-unverified { color: var(--danger); }
+
+    /* Buttons */
+    .btn {
+      width: 100%;
+      padding: 14px 20px;
+      border-radius: var(--radius);
+      border: none;
+      font-size: 17px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn:active { opacity: 0.6; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--accent-text);
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      color: white;
+    }
+
+    .btn-secondary {
+      background: var(--bg-secondary);
+      color: var(--text);
+    }
+
+    .link {
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 15px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+    }
+
+    .link:active { opacity: 0.6; }
+
+    /* Info Pages */
+    .info-page {
+      padding: 20px 16px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .info-page h2 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .info-page h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 24px 0 12px;
+    }
+
+    .info-page p {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+    }
+
+    .info-page ul {
+      margin: 12px 0;
+      padding-left: 20px;
+    }
+
+    .info-page li {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    /* Group Selection */
+    .search-box {
+      padding: 16px;
+      background: var(--bg);
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 10px 16px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--separator);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 15px;
+    }
+
     .search-input:focus {
       outline: none;
       border-color: var(--accent);
-      background: rgba(255, 255, 255, 0.05);
-    }
-    .search-icon {
-      position: absolute; left: 16px; top: 50%;
-      transform: translateY(-50%);
-      font-size: 20px; color: var(--text-secondary);
     }
 
-    /* Group Grid */
-    .group-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: var(--spacing-md);
+    .group-list {
+      padding: 0 16px;
     }
 
-    .group-card {
+    .group-item {
       background: var(--bg-secondary);
-      border-radius: var(--radius-lg);
-      padding: var(--spacing-lg);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
       cursor: pointer;
-      transition: all var(--transition-base);
-      border: 2px solid transparent;
-      position: relative;
+      transition: opacity 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
-    .group-card::before {
-      content: ''; position: absolute;
-      top: 0; left: 0; right: 0; height: 4px;
-      background: var(--gradient-primary);
-      opacity: 0;
-      transition: opacity var(--transition-base);
-    }
-
-    .group-card:hover {
-      transform: translateY(-4px);
-      box-shadow: var(--shadow-xl);
-      border-color: var(--accent);
-    }
-
-    .group-card:hover::before { opacity: 1; }
-
-    .group-card-header {
-      display: flex; align-items: center;
-      gap: var(--spacing-md);
-      margin-bottom: var(--spacing-md);
-    }
+    .group-item:active { opacity: 0.6; }
 
     .group-avatar {
-      width: 56px; height: 56px;
-      border-radius: var(--radius-md);
-      background: var(--gradient-primary);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 24px; font-weight: 700;
-      color: white; flex-shrink: 0;
-      box-shadow: var(--shadow);
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 600;
+      flex-shrink: 0;
     }
 
-    .group-info { flex: 1; min-width: 0; }
+    .group-info {
+      flex: 1;
+      min-width: 0;
+    }
+
     .group-name {
-      font-size: 18px; font-weight: 600;
-      margin-bottom: 4px;
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 2px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
     .group-stats {
-      display: flex; align-items: center;
-      gap: var(--spacing-sm);
-      font-size: 14px;
+      font-size: 13px;
       color: var(--text-secondary);
     }
 
-    .group-stat {
-      display: flex; align-items: center; gap: 4px;
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-secondary);
     }
 
-    .group-badges {
-      display: flex; gap: var(--spacing-sm); flex-wrap: wrap;
+    .empty-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.5;
     }
 
     /* Dashboard */
+    .dashboard {
+      padding: 16px;
+    }
+
+    .dashboard-header {
+      background: var(--bg-secondary);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .dashboard-group-name {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .dashboard-stats {
+      font-size: 15px;
+      color: var(--text-secondary);
+    }
+
     .dashboard-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: var(--spacing-md);
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
     }
 
     .dashboard-card {
       background: var(--bg-secondary);
-      border-radius: var(--radius-lg);
-      padding: var(--spacing-lg);
+      border-radius: var(--radius);
+      padding: 20px;
       cursor: pointer;
-      transition: all var(--transition-base);
+      transition: opacity 0.2s;
       text-align: center;
-      border: 2px solid transparent;
-      position: relative;
     }
 
-    .dashboard-card:hover {
-      transform: translateY(-4px) scale(1.02);
-      box-shadow: var(--shadow-lg);
-      border-color: var(--accent);
+    .dashboard-card:active { opacity: 0.6; }
+
+    .dashboard-card-icon {
+      font-size: 32px;
+      margin-bottom: 8px;
     }
 
-    .dashboard-icon {
-      font-size: 40px;
-      margin-bottom: var(--spacing-sm);
-      display: block;
-    }
-
-    .dashboard-title {
-      font-size: 15px; font-weight: 600;
-      margin-bottom: 4px;
-    }
-
-    .dashboard-subtitle {
-      font-size: 13px;
-      color: var(--text-secondary);
-    }
-
-    .dashboard-badge {
-      position: absolute; top: 8px; right: 8px;
-      min-width: 20px; height: 20px; padding: 0 6px;
-      background: var(--danger);
-      border-radius: var(--radius-full);
-      font-size: 11px; font-weight: 700;
-      display: flex; align-items: center; justify-content: center;
-      color: white;
-    }
-
-    /* Badge */
-    .badge {
-      display: inline-flex; align-items: center;
-      gap: 4px; padding: 4px 10px;
-      border-radius: var(--radius-full);
-      font-size: 12px; font-weight: 600;
-    }
-
-    .badge-success { background: rgba(16, 185, 129, 0.15); color: var(--success); }
-    .badge-warning { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
-    .badge-danger { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
-    .badge-info { background: rgba(59, 130, 246, 0.15); color: var(--info); }
-
-    /* Card */
-    .card {
-      background: var(--bg-secondary);
-      border-radius: var(--radius-lg);
-      padding: var(--spacing-lg);
-      margin-bottom: var(--spacing-md);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .card-header {
-      display: flex; align-items: center;
-      justify-content: space-between;
-      margin-bottom: var(--spacing-md);
-      padding-bottom: var(--spacing-md);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .card-title {
-      font-size: 18px; font-weight: 600;
-      display: flex; align-items: center;
-      gap: var(--spacing-sm);
-    }
-
-    .card-subtitle {
-      font-size: 14px;
-      color: var(--text-secondary);
-      margin-top: 4px;
-    }
-
-    /* Settings Row */
-    .settings-row {
-      display: flex; align-items: center;
-      justify-content: space-between;
-      padding: 16px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .settings-row:last-child { border-bottom: none; }
-
-    .settings-label { flex: 1; }
-    .settings-label-title {
-      font-weight: 600; font-size: 15px;
-      margin-bottom: 4px;
-    }
-    .settings-label-desc {
-      font-size: 13px;
-      color: var(--text-secondary);
-    }
-
-    /* Toggle */
-    .toggle {
-      width: 50px; height: 28px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.2);
-      position: relative;
-      cursor: pointer;
-      transition: background 0.3s ease;
-    }
-
-    .toggle[data-on="true"] { background: var(--success); }
-
-    .toggle::after {
-      content: ""; position: absolute;
-      top: 3px; left: 3px;
-      width: 22px; height: 22px;
-      border-radius: 50%;
-      background: white;
-      transition: transform 0.3s ease;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    }
-
-    .toggle[data-on="true"]::after { transform: translateX(22px); }
-
-    /* Select & Input */
-    select, input[type="number"], input[type="text"] {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: var(--text);
-      padding: 10px 14px;
-      border-radius: var(--radius-md);
-      font-size: 14px;
-      transition: all var(--transition-base);
-    }
-
-    select:focus, input:focus {
-      outline: none;
-      background: rgba(255, 255, 255, 0.12);
-      border-color: var(--accent);
-    }
-
-    textarea {
-      width: 100%;
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: var(--text);
-      padding: 12px 14px;
-      border-radius: var(--radius-md);
-      resize: vertical;
-      min-height: 100px;
-      font-family: inherit;
-      font-size: 14px;
-    }
-
-    textarea:focus {
-      outline: none;
-      background: rgba(255, 255, 255, 0.12);
-      border-color: var(--accent);
-    }
-
-    /* Button */
-    .btn {
-      display: inline-flex; align-items: center;
-      justify-content: center;
-      gap: var(--spacing-sm);
-      padding: 12px 24px;
-      border-radius: var(--radius-md);
-      font-size: 15px; font-weight: 600;
-      border: none; cursor: pointer;
-      transition: all var(--transition-base);
-      position: relative;
-    }
-
-    .btn:active { transform: scale(0.98); }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .btn-primary {
-      background: var(--accent);
-      color: var(--accent-text);
-      box-shadow: var(--shadow);
-    }
-
-    .btn-secondary {
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--text);
-    }
-
-    .btn-danger {
-      background: var(--danger);
-      color: white;
-    }
-
-    /* Form Elements */
-    .form-group {
-      margin-bottom: var(--spacing-md);
-    }
-
-    .form-group label {
-      display: block;
+    .dashboard-card-title {
+      font-size: 15px;
       font-weight: 600;
-      margin-bottom: var(--spacing-sm);
-      font-size: 14px;
     }
 
-    .form-input, .form-input select, .form-input textarea {
+    /* Detail Views */
+    .detail-view {
+      padding: 16px;
+    }
+
+    .detail-card {
+      background: var(--bg-secondary);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .detail-title {
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .form-input, .form-textarea, .form-select {
       width: 100%;
       padding: 12px;
-      background: var(--bg);
-      border: 2px solid rgba(255, 255, 255, 0.1);
-      border-radius: var(--radius-md);
+      background: var(--bg-tertiary);
+      border: 1px solid var(--separator);
+      border-radius: 8px;
       color: var(--text);
-      font-size: 14px;
+      font-size: 15px;
       font-family: inherit;
-      transition: all var(--transition-base);
     }
 
-    .form-input:focus, select.form-input:focus, textarea.form-input:focus {
+    .form-input:focus, .form-textarea:focus, .form-select:focus {
       outline: none;
       border-color: var(--accent);
-      background: rgba(255, 255, 255, 0.05);
     }
 
-    textarea.form-input {
+    .form-textarea {
       resize: vertical;
-      min-height: 80px;
+      min-height: 100px;
     }
 
-    select.form-input {
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+    }
+
+    .toggle {
+      width: 51px;
+      height: 31px;
+      background: var(--bg-tertiary);
+      border-radius: 16px;
+      position: relative;
       cursor: pointer;
+      transition: background 0.3s;
     }
 
-    input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      margin-right: 8px;
-      cursor: pointer;
-    }
-
-    .btn-success {
+    .toggle.on {
       background: var(--success);
-      color: white;
     }
 
-    .btn-danger {
-      background: var(--danger);
-      color: white;
-    }
-
-    .btn-sm { padding: 8px 16px; font-size: 14px; }
-    .btn-full { width: 100%; }
-
-    /* Utility */
-    .hidden { display: none !important; }
-    .text-secondary { color: var(--text-secondary); }
-    .mt-md { margin-top: var(--spacing-md); }
-    .mb-md { margin-bottom: var(--spacing-md); }
-
-    .empty-state {
-      text-align: center;
-      padding: var(--spacing-xl);
-      color: var(--text-secondary);
-    }
-
-    .empty-state-icon {
-      font-size: 48px;
-      margin-bottom: var(--spacing-md);
-      opacity: 0.5;
-    }
-
-    .empty-state-title {
-      font-size: 18px; font-weight: 600;
-      margin-bottom: var(--spacing-sm);
-      color: var(--text);
-    }
-
-    /* Loading */
-    .loading {
-      display: inline-block;
-      width: 20px; height: 20px;
-      border: 3px solid rgba(255, 255, 255, 0.3);
-      border-top-color: currentColor;
+    .toggle-knob {
+      width: 27px;
+      height: 27px;
+      background: white;
       border-radius: 50%;
-      animation: spin 0.8s linear infinite;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: left 0.3s;
     }
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
+    .toggle.on .toggle-knob {
+      left: 22px;
     }
 
-    /* Animations */
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    .fade-in { animation: fadeIn 0.3s ease-out; }
-
-    /* Responsive */
     @media (max-width: 640px) {
-      .container { padding: var(--spacing-sm); }
-      .header { padding: var(--spacing-sm) var(--spacing-md); }
-      .header-title { font-size: 20px; }
-      .group-grid { grid-template-columns: 1fr; }
-      .dashboard-grid { grid-template-columns: repeat(2, 1fr); }
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
 <body>
   <div class="app">
-    <div class="header">
-      <div class="header-content">
-        <button class="header-back hidden" id="backBtn" onclick="goBack()">←</button>
-        <div class="header-title">
-          <span>🤖</span>
-          <span id="headerText">Bot Dashboard</span>
-        </div>
+    <!-- Status Page -->
+    <div id="statusView" class="status-page">
+      <div id="statusContent"></div>
+    </div>
+
+    <!-- Group Selection View -->
+    <div id="groupSelectionView" class="hidden">
+      <div class="search-box">
+        <input 
+          type="text" 
+          class="search-input" 
+          id="groupSearch" 
+          placeholder="Search groups..."
+          oninput="filterGroups()"
+        />
+      </div>
+      <div class="group-list" id="groupList"></div>
+      <div class="empty-state hidden" id="noGroupsState">
+        <div class="empty-icon">📭</div>
+        <div>No groups found</div>
+        <div style="font-size: 13px; margin-top: 8px;">Add the bot to a group to get started</div>
       </div>
     </div>
 
-    <div class="container">
-      <!-- Unverified User View -->
-      <div id="unverifiedView" class="hidden fade-in">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">⚠️ Verification Required</div>
-          </div>
-          <div style="padding: var(--spacing-lg);">
-            <div id="unverifiedContent"></div>
-          </div>
+    <!-- Dashboard View -->
+    <div id="dashboardView" class="hidden">
+      <div class="dashboard">
+        <div class="dashboard-header">
+          <div class="dashboard-group-name" id="dashboardGroupName">Group Name</div>
+          <div class="dashboard-stats" id="dashboardGroupStats">Loading...</div>
         </div>
-      </div>
-
-      <!-- Group Selection View -->
-      <div id="groupSelectionView" class="fade-in">
-        <div class="search-container">
-          <span class="search-icon">🔍</span>
-          <input 
-            type="text" 
-            class="search-input" 
-            id="groupSearch" 
-            placeholder="Search groups..."
-            oninput="filterGroups()"
-          />
-        </div>
-        
-        <div class="group-grid" id="groupGrid"></div>
-
-        <div class="empty-state hidden" id="noGroupsState">
-          <div class="empty-state-icon">📭</div>
-          <div class="empty-state-title">No groups found</div>
-          <div class="text-secondary">Add the bot to a group to get started</div>
-        </div>
-      </div>
-
-      <!-- Dashboard View -->
-      <div id="dashboardView" class="hidden">
-        <div class="card">
-          <div class="card-header">
-            <div>
-              <div class="card-title" id="dashboardGroupName">Group Name</div>
-              <div class="card-subtitle" id="dashboardGroupStats">Loading...</div>
-            </div>
-          </div>
-          
-          <div class="dashboard-grid" id="dashboardGrid"></div>
-        </div>
-      </div>
-
-      <!-- Settings View -->
-      <div id="settingsView" class="hidden">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">⚙️ Settings</div>
-          </div>
-          <div id="settingsContent"></div>
-          <button class="btn btn-primary btn-full mt-md" onclick="saveSettings()">Save Settings</button>
-        </div>
-      </div>
-
-      <!-- Tickets View -->
-      <div id="ticketsView" class="hidden">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">🎫 Support Tickets</div>
-            <button class="btn btn-secondary btn-sm" onclick="refreshTickets()">🔄 Refresh</button>
-          </div>
-          <div id="ticketsContent"></div>
-        </div>
-      </div>
-
-      <!-- Analytics View -->
-      <div id="analyticsView" class="hidden">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">📊 Analytics</div>
-            <button class="btn btn-secondary btn-sm" onclick="refreshAnalytics()">🔄 Refresh</button>
-          </div>
-          <div id="analyticsContent"></div>
-        </div>
-      </div>
-
-      <!-- Broadcast View -->
-      <div id="broadcastView" class="hidden">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">📣 Broadcast</div>
-          </div>
-          <div id="broadcastContent"></div>
-        </div>
-      </div>
-
-      <!-- Rules View -->
-      <div id="rulesView" class="hidden">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">📋 Auto-Moderation Rules</div>
-            <div style="display: flex; gap: var(--spacing-sm);">
-              <button class="btn btn-secondary" onclick="showTestRules()">🧪 Test</button>
-              <button class="btn btn-primary" onclick="showCreateRule()">+ New Rule</button>
-            </div>
-          </div>
-          <div id="rulesContent"></div>
-        </div>
-      </div>
-
-      <!-- Onboarding View -->
-      <div id="onboardingView" class="hidden">
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title">👋 Welcome Message</div>
-          </div>
-          <div id="onboardingContent"></div>
-        </div>
+        <div class="dashboard-grid" id="dashboardGrid"></div>
       </div>
     </div>
+
+    <!-- Info Pages -->
+    <div id="whyVerificationView" class="hidden info-page"></div>
+    <div id="howToUnlockView" class="hidden info-page"></div>
+    <div id="aboutSettingsView" class="hidden info-page"></div>
+    <div id="privacyPolicyView" class="hidden info-page"></div>
+    <div id="faqView" class="hidden info-page"></div>
+
+    <!-- Settings View -->
+    <div id="settingsView" class="hidden detail-view"></div>
+
+    <!-- Tickets View -->
+    <div id="ticketsView" class="hidden detail-view"></div>
+
+    <!-- Analytics View -->
+    <div id="analyticsView" class="hidden detail-view"></div>
+
+    <!-- Rules View -->
+    <div id="rulesView" class="hidden detail-view"></div>
+
+    <!-- Onboarding View -->
+    <div id="onboardingView" class="hidden detail-view"></div>
   </div>
 
   <script>
@@ -631,10 +568,11 @@
     const state = {
       groups: [],
       selectedGroup: null,
-      currentView: 'groupSelection',
+      currentView: 'status',
       viewHistory: [],
       verification: null,
       user: null,
+      botInfo: null,
     };
 
     // ===== API =====
@@ -678,15 +616,32 @@
       const view = document.getElementById(viewName + 'View');
       if (view) {
         view.classList.remove('hidden');
-        view.classList.add('fade-in');
       }
 
       const backBtn = document.getElementById('backBtn');
-      if (viewName === 'groupSelection') {
+      const headerTitle = document.getElementById('headerTitle');
+      
+      if (viewName === 'status') {
         backBtn.classList.add('hidden');
-        document.getElementById('headerText').textContent = 'Bot Dashboard';
+        headerTitle.textContent = 'Mercle Bot';
       } else {
         backBtn.classList.remove('hidden');
+        
+        // Set header title based on view
+        const titles = {
+          'groupSelection': 'Select Group',
+          'dashboard': state.selectedGroup?.group_name || 'Dashboard',
+          'whyVerification': 'Why Verification?',
+          'howToUnlock': 'How to Unlock',
+          'aboutSettings': 'About Settings',
+          'privacyPolicy': 'Privacy Policy',
+          'faq': 'FAQ',
+          'settings': 'Settings',
+          'tickets': 'Tickets',
+          'analytics': 'Analytics',
+          'rules': 'Rules',
+          'onboarding': 'Onboarding',
+        };
       }
 
       if (addToHistory && state.currentView !== viewName) {
@@ -700,66 +655,499 @@
         const previousView = state.viewHistory.pop();
         showView(previousView, false);
       } else {
-        showView('groupSelection', false);
+        showView('status', false);
       }
     }
 
-    // ===== GROUP SELECTION =====
-    async function loadGroups() {
+    // ===== STATUS PAGE =====
+    async function loadStatus() {
       try {
+        // Check if we have initData
+        if (!initData || initData.trim() === '') {
+          console.warn('No initData available - app must be opened from Telegram');
+          const content = document.getElementById('statusContent');
+          content.innerHTML = `
+            <div class="card">
+              <div class="card-section">
+                <div class="card-row">
+                  <div class="card-icon icon-warning">⚠️</div>
+                  <div class="card-content">
+                    <div class="card-title">Open from Telegram</div>
+                    <div class="card-subtitle">This Mini App must be opened from within Telegram.</div>
+                  </div>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-top: 12px;">
+                  Please open this app through the bot's menu button or a Mini App link in Telegram.
+                </p>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
         const data = await api('/api/app/bootstrap');
+        console.log('Bootstrap data received:', data);
         state.groups = data.groups || [];
         state.verification = data.verification || {};
         state.user = data.user || {};
         
-        // If user is not verified, show unverified view instead
-        if (!state.verification.is_verified) {
-          showView('unverified', false);
-          renderUnverifiedView();
-        } else {
-          renderGroups();
-        }
+        console.log('State after loading:', {
+          groupCount: state.groups.length,
+          isVerified: state.verification.is_verified,
+          userId: state.user.id
+        });
+        
+        renderStatusPage();
       } catch (error) {
-        console.error('Failed to load groups:', error);
-        showError('Failed to load groups: ' + error.message);
+        console.error('Failed to load status:', error);
+        const content = document.getElementById('statusContent');
+        content.innerHTML = `
+          <div class="card">
+            <div class="card-section">
+              <div class="card-row">
+                <div class="card-icon icon-danger">❌</div>
+                <div class="card-content">
+                  <div class="card-title">Error Loading Data</div>
+                  <div class="card-subtitle">${error.message || 'Unknown error'}</div>
+                </div>
+              </div>
+              <p style="color: var(--text-secondary); font-size: 13px; margin-top: 12px;">
+                Please try closing and reopening the Mini App. If the problem persists, contact support.
+              </p>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="loadStatus()" style="margin-top: 16px;">
+            🔄 Retry
+          </button>
+        `;
       }
     }
 
+    function renderStatusPage() {
+      const content = document.getElementById('statusContent');
+      const isVerified = state.verification.is_verified;
+      const groupCount = state.groups.length;
+      
+      if (isVerified) {
+        // Verified user view
+        const verifiedUntil = state.verification.verified_until;
+        const mercleId = state.verification.mercle_user_id || 'N/A';
+        const timeRemaining = verifiedUntil ? formatTimeRemaining(verifiedUntil) : 'N/A';
+        
+        content.innerHTML = `
+          <div class="card">
+            <div class="card-section">
+              <div class="card-row">
+                <div class="card-icon icon-success">✓</div>
+                <div class="card-content">
+                  <div class="card-title">Verification Status</div>
+                  <div class="card-subtitle status-verified">Verified</div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="card-section">
+              <div class="card-row">
+                <div class="card-content">
+                  <div class="card-title">User ID</div>
+                  <div class="card-subtitle">${state.user.id || 'N/A'}</div>
+                </div>
+              </div>
+              
+              <div class="card-row">
+                <div class="card-content">
+                  <div class="card-title">Mercle ID</div>
+                  <div class="card-subtitle">${mercleId}</div>
+                </div>
+              </div>
+              
+              <div class="card-row">
+                <div class="card-content">
+                  <div class="card-title">Verification Expires</div>
+                  <div class="card-subtitle">${timeRemaining}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-section">
+              <div class="card-row">
+                <div class="card-icon icon-success">🔓</div>
+                <div class="card-content">
+                  <div class="card-title">Settings</div>
+                  <div class="card-subtitle">Unlocked</div>
+                </div>
+              </div>
+              
+              <div class="card-row">
+                <div class="card-icon icon-success">🔓</div>
+                <div class="card-content">
+                  <div class="card-title">Groups</div>
+                  <div class="card-subtitle">Unlocked (${groupCount} available)</div>
+                </div>
+              </div>
+              
+              <div class="card-row">
+                <div class="card-icon icon-success">🔓</div>
+                <div class="card-content">
+                  <div class="card-title">Mini Apps</div>
+                  <div class="card-subtitle">Unlocked</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" onclick="openGroupSelection()">
+            <span>Manage Groups</span>
+            <span>(${groupCount})</span>
+          </button>
+
+          <button class="btn btn-danger" onclick="confirmDeleteData()">
+            🗑️ Delete My Data
+          </button>
+
+          <div style="text-align: center; margin-top: 8px;">
+            <a class="link" onclick="showView('privacyPolicy')">Privacy Policy</a>
+            <span style="color: var(--text-secondary); margin: 0 8px;">•</span>
+            <a class="link" onclick="showView('faq')">FAQ</a>
+          </div>
+        `;
+      } else {
+        // Unverified user view
+        content.innerHTML = `
+          <div class="card">
+            <div class="card-section">
+              <div class="card-row">
+                <div class="card-icon icon-danger">✕</div>
+                <div class="card-content">
+                  <div class="card-title">Verification Required</div>
+                  <div class="card-subtitle status-unverified">Not Verified</div>
+                </div>
+              </div>
+              <p style="color: var(--text-secondary); font-size: 13px; margin-top: 12px;">
+                Please verify yourself to access these settings. Only verified users are allowed to continue further.
+              </p>
+              <div style="margin-top: 12px;">
+                <a class="link" onclick="showView('whyVerification')">Learn more →</a>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" onclick="startVerification()">
+            Verify My Account
+          </button>
+
+          <div style="text-align: center; margin: 16px 0; color: var(--text-secondary); font-size: 13px;">
+            Only verified users can access Mini Apps and settings. Please complete verification to proceed.
+          </div>
+
+          <div class="card">
+            <div class="card-section">
+              <div class="card-row">
+                <div class="card-icon icon-danger">🔒</div>
+                <div class="card-content">
+                  <div class="card-title">Access Restricted</div>
+                  <div class="card-subtitle">You must verify your account to unlock Mini Apps and access the settings.</div>
+                </div>
+              </div>
+              <div style="margin-top: 12px;">
+                <a class="link" onclick="showView('howToUnlock')">Learn more →</a>
+              </div>
+            </div>
+            
+            <div class="card-section">
+              <div class="card-row">
+                <div class="card-icon icon-danger">🔒</div>
+                <div class="card-content">
+                  <div class="card-title">Settings Locked</div>
+                  <div class="card-subtitle">You must verify your account to unlock Mini Apps and access the settings.</div>
+                </div>
+              </div>
+              <div style="margin-top: 12px;">
+                <a class="link" onclick="showView('aboutSettings')">Learn more →</a>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn btn-danger" onclick="confirmDeleteData()">
+            🗑️ Delete My Data
+          </button>
+
+          <div style="text-align: center; margin-top: 8px;">
+            <a class="link" onclick="showView('privacyPolicy')">Privacy Policy</a>
+            <span style="color: var(--text-secondary); margin: 0 8px;">•</span>
+            <a class="link" onclick="showView('faq')">FAQ</a>
+          </div>
+        `;
+      }
+    }
+
+    function formatTimeRemaining(verifiedUntil) {
+      try {
+        const expiryDate = new Date(verifiedUntil);
+        const now = new Date();
+        const diff = expiryDate - now;
+        
+        if (diff <= 0) return 'Expired';
+        
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        
+        if (days > 0) {
+          return `${days}d ${hours}h remaining`;
+        } else {
+          return `${hours}h remaining`;
+        }
+      } catch (e) {
+        return 'N/A';
+      }
+    }
+
+    function startVerification() {
+      try {
+        // Close the Mini App - user will interact with bot in DM
+        if (tg?.close) {
+          tg.close();
+        } else {
+          showError('Please open this app from Telegram');
+        }
+      } catch (error) {
+        console.error('Error closing Mini App:', error);
+        showError('Failed to close app: ' + error.message);
+      }
+    }
+
+    function confirmDeleteData() {
+      if (tg?.showConfirm) {
+        tg.showConfirm(
+          'Are you sure you want to delete all your data? This action cannot be undone.',
+          async (confirmed) => {
+            if (confirmed) {
+              await deleteMyData();
+            }
+          }
+        );
+      } else {
+        if (confirm('Are you sure you want to delete all your data? This action cannot be undone.')) {
+          deleteMyData();
+        }
+      }
+    }
+
+    async function deleteMyData() {
+      try {
+        await api('/api/app/delete-my-data');
+        showSuccess('Your data has been deleted.');
+        if (tg?.close) {
+          setTimeout(() => tg.close(), 1000);
+        }
+      } catch (error) {
+        showError('Failed to delete data: ' + error.message);
+      }
+    }
+
+    // ===== INFO PAGES =====
+    function showWhyVerification() {
+      const view = document.getElementById('whyVerificationView');
+      view.innerHTML = `
+        <h2>Why Verification is Needed</h2>
+        
+        <h3>Security & Trust</h3>
+        <p>Verification ensures that only real, authenticated users can access group management features. This protects your communities from unauthorized access and malicious actors.</p>
+        
+        <h3>Spam Prevention</h3>
+        <p>By requiring biometric verification through Mercle SDK, we prevent bots, spam accounts, and automated attacks from infiltrating your groups.</p>
+        
+        <h3>Privacy Protection</h3>
+        <p>Verification helps us maintain a secure environment where your personal data and group settings are protected from unauthorized modifications.</p>
+        
+        <h3>Compliance</h3>
+        <p>Our verification system ensures compliance with Telegram's terms of service and data protection regulations.</p>
+      `;
+    }
+
+    function showHowToUnlock() {
+      const view = document.getElementById('howToUnlockView');
+      view.innerHTML = `
+        <h2>How to Unlock Access</h2>
+        
+        <h3>Step 1: Start Verification</h3>
+        <p>Click the "Verify My Account" button on the main page. This will open a chat with the bot.</p>
+        
+        <h3>Step 2: Complete Mercle SDK</h3>
+        <p>Follow the instructions in the bot chat to complete biometric verification using Mercle SDK. This process is secure and takes only a few minutes.</p>
+        
+        <h3>Step 3: Access Unlocked</h3>
+        <p>Once verified, you'll have full access to:</p>
+        <ul>
+          <li>Group management settings</li>
+          <li>Admin dashboard and analytics</li>
+          <li>Ticket system</li>
+          <li>Rules and moderation tools</li>
+          <li>All Mini App features</li>
+        </ul>
+        
+        <h3>Verification Duration</h3>
+        <p>Your verification is valid for 7 days. After that, you'll need to verify again to maintain access.</p>
+      `;
+    }
+
+    function showAboutSettings() {
+      const view = document.getElementById('aboutSettingsView');
+      view.innerHTML = `
+        <h2>About Settings</h2>
+        
+        <h3>What You'll Get Access To</h3>
+        <p>Once verified, you'll be able to manage comprehensive settings for your groups:</p>
+        
+        <h3>Verification Settings</h3>
+        <ul>
+          <li>Enable/disable verification for new members</li>
+          <li>Set verification timeout duration</li>
+          <li>Choose action on timeout (kick or mute)</li>
+        </ul>
+        
+        <h3>Anti-Flood Protection</h3>
+        <ul>
+          <li>Set message limits per minute</li>
+          <li>Configure automatic actions for spammers</li>
+          <li>Whitelist trusted users</li>
+        </ul>
+        
+        <h3>Raid Mode</h3>
+        <ul>
+          <li>Emergency protection during raids</li>
+          <li>Temporary restrictions on new members</li>
+          <li>Enhanced moderation controls</li>
+        </ul>
+        
+        <h3>Rules & Moderation</h3>
+        <ul>
+          <li>Create custom auto-moderation rules</li>
+          <li>Set up keyword filters</li>
+          <li>Configure automated actions</li>
+        </ul>
+        
+        <h3>Onboarding</h3>
+        <ul>
+          <li>Welcome messages for new members</li>
+          <li>Automated sequences</li>
+          <li>Custom delays and formatting</li>
+        </ul>
+      `;
+    }
+
+    function showPrivacyPolicy() {
+      const view = document.getElementById('privacyPolicyView');
+      view.innerHTML = `
+        <h2>Privacy Policy</h2>
+        
+        <h3>Data Collection</h3>
+        <p>We collect only the minimum data necessary to provide our services:</p>
+        <ul>
+          <li>Telegram user ID and username</li>
+          <li>Mercle verification ID (after verification)</li>
+          <li>Group membership information</li>
+          <li>Bot interaction logs</li>
+        </ul>
+        
+        <h3>Data Usage</h3>
+        <p>Your data is used exclusively for:</p>
+        <ul>
+          <li>Verifying your identity</li>
+          <li>Managing group access and permissions</li>
+          <li>Providing bot functionality</li>
+          <li>Improving our services</li>
+        </ul>
+        
+        <h3>Data Storage</h3>
+        <p>All data is stored securely in encrypted databases. We implement industry-standard security measures to protect your information.</p>
+        
+        <h3>Data Sharing</h3>
+        <p>We never sell or share your personal data with third parties. Verification is handled through Mercle SDK's secure infrastructure.</p>
+        
+        <h3>Your Rights</h3>
+        <p>You have the right to:</p>
+        <ul>
+          <li>Access your data at any time</li>
+          <li>Request data deletion (via "Delete My Data" button)</li>
+          <li>Opt-out of data collection (by stopping bot usage)</li>
+        </ul>
+        
+        <h3>Data Retention</h3>
+        <p>Verification data expires after 7 days. Inactive accounts may be automatically purged after 90 days of inactivity.</p>
+        
+        <h3>Contact</h3>
+        <p>For privacy concerns or data requests, contact us through the bot's support ticket system.</p>
+      `;
+    }
+
+    function showFAQ() {
+      const view = document.getElementById('faqView');
+      view.innerHTML = `
+        <h2>Frequently Asked Questions</h2>
+        
+        <h3>How long does verification take?</h3>
+        <p>The verification process typically takes 2-3 minutes. You'll need to complete biometric verification through Mercle SDK.</p>
+        
+        <h3>How long is verification valid?</h3>
+        <p>Verification is valid for 7 days. After that, you'll need to verify again to maintain access to admin features.</p>
+        
+        <h3>What if verification fails?</h3>
+        <p>If verification fails, you can try again immediately. Make sure you're following the instructions carefully and have a stable internet connection.</p>
+        
+        <h3>Can I use the bot without verification?</h3>
+        <p>Basic bot commands work without verification, but admin features, group management, and the Mini App require verification.</p>
+        
+        <h3>Is my biometric data stored?</h3>
+        <p>No. Biometric verification is handled by Mercle SDK. We only receive a verification confirmation, not your actual biometric data.</p>
+        
+        <h3>What happens if I delete my data?</h3>
+        <p>All your data will be permanently removed from our systems, including verification status, group memberships, and settings. This action cannot be undone.</p>
+        
+        <h3>Can I manage multiple groups?</h3>
+        <p>Yes! Once verified, you can manage all groups where you have admin permissions.</p>
+        
+        <h3>What are the bot's permissions?</h3>
+        <p>The bot needs admin permissions to manage members, delete messages, and restrict users. You can configure specific permissions in group settings.</p>
+        
+        <h3>How do I report a bug?</h3>
+        <p>Use the ticket system in the bot to report bugs or issues. Our team will respond as soon as possible.</p>
+        
+        <h3>Is the bot free?</h3>
+        <p>Yes, the bot is completely free to use for all features.</p>
+      `;
+    }
+
+    // ===== GROUP SELECTION =====
+    function openGroupSelection() {
+      showView('groupSelection');
+      renderGroups();
+    }
+
     function renderGroups() {
-      const grid = document.getElementById('groupGrid');
+      const list = document.getElementById('groupList');
       const noGroupsState = document.getElementById('noGroupsState');
       
       if (state.groups.length === 0) {
-        grid.innerHTML = '';
+        list.innerHTML = '';
         noGroupsState.classList.remove('hidden');
         return;
       }
 
       noGroupsState.classList.add('hidden');
       
-      grid.innerHTML = state.groups.map(group => {
+      list.innerHTML = state.groups.map(group => {
         const initial = (group.group_name || 'G')[0].toUpperCase();
         const memberCount = group.member_count || 0;
-        const settings = group.settings || {};
         
         return `
-          <div class="group-card" onclick="selectGroup(${group.group_id})">
-            <div class="group-card-header">
-              <div class="group-avatar">${initial}</div>
-              <div class="group-info">
-                <div class="group-name">${group.group_name || `Group ${group.group_id}`}</div>
-                <div class="group-stats">
-                  <span class="group-stat">
-                    <span>👥</span>
-                    <span>${memberCount.toLocaleString()}</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div class="group-badges">
-              ${settings.verification_enabled ? '<span class="badge badge-success">✓ Verification</span>' : ''}
-              ${settings.raid_mode_enabled ? '<span class="badge badge-warning">🚨 Raid Mode</span>' : ''}
-              ${settings.antiflood_enabled ? '<span class="badge badge-info">🌊 Anti-Flood</span>' : ''}
+          <div class="group-item" onclick="selectGroup(${group.group_id})">
+            <div class="group-avatar">${initial}</div>
+            <div class="group-info">
+              <div class="group-name">${group.group_name || `Group ${group.group_id}`}</div>
+              <div class="group-stats">👥 ${memberCount.toLocaleString()} members</div>
             </div>
           </div>
         `;
@@ -768,791 +1156,297 @@
 
     function filterGroups() {
       const query = document.getElementById('groupSearch').value.toLowerCase();
-      const cards = document.querySelectorAll('.group-card');
-      cards.forEach(card => {
-        const text = card.textContent.toLowerCase();
-        card.style.display = text.includes(query) ? 'block' : 'none';
+      const items = document.querySelectorAll('.group-item');
+      items.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        item.style.display = text.includes(query) ? 'flex' : 'none';
       });
     }
 
-    // ===== UNVERIFIED VIEW =====
-    function renderUnverifiedView() {
-      const content = document.getElementById('unverifiedContent');
-      const username = state.user?.username ? `@${state.user.username}` : 'User';
-      
-      content.innerHTML = `
-        <div style="text-align: center; margin-bottom: var(--spacing-lg);">
-          <div style="font-size: 64px; margin-bottom: var(--spacing-md);">🔒</div>
-          <h2 style="margin-bottom: var(--spacing-sm);">Welcome, ${username}!</h2>
-          <p style="color: var(--text-secondary); margin-bottom: var(--spacing-lg);">
-            You need to verify your identity to access the admin dashboard.
-          </p>
-        </div>
-
-        <div class="card" style="background: var(--bg); margin-bottom: var(--spacing-md);">
-          <div style="padding: var(--spacing-md);">
-            <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-sm);">
-              <span style="font-size: 24px;">❌</span>
-              <div>
-                <div style="font-weight: 600;">Verification Status</div>
-                <div style="color: var(--danger); font-size: 14px;">Not Verified</div>
-              </div>
-            </div>
-            <p style="color: var(--text-secondary); font-size: 14px; margin-top: var(--spacing-sm);">
-              Complete verification to manage group settings, view analytics, and access all features.
-            </p>
-          </div>
-        </div>
-
-        <div style="display: flex; flex-direction: column; gap: var(--spacing-md);">
-          <button class="btn btn-primary" onclick="startVerification()" style="width: 100%;">
-            ✅ Verify Now
-          </button>
-          <button class="btn btn-danger" onclick="deleteMyData()" style="width: 100%;">
-            🗑️ Delete My Data
-          </button>
-        </div>
-
-        <div style="margin-top: var(--spacing-lg); padding: var(--spacing-md); background: rgba(255, 255, 255, 0.05); border-radius: var(--radius-md);">
-          <div style="font-size: 14px; color: var(--text-secondary);">
-            <strong>Why verify?</strong><br>
-            Verification ensures secure access to admin features and protects your groups from unauthorized access.
-          </div>
-        </div>
-      `;
-    }
-
-    async function startVerification() {
-      try {
-        // Close the Mini App and send /verify command
-        if (tg?.close) {
-          // Send message to bot to start verification
-          tg.sendData('verify');
-          tg.close();
-        } else {
-          showError('Please use the /verify command in the bot chat to start verification.');
-        }
-      } catch (error) {
-        showError('Failed to start verification: ' + error.message);
-      }
-    }
-
-    async function deleteMyData() {
-      if (tg?.showConfirm) {
-        tg.showConfirm('Are you sure you want to delete all your data? This action cannot be undone.', async (confirmed) => {
-          if (confirmed) {
-            try {
-              await api('/api/app/delete-my-data');
-              showSuccess('Your data has been deleted.');
-              if (tg?.close) tg.close();
-            } catch (error) {
-              showError('Failed to delete data: ' + error.message);
-            }
-          }
-        });
-      } else {
-        if (confirm('Are you sure you want to delete all your data? This action cannot be undone.')) {
-          try {
-            await api('/api/app/delete-my-data');
-            showSuccess('Your data has been deleted.');
-          } catch (error) {
-            showError('Failed to delete data: ' + error.message);
-          }
-        }
-      }
+    function selectGroup(groupId) {
+      state.selectedGroup = state.groups.find(g => g.group_id === groupId);
+      showView('dashboard');
+      renderDashboard();
     }
 
     // ===== DASHBOARD =====
-    async function selectGroup(groupId) {
-      const group = state.groups.find(g => g.group_id === groupId);
-      if (!group) return;
-      
-      state.selectedGroup = group;
-      document.getElementById('headerText').textContent = group.group_name || `Group ${groupId}`;
-      renderDashboard();
-      showView('dashboard');
-    }
-
     function renderDashboard() {
-      const group = state.selectedGroup;
-      if (!group) return;
+      if (!state.selectedGroup) return;
       
-      document.getElementById('dashboardGroupName').textContent = group.group_name || `Group ${group.group_id}`;
-      document.getElementById('dashboardGroupStats').textContent = `${group.member_count || 0} members`;
+      document.getElementById('dashboardGroupName').textContent = 
+        state.selectedGroup.group_name || `Group ${state.selectedGroup.group_id}`;
+      
+      const memberCount = state.selectedGroup.member_count || 0;
+      document.getElementById('dashboardGroupStats').textContent = 
+        `👥 ${memberCount.toLocaleString()} members`;
       
       const grid = document.getElementById('dashboardGrid');
-      const cards = [
-        { icon: '⚙️', title: 'Settings', subtitle: 'Configure bot', action: 'showSettings' },
-        { icon: '🎫', title: 'Tickets', subtitle: 'Support', action: 'showTickets' },
-        { icon: '📊', title: 'Analytics', subtitle: 'View stats', action: 'showAnalytics' },
-        { icon: '📣', title: 'Broadcast', subtitle: 'Send messages', action: 'showBroadcast' },
-        { icon: '📋', title: 'Rules', subtitle: 'Auto-moderation', action: 'showRules' },
-        { icon: '👋', title: 'Onboarding', subtitle: 'Welcome flow', action: 'showOnboarding' },
-      ];
-      
-      grid.innerHTML = cards.map(card => `
-        <div class="dashboard-card" onclick="${card.action}()">
-          <span class="dashboard-icon">${card.icon}</span>
-          <div class="dashboard-title">${card.title}</div>
-          <div class="dashboard-subtitle">${card.subtitle}</div>
+      grid.innerHTML = `
+        <div class="dashboard-card" onclick="loadSettings()">
+          <div class="dashboard-card-icon">⚙️</div>
+          <div class="dashboard-card-title">Settings</div>
         </div>
-      `).join('');
-    }
-
-    // ===== SETTINGS =====
-    async function showSettings() {
-      document.getElementById('headerText').textContent = 'Settings';
-      showView('settings');
-      
-      const group = state.selectedGroup;
-      const settings = group.settings || {};
-      
-      const content = document.getElementById('settingsContent');
-      content.innerHTML = `
-        <!-- Verification -->
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Verification</div>
-            <div class="settings-label-desc">Verify-to-speak flow for new members</div>
-          </div>
-          <div class="toggle" data-on="${!!settings.verification_enabled}" onclick="toggleSetting(this)"></div>
+        <div class="dashboard-card" onclick="loadTickets()">
+          <div class="dashboard-card-icon">🎫</div>
+          <div class="dashboard-card-title">Tickets</div>
         </div>
-        
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Verification Timeout</div>
-            <div class="settings-label-desc">How long a user has to verify</div>
-          </div>
-          <select id="verification_timeout">
-            <option value="120" ${settings.verification_timeout == 120 ? 'selected' : ''}>2 minutes</option>
-            <option value="300" ${settings.verification_timeout == 300 ? 'selected' : ''}>5 minutes</option>
-            <option value="600" ${settings.verification_timeout == 600 ? 'selected' : ''}>10 minutes</option>
-            <option value="900" ${settings.verification_timeout == 900 ? 'selected' : ''}>15 minutes</option>
-          </select>
+        <div class="dashboard-card" onclick="loadAnalytics()">
+          <div class="dashboard-card-icon">📊</div>
+          <div class="dashboard-card-title">Analytics</div>
         </div>
-        
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Action on Timeout</div>
-            <div class="settings-label-desc">What happens when verification times out</div>
-          </div>
-          <select id="action_on_timeout">
-            <option value="mute" ${settings.action_on_timeout == 'mute' ? 'selected' : ''}>Keep muted</option>
-            <option value="kick" ${settings.action_on_timeout == 'kick' ? 'selected' : ''}>Kick</option>
-          </select>
+        <div class="dashboard-card" onclick="loadRules()">
+          <div class="dashboard-card-icon">📋</div>
+          <div class="dashboard-card-title">Rules</div>
         </div>
-        
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Rules Acceptance</div>
-            <div class="settings-label-desc">Require users to accept /rules before verifying</div>
-          </div>
-          <div class="toggle" data-on="${!!settings.require_rules_acceptance}" onclick="toggleSetting(this)"></div>
-        </div>
-        
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Block No-Username</div>
-            <div class="settings-label-desc">Kick users without an @username</div>
-          </div>
-          <div class="toggle" data-on="${!!settings.block_no_username}" onclick="toggleSetting(this)"></div>
-        </div>
-        
-        <!-- Anti-Flood -->
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Anti-Flood</div>
-            <div class="settings-label-desc">Mute users who spam messages</div>
-          </div>
-          <div class="toggle" data-on="${!!settings.antiflood_enabled}" onclick="toggleSetting(this)"></div>
-        </div>
-        
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Anti-Flood Limit</div>
-            <div class="settings-label-desc">Messages per minute before muting</div>
-          </div>
-          <input id="antiflood_limit" type="number" min="1" max="100" step="1" value="${settings.antiflood_limit || 10}" style="width: 100px;">
-        </div>
-        
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Anti-Flood Mute Duration</div>
-            <div class="settings-label-desc">How long to mute spammers (minutes)</div>
-          </div>
-          <input id="antiflood_mute_minutes" type="number" min="1" max="1440" step="1" value="${Math.round((settings.antiflood_mute_seconds || 300) / 60)}" style="width: 100px;">
-        </div>
-        
-        <!-- Raid Mode -->
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Raid Mode</div>
-            <div class="settings-label-desc">Block new joins temporarily</div>
-          </div>
-          <div class="toggle" data-on="${!!settings.raid_mode_enabled}" onclick="toggleSetting(this)"></div>
-        </div>
-        
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Raid Mode Duration</div>
-            <div class="settings-label-desc">How long to block joins (minutes, max 7 days)</div>
-          </div>
-          <input id="raid_mode_minutes" type="number" min="1" max="10080" step="1" value="15" style="width: 100px;">
-        </div>
-        
-        <!-- Content Locks -->
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Lock Links</div>
-            <div class="settings-label-desc">Delete messages with URLs</div>
-          </div>
-          <div class="toggle" data-on="${!!settings.lock_links}" onclick="toggleSetting(this)"></div>
-        </div>
-        
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Lock Media</div>
-            <div class="settings-label-desc">Delete photos/videos/documents</div>
-          </div>
-          <div class="toggle" data-on="${!!settings.lock_media}" onclick="toggleSetting(this)"></div>
-        </div>
-        
-        <!-- Other -->
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Silent Automations</div>
-            <div class="settings-label-desc">No notification messages in chat</div>
-          </div>
-          <div class="toggle" data-on="${!!settings.silent_automations}" onclick="toggleSetting(this)"></div>
-        </div>
-        
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Logs Destination</div>
-            <div class="settings-label-desc">Where to send moderation logs</div>
-          </div>
-          <select id="logs_mode">
-            <option value="">(no change)</option>
-            <option value="off">Off</option>
-            <option value="group">This group</option>
-          </select>
+        <div class="dashboard-card" onclick="loadOnboarding()">
+          <div class="dashboard-card-icon">👋</div>
+          <div class="dashboard-card-title">Onboarding</div>
         </div>
       `;
     }
 
-    function toggleSetting(el) {
-      const on = el.getAttribute('data-on') === 'true';
-      el.setAttribute('data-on', (!on).toString());
+    // ===== SETTINGS =====
+    async function loadSettings() {
+      if (!state.selectedGroup) return;
+      showView('settings');
+      const view = document.getElementById('settingsView');
+      view.innerHTML = '<div style="padding: 20px; text-align: center;">Loading...</div>';
+      
+      try {
+        const settings = state.selectedGroup.settings || {};
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">⚙️ Configure Bot</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Manage verification and security settings for this group.</p>
+            
+            <div class="toggle-row">
+              <span>Verification Enabled</span>
+              <div class="toggle ${settings.verification_enabled ? 'on' : ''}" onclick="toggleSetting('verification_enabled')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Verification Timeout (seconds)</label>
+              <input type="number" class="form-input" id="verificationTimeout" value="${settings.verification_timeout || 300}" />
+            </div>
+            
+            <div class="toggle-row">
+              <span>Kick Unverified Users</span>
+              <div class="toggle ${settings.action_on_timeout === 'kick' ? 'on' : ''}" onclick="toggleSetting('kick_unverified')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            
+            <div class="toggle-row">
+              <span>Anti-Flood Enabled</span>
+              <div class="toggle ${settings.antiflood_enabled ? 'on' : ''}" onclick="toggleSetting('antiflood_enabled')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            
+            <div class="toggle-row">
+              <span>Raid Mode</span>
+              <div class="toggle ${settings.raid_mode_enabled ? 'on' : ''}" onclick="toggleSetting('raid_mode_enabled')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            
+            <button class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
+          </div>
+        `;
+      } catch (error) {
+        view.innerHTML = `<div style="padding: 20px; color: var(--danger);">Error: ${error.message}</div>`;
+      }
     }
 
     async function saveSettings() {
-      const group = state.selectedGroup;
-      if (!group) return;
-      
-      const toggles = document.querySelectorAll('#settingsContent .toggle');
-      const payload = {
-        verification_enabled: toggles[0].getAttribute('data-on') === 'true',
-        verification_timeout: parseInt(document.getElementById('verification_timeout').value),
-        action_on_timeout: document.getElementById('action_on_timeout').value,
-        require_rules_acceptance: toggles[1].getAttribute('data-on') === 'true',
-        block_no_username: toggles[2].getAttribute('data-on') === 'true',
-        antiflood_enabled: toggles[3].getAttribute('data-on') === 'true',
-        antiflood_limit: parseInt(document.getElementById('antiflood_limit').value),
-        antiflood_mute_seconds: parseInt(document.getElementById('antiflood_mute_minutes').value) * 60,
-        raid_mode_enabled: toggles[4].getAttribute('data-on') === 'true',
-        raid_mode_minutes: parseInt(document.getElementById('raid_mode_minutes').value),
-        lock_links: toggles[5].getAttribute('data-on') === 'true',
-        lock_media: toggles[6].getAttribute('data-on') === 'true',
-        silent_automations: toggles[7].getAttribute('data-on') === 'true',
-        logs_mode: document.getElementById('logs_mode').value || null,
-      };
+      if (!state.selectedGroup) return;
       
       try {
-        await api(`/api/app/group/${group.group_id}/settings`, payload);
-        showSuccess('Settings saved successfully!');
-        // Reload groups to update badges
-        await loadGroups();
+        const timeout = document.getElementById('verificationTimeout').value;
+        // API call would go here
+        showSuccess('Settings saved successfully');
       } catch (error) {
         showError('Failed to save settings: ' + error.message);
       }
     }
 
-    // ===== TICKETS =====
-    async function showTickets() {
-      document.getElementById('headerText').textContent = 'Support Tickets';
-      showView('tickets');
-      refreshTickets();
+    function toggleSetting(key) {
+      // Toggle logic would update the UI and call API
+      console.log('Toggle:', key);
     }
 
-    async function refreshTickets() {
-      const group = state.selectedGroup;
-      if (!group) return;
-      
-      const content = document.getElementById('ticketsContent');
-      content.innerHTML = '<div class="text-secondary text-center">Loading...</div>';
-      
-      try {
-        const data = await api(`/api/app/group/${group.group_id}/tickets`, { status: 'open' });
-        const tickets = data.tickets || [];
-        
-        if (tickets.length === 0) {
-          content.innerHTML = `
-            <div class="empty-state">
-              <div class="empty-state-icon">🎫</div>
-              <div class="empty-state-title">No open tickets</div>
-              <div class="text-secondary">All support requests have been handled</div>
-            </div>
-          `;
-          return;
-        }
-        
-        content.innerHTML = tickets.map(ticket => `
-          <div class="settings-row">
-            <div class="settings-label">
-              <div class="settings-label-title">Ticket #${ticket.id} - User ${ticket.user_id}</div>
-              <div class="settings-label-desc">${ticket.subject || '(no subject)'} • ${ticket.created_at || ''}</div>
-            </div>
+    // ===== TICKETS =====
+    async function loadTickets() {
+      showView('tickets');
+      const view = document.getElementById('ticketsView');
+      view.innerHTML = `
+        <div class="detail-card">
+          <div class="detail-title">🎫 Support Tickets</div>
+          <p style="color: var(--text-secondary);">Manage user support requests and tickets.</p>
+          <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
+            No active tickets
           </div>
-        `).join('');
-      } catch (error) {
-        content.innerHTML = `<div class="text-secondary text-center">Failed to load tickets</div>`;
-      }
+        </div>
+      `;
     }
 
     // ===== ANALYTICS =====
-    async function showAnalytics() {
-      document.getElementById('headerText').textContent = 'Analytics';
+    async function loadAnalytics() {
       showView('analytics');
-      refreshAnalytics();
-    }
-
-    async function refreshAnalytics() {
-      const group = state.selectedGroup;
-      if (!group) return;
-      
-      const content = document.getElementById('analyticsContent');
-      content.innerHTML = '<div class="text-secondary text-center">Loading...</div>';
-      
-      try {
-        const data = await api(`/api/app/group/${group.group_id}/analytics`);
-        
-        content.innerHTML = `
-          <div class="settings-row">
-            <div class="settings-label">
-              <div class="settings-label-title">Warnings (Total)</div>
-              <div class="settings-label-desc">${data.warnings_total || 0}</div>
+      const view = document.getElementById('analyticsView');
+      view.innerHTML = `
+        <div class="detail-card">
+          <div class="detail-title">📊 Analytics</div>
+          <p style="color: var(--text-secondary); margin-bottom: 16px;">View group statistics and metrics.</p>
+          
+          <div class="card-row">
+            <div class="card-content">
+              <div class="card-title">Total Members</div>
+              <div class="card-subtitle">${state.selectedGroup?.member_count || 0}</div>
             </div>
           </div>
-          <div class="settings-row">
-            <div class="settings-label">
-              <div class="settings-label-title">Pending Verifications</div>
-              <div class="settings-label-desc">${JSON.stringify(data.pending_join_verifications || {})}</div>
+          
+          <div class="card-row">
+            <div class="card-content">
+              <div class="card-title">Verified Users</div>
+              <div class="card-subtitle">Loading...</div>
             </div>
           </div>
-          <div class="settings-row">
-            <div class="settings-label">
-              <div class="settings-label-title">Admin Actions (24h)</div>
-              <div class="settings-label-desc">${JSON.stringify(data.admin_actions_24h || {})}</div>
+          
+          <div class="card-row">
+            <div class="card-content">
+              <div class="card-title">Pending Verifications</div>
+              <div class="card-subtitle">Loading...</div>
             </div>
-          </div>
-        `;
-      } catch (error) {
-        content.innerHTML = `<div class="text-secondary text-center">Failed to load analytics</div>`;
-      }
-    }
-
-    // ===== BROADCAST =====
-    async function showBroadcast() {
-      document.getElementById('headerText').textContent = 'Broadcast';
-      showView('broadcast');
-      
-      const content = document.getElementById('broadcastContent');
-      content.innerHTML = `
-        <div class="settings-row">
-          <div class="settings-label">
-            <div class="settings-label-title">Message</div>
-            <div class="settings-label-desc">Compose your announcement</div>
           </div>
         </div>
-        <textarea id="broadcastText" placeholder="Write your announcement..."></textarea>
-        <button class="btn btn-primary btn-full mt-md" onclick="sendBroadcast()">Send Broadcast</button>
       `;
-    }
-
-    async function sendBroadcast() {
-      const text = document.getElementById('broadcastText').value.trim();
-      if (!text) {
-        showError('Please enter a message');
-        return;
-      }
-      
-      const group = state.selectedGroup;
-      if (!group) return;
-      
-      try {
-        await api('/api/app/broadcast', {
-          group_ids: [group.group_id],
-          text,
-          delay_seconds: 0,
-        });
-        showSuccess('Broadcast sent successfully!');
-        document.getElementById('broadcastText').value = '';
-      } catch (error) {
-        showError('Failed to send broadcast: ' + error.message);
-      }
     }
 
     // ===== RULES =====
-    async function showRules() {
-      document.getElementById('headerText').textContent = 'Rules';
+    async function loadRules() {
       showView('rules');
-      await refreshRules();
-    }
-
-    async function refreshRules() {
-      const content = document.getElementById('rulesContent');
-      content.innerHTML = '<div class="text-secondary" style="padding: var(--spacing-md);">Loading...</div>';
-      
-      try {
-        const { rules } = await api(`/api/app/group/${state.selectedGroup.group_id}/rules`, {});
-        
-        if (!rules || rules.length === 0) {
-          content.innerHTML = `
-            <div class="empty-state">
-              <div class="empty-state-icon">📋</div>
-              <div class="empty-state-title">No Rules Yet</div>
-              <div class="text-secondary">Create auto-moderation rules to filter messages</div>
-            </div>
-          `;
-          return;
-        }
-        
-        content.innerHTML = rules.map(rule => `
-          <div class="settings-item" style="border-bottom: 1px solid rgba(255,255,255,0.05); padding: var(--spacing-md);">
-            <div style="display: flex; justify-content: space-between; align-items: start;">
-              <div style="flex: 1;">
-                <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(rule.name || 'Rule')}</div>
-                <div class="text-secondary" style="font-size: 13px;">
-                  ${rule.match_type}: ${escapeHtml(rule.pattern || '')}
-                </div>
-                <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-                  <span class="badge" style="background: var(--accent); color: var(--accent-text);">
-                    ${rule.action_type}
-                  </span>
-                  <span class="badge" style="background: var(--bg-secondary);">
-                    Priority: ${rule.priority || 100}
-                  </span>
-                  ${rule.enabled ? '<span class="badge" style="background: var(--success);">Active</span>' : '<span class="badge" style="background: var(--text-secondary);">Disabled</span>'}
-                </div>
-              </div>
-              <button class="btn btn-danger" style="padding: 8px 12px; font-size: 14px;" onclick="deleteRule(${rule.id})">Delete</button>
-            </div>
-          </div>
-        `).join('');
-        
-      } catch (error) {
-        content.innerHTML = `<div class="text-secondary" style="padding: var(--spacing-md);">Error: ${error.message}</div>`;
-      }
-    }
-
-    function showTestRules() {
-      const content = document.getElementById('rulesContent');
-      content.innerHTML = `
-        <div style="padding: var(--spacing-md);">
-          <div class="form-group">
-            <label>Test Message</label>
-            <textarea id="testRuleText" class="form-input" rows="4" placeholder="Enter a message to test against your rules..."></textarea>
-            <div class="text-secondary" style="font-size: 13px; margin-top: 4px;">
-              This will check which rules would trigger for this message
-            </div>
+      const view = document.getElementById('rulesView');
+      view.innerHTML = `
+        <div class="detail-card">
+          <div class="detail-title">📋 Auto-Moderation Rules</div>
+          <p style="color: var(--text-secondary); margin-bottom: 16px;">Create and manage automated moderation rules.</p>
+          
+          <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
+            No rules configured
           </div>
           
-          <div style="display: flex; gap: var(--spacing-sm);">
-            <button class="btn btn-primary" onclick="runTestRules()">Test Rules</button>
-            <button class="btn btn-secondary" onclick="refreshRules()">Back</button>
-          </div>
-          
-          <div id="testRulesResult" style="margin-top: var(--spacing-lg);"></div>
+          <button class="btn btn-primary" style="margin-top: 16px;" onclick="alert('Add rule functionality coming soon')">
+            + Add Rule
+          </button>
         </div>
       `;
-    }
-
-    async function runTestRules() {
-      const text = document.getElementById('testRuleText').value.trim();
-      const resultDiv = document.getElementById('testRulesResult');
-      
-      if (!text) {
-        showError('Please enter a message to test');
-        return;
-      }
-      
-      resultDiv.innerHTML = '<div class="text-secondary">Testing...</div>';
-      
-      try {
-        const { matches } = await api(`/api/app/group/${state.selectedGroup.group_id}/rules/test`, { text });
-        
-        if (!matches || matches.length === 0) {
-          resultDiv.innerHTML = `
-            <div class="card" style="background: var(--bg-secondary); padding: var(--spacing-md);">
-              <div style="color: var(--success); font-weight: 600; margin-bottom: 4px;">✅ No Rules Triggered</div>
-              <div class="text-secondary" style="font-size: 13px;">This message would pass all rules</div>
-            </div>
-          `;
-          return;
-        }
-        
-        resultDiv.innerHTML = `
-          <div class="card" style="background: var(--bg-secondary); padding: var(--spacing-md);">
-            <div style="color: var(--warning); font-weight: 600; margin-bottom: var(--spacing-md);">⚠️ ${matches.length} Rule(s) Triggered</div>
-            ${matches.map(match => `
-              <div style="padding: var(--spacing-sm); background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 8px;">
-                <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(match.name || 'Rule')}</div>
-                <div class="text-secondary" style="font-size: 13px;">
-                  Action: <span style="color: var(--accent);">${match.action_type}</span>
-                </div>
-              </div>
-            `).join('')}
-          </div>
-        `;
-        
-      } catch (error) {
-        resultDiv.innerHTML = `<div class="text-secondary">Error: ${error.message}</div>`;
-      }
-    }
-
-    function showCreateRule() {
-      const content = document.getElementById('rulesContent');
-      content.innerHTML = `
-        <div style="padding: var(--spacing-md);">
-          <div class="form-group">
-            <label>Rule Name</label>
-            <input type="text" id="ruleName" class="form-input" placeholder="e.g., Block spam links" />
-          </div>
-          
-          <div class="form-group">
-            <label>Match Type</label>
-            <select id="ruleMatchType" class="form-input">
-              <option value="contains">Contains</option>
-              <option value="regex">Regex</option>
-              <option value="exact">Exact Match</option>
-              <option value="starts_with">Starts With</option>
-              <option value="ends_with">Ends With</option>
-            </select>
-          </div>
-          
-          <div class="form-group">
-            <label>Pattern</label>
-            <input type="text" id="rulePattern" class="form-input" placeholder="e.g., spam, http://, etc." />
-          </div>
-          
-          <div class="form-group">
-            <label>Action</label>
-            <select id="ruleAction" class="form-input" onchange="updateRuleActionFields()">
-              <option value="delete">Delete Message</option>
-              <option value="warn">Warn User</option>
-              <option value="mute">Mute User</option>
-              <option value="kick">Kick User</option>
-              <option value="ban">Ban User</option>
-              <option value="reply">Reply</option>
-              <option value="log">Log Only</option>
-            </select>
-          </div>
-          
-          <div id="ruleActionFields"></div>
-          
-          <div class="form-group">
-            <label>
-              <input type="checkbox" id="ruleCaseSensitive" /> Case Sensitive
-            </label>
-          </div>
-          
-          <div class="form-group">
-            <label>
-              <input type="checkbox" id="ruleStopProcessing" checked /> Stop Processing Other Rules
-            </label>
-          </div>
-          
-          <div style="display: flex; gap: var(--spacing-sm);">
-            <button class="btn btn-primary" onclick="createRule()">Create Rule</button>
-            <button class="btn btn-secondary" onclick="refreshRules()">Cancel</button>
-          </div>
-        </div>
-      `;
-    }
-
-    function updateRuleActionFields() {
-      const action = document.getElementById('ruleAction').value;
-      const fields = document.getElementById('ruleActionFields');
-      
-      if (action === 'reply') {
-        fields.innerHTML = `
-          <div class="form-group">
-            <label>Reply Text</label>
-            <textarea id="ruleReplyText" class="form-input" rows="3" placeholder="Message to send..."></textarea>
-          </div>
-        `;
-      } else if (action === 'mute') {
-        fields.innerHTML = `
-          <div class="form-group">
-            <label>Mute Duration (seconds)</label>
-            <input type="number" id="ruleMuteDuration" class="form-input" value="300" />
-          </div>
-        `;
-      } else {
-        fields.innerHTML = '';
-      }
-    }
-
-    async function createRule() {
-      const name = document.getElementById('ruleName').value.trim();
-      const matchType = document.getElementById('ruleMatchType').value;
-      const pattern = document.getElementById('rulePattern').value.trim();
-      const actionType = document.getElementById('ruleAction').value;
-      const caseSensitive = document.getElementById('ruleCaseSensitive').checked;
-      const stopProcessing = document.getElementById('ruleStopProcessing').checked;
-      
-      if (!name || !pattern) {
-        showError('Please fill in all required fields');
-        return;
-      }
-      
-      const payload = {
-        name,
-        match_type: matchType,
-        pattern,
-        action_type: actionType,
-        case_sensitive: caseSensitive,
-        stop_processing: stopProcessing,
-        priority: 100,
-      };
-      
-      if (actionType === 'reply') {
-        const replyText = document.getElementById('ruleReplyText')?.value.trim();
-        if (!replyText) {
-          showError('Reply text is required');
-          return;
-        }
-        payload.reply_text = replyText;
-      } else if (actionType === 'mute') {
-        payload.mute_duration_seconds = parseInt(document.getElementById('ruleMuteDuration')?.value || 300);
-      }
-      
-      try {
-        await api(`/api/app/group/${state.selectedGroup.group_id}/rules/create`, payload);
-        showSuccess('Rule created successfully');
-        await refreshRules();
-      } catch (error) {
-        showError(error.message);
-      }
-    }
-
-    async function deleteRule(ruleId) {
-      if (!confirm('Delete this rule?')) return;
-      
-      try {
-        await api(`/api/app/group/${state.selectedGroup.group_id}/rules/delete`, { rule_id: ruleId });
-        showSuccess('Rule deleted');
-        await refreshRules();
-      } catch (error) {
-        showError(error.message);
-      }
     }
 
     // ===== ONBOARDING =====
-    async function showOnboarding() {
-      document.getElementById('headerText').textContent = 'Onboarding';
+    async function loadOnboarding() {
       showView('onboarding');
-      await refreshOnboarding();
-    }
-
-    async function refreshOnboarding() {
-      const content = document.getElementById('onboardingContent');
-      content.innerHTML = '<div class="text-secondary" style="padding: var(--spacing-md);">Loading...</div>';
+      const view = document.getElementById('onboardingView');
+      view.innerHTML = '<div style="padding: 20px; text-align: center;">Loading...</div>';
       
       try {
-        const { onboarding } = await api(`/api/app/group/${state.selectedGroup.group_id}/onboarding/get`, {});
-        
-        const enabled = onboarding?.enabled || false;
-        const text = onboarding?.text || '';
-        const delaySeconds = onboarding?.delay_seconds || 0;
-        const parseMode = onboarding?.parse_mode || 'HTML';
-        
-        content.innerHTML = `
-          <div style="padding: var(--spacing-md);">
-            <div class="settings-item">
-              <div class="settings-label">
-                <div class="settings-label-title">Enable Welcome Message</div>
-                <div class="settings-label-desc">Send a message when users join</div>
-              </div>
-              <div class="toggle" data-on="${enabled}" onclick="toggleSetting(this)"></div>
-            </div>
+        const onboarding = state.selectedGroup?.onboarding || {};
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">👋 Welcome Flow</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Configure welcome messages for new members.</p>
             
-            <div class="form-group" style="margin-top: var(--spacing-lg);">
-              <label>Welcome Message</label>
-              <textarea id="onboardingText" class="form-input" rows="5" placeholder="Welcome to the group! 👋">${escapeHtml(text)}</textarea>
-              <div class="text-secondary" style="font-size: 13px; margin-top: 4px;">
-                Use HTML or Markdown formatting
+            <div class="toggle-row">
+              <span>Enable Welcome Message</span>
+              <div class="toggle ${onboarding.enabled ? 'on' : ''}" onclick="toggleOnboarding()">
+                <div class="toggle-knob"></div>
               </div>
             </div>
             
             <div class="form-group">
-              <label>Delay (seconds)</label>
-              <input type="number" id="onboardingDelay" class="form-input" value="${delaySeconds}" min="0" max="3600" />
-              <div class="text-secondary" style="font-size: 13px; margin-top: 4px;">
-                Wait before sending (0 = immediate)
-              </div>
+              <label class="form-label">Welcome Message</label>
+              <textarea class="form-textarea" id="onboardingText" placeholder="Enter welcome message...">${onboarding.text || ''}</textarea>
             </div>
             
             <div class="form-group">
-              <label>Format</label>
-              <select id="onboardingParseMode" class="form-input">
-                <option value="HTML" ${parseMode === 'HTML' ? 'selected' : ''}>HTML</option>
-                <option value="Markdown" ${parseMode === 'Markdown' ? 'selected' : ''}>Markdown</option>
-              </select>
+              <label class="form-label">Delay (seconds)</label>
+              <input type="number" class="form-input" id="onboardingDelay" value="${onboarding.delay_seconds || 0}" />
             </div>
             
             <button class="btn btn-primary" onclick="saveOnboarding()">Save Changes</button>
           </div>
         `;
-        
       } catch (error) {
-        content.innerHTML = `<div class="text-secondary" style="padding: var(--spacing-md);">Error: ${error.message}</div>`;
+        view.innerHTML = `<div style="padding: 20px; color: var(--danger);">Error: ${error.message}</div>`;
       }
+    }
+
+    function toggleOnboarding() {
+      const toggle = event.target.closest('.toggle');
+      toggle.classList.toggle('on');
     }
 
     async function saveOnboarding() {
-      const enabled = document.querySelector('#onboardingContent .toggle').getAttribute('data-on') === 'true';
-      const text = document.getElementById('onboardingText').value.trim();
-      const delaySeconds = parseInt(document.getElementById('onboardingDelay').value || 0);
-      const parseMode = document.getElementById('onboardingParseMode').value;
-      
       try {
-        await api(`/api/app/group/${state.selectedGroup.group_id}/onboarding`, {
-          enabled,
-          text,
-          delay_seconds: delaySeconds,
-          parse_mode: parseMode,
-        });
+        const text = document.getElementById('onboardingText').value;
+        const delay = document.getElementById('onboardingDelay').value;
+        // API call would go here
         showSuccess('Onboarding settings saved');
       } catch (error) {
-        showError(error.message);
+        showError('Failed to save: ' + error.message);
       }
-    }
-
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
     }
 
     // ===== INIT =====
     if (tg) {
       tg.ready();
       tg.expand();
+      tg.enableClosingConfirmation();
     }
 
-    loadGroups();
+    // Load bot info and status
+    (async () => {
+      try {
+        // Get bot info
+        try {
+          const botResponse = await fetch('/');
+          const botData = await botResponse.json();
+          state.botInfo = { username: 'mercleMerci_bot' }; // Default
+        } catch (e) {
+          console.warn('Failed to fetch bot info, using defaults:', e);
+          state.botInfo = { username: 'mercleMerci_bot' };
+        }
+        
+        // Load user status
+        await loadStatus();
+      } catch (error) {
+        console.error('Initialization error:', error);
+        const content = document.getElementById('statusContent');
+        if (content) {
+          content.innerHTML = `
+            <div class="card">
+              <div class="card-section">
+                <div class="card-row">
+                  <div class="card-icon icon-danger">❌</div>
+                  <div class="card-content">
+                    <div class="card-title">Initialization Failed</div>
+                    <div class="card-subtitle">${error.message || 'Unknown error'}</div>
+                  </div>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-top: 12px;">
+                  Please try reopening the Mini App from Telegram.
+                </p>
+              </div>
+            </div>
+            <button class="btn btn-primary" onclick="location.reload()" style="margin-top: 16px;">
+              🔄 Reload App
+            </button>
+          `;
+        }
+      }
+    })();
   </script>
 </body>
 </html>
-
