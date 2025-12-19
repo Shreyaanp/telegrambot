@@ -1,6 +1,6 @@
 """Admin service - handle kick, ban, mute, warn with great UX."""
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from aiogram import Bot
 from aiogram.types import ChatPermissions

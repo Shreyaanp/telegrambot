@@ -2,11 +2,12 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from aiogram.types import Update
+from aiogram.exceptions import TelegramAPIError
 from pydantic import BaseModel
 
 from bot.main import TelegramBot
@@ -94,7 +95,7 @@ def _log_update_summary(update: Update) -> None:
                 content_type = ""
 
             logger.info(
-                "tg_update=%s kind=%s chat=%s(%s) from=%s ct=%s text_len=%s",
+                "tg_update=%s kind=%s chat=%s(%s) from=%s ct=%s text_len=%s text=\"%s\"",
                 update.update_id,
                 kind,
                 chat_id,
@@ -104,6 +105,7 @@ def _log_update_summary(update: Update) -> None:
                 len(text),
             )
             return
+                (msg.text or msg.caption or "")[:200],
 
         if kind == "callback_query":
             cb = update.callback_query
@@ -169,16 +171,14 @@ def _log_update_summary(update: Update) -> None:
 
 
 def _get_admin_token_from_request(request: Request) -> str | None:
-    # Prefer Authorization: Bearer <token>, fallback to X-Admin-Token or ?token=
+    # Prefer Authorization: Bearer <token>, fallback to X-Admin-Token header
+    # NOTE: Query params (?token=) removed for security - they leak to logs/proxies
     auth = request.headers.get("authorization") or request.headers.get("Authorization")
     if auth:
         parts = auth.strip().split()
         if len(parts) == 2 and parts[0].lower() == "bearer":
             return parts[1]
     token = request.headers.get("x-admin-token") or request.headers.get("X-Admin-Token")
-    if token:
-        return token.strip()
-    token = request.query_params.get("token")
     return token.strip() if token else None
 
 
@@ -252,6 +252,7 @@ class _GroupSettingsUpdate(BaseModel):
     block_no_username: bool | None = None
     antiflood_enabled: bool | None = None
     antiflood_limit: int | None = None
+    antiflood_mute_seconds: int | None = None
     silent_automations: bool | None = None
     raid_mode_enabled: bool | None = None
     raid_mode_minutes: int | None = None
@@ -473,6 +474,7 @@ async def app_bootstrap(payload: _InitDataPayload):
                             "block_no_username": bool(getattr(group, "block_no_username", False)),
                             "antiflood_enabled": bool(getattr(group, "antiflood_enabled", True)),
                             "antiflood_limit": int(getattr(group, "antiflood_limit", 10) or 10),
+                            "antiflood_mute_seconds": int(getattr(group, "antiflood_mute_seconds", 300) or 300),
                             "silent_automations": bool(getattr(group, "silent_automations", False)),
                             "raid_mode_enabled": bool(getattr(group, "raid_mode_until", None) and getattr(group, "raid_mode_until") > now),
                             "raid_mode_remaining_seconds": max(
@@ -516,13 +518,15 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
         if not (str(getattr(group, "rules_text", "") or "").strip()):
             raise HTTPException(status_code=400, detail="rules_text is not set (use /setrules first)")
 
-    # Join gate guardrails: enabling requires join requests + invite users.
-    if payload.join_gate_enabled is True:
-        preflight = await _bot_preflight(bot_obj.get_bot(), gid)
-        if not preflight.get("join_by_request", False):
-            raise HTTPException(status_code=400, detail="join requests are disabled (join_by_request=false)")
-        if not preflight.get("invite_ok", False):
-            raise HTTPException(status_code=400, detail="bot is missing Invite Users permission")
+    # Join gate is MANDATORY - validation removed
+    # The join_by_request check was blocking settings saves
+    # Runtime validation happens in join_requests.py handler instead
+    # if payload.join_gate_enabled is True:
+    #     preflight = await _bot_preflight(bot_obj.get_bot(), gid)
+    #     if not preflight.get("join_by_request", False):
+    #         raise HTTPException(status_code=400, detail="join requests are disabled (join_by_request=false)")
+    #     if not preflight.get("invite_ok", False):
+    #         raise HTTPException(status_code=400, detail="bot is missing Invite Users permission")
 
     action_on_timeout = payload.action_on_timeout
     if action_on_timeout is not None and action_on_timeout not in ("kick", "mute"):
@@ -537,6 +541,11 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
         mx = int(payload.captcha_max_attempts or 0)
         if mx < 1 or mx > 10:
             raise HTTPException(status_code=400, detail="captcha_max_attempts must be 1..10")
+
+    if payload.antiflood_mute_seconds is not None:
+        secs = int(payload.antiflood_mute_seconds or 0)
+        if secs < 30 or secs > 24 * 60 * 60:
+            raise HTTPException(status_code=400, detail="antiflood_mute_seconds must be 30..86400")
 
     logs_mode = payload.logs_mode
     if logs_mode is not None and logs_mode not in ("off", "group"):
@@ -560,6 +569,7 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
         block_no_username=payload.block_no_username,
         antiflood_enabled=payload.antiflood_enabled,
         antiflood_limit=payload.antiflood_limit,
+        antiflood_mute_seconds=payload.antiflood_mute_seconds,
         silent_automations=payload.silent_automations,
         raid_mode_enabled=payload.raid_mode_enabled,
         raid_mode_minutes=payload.raid_mode_minutes,
@@ -587,6 +597,7 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
             "block_no_username": bool(getattr(group, "block_no_username", False)),
             "antiflood_enabled": bool(getattr(group, "antiflood_enabled", True)),
             "antiflood_limit": int(getattr(group, "antiflood_limit", 10) or 10),
+            "antiflood_mute_seconds": int(getattr(group, "antiflood_mute_seconds", 300) or 300),
             "silent_automations": bool(getattr(group, "silent_automations", False)),
             "raid_mode_enabled": bool(getattr(group, "raid_mode_until", None) and getattr(group, "raid_mode_until") > now),
             "raid_mode_remaining_seconds": max(
@@ -1183,10 +1194,21 @@ async def webhook_handler(request: Request):
         _log_update_summary(update)
         
         # Process update
-        await telegram_bot.get_dispatcher().feed_update(
-            telegram_bot.get_bot(),
-            update
-        )
+        try:
+            await telegram_bot.get_dispatcher().feed_update(
+                telegram_bot.get_bot(),
+                update
+            )
+        except TelegramAPIError as e:
+            # Non-actionable for Telegram retries (chat not found, blocked, message not modified, etc).
+            # Log + count it, but ack the update so Telegram doesn't retry forever.
+            logger.warning("tg_update=%s dropped: %s", update.update_id, e)
+            try:
+                if telegram_bot and telegram_bot.get_container():
+                    await telegram_bot.get_container().metrics_service.incr_api_error("telegram_api")
+            except Exception:
+                pass
+            return Response(status_code=200)
         
         return Response(status_code=200)
         

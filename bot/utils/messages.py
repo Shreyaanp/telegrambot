@@ -32,9 +32,9 @@ def already_verified_message() -> str:
     """Message when user is already verified."""
     return """✅ **You're already verified!**
 
-You can join any group protected by this bot without needing to verify again.
+Your Mercle account is already linked to this Telegram account.
 
-Your verification is permanent and works across all groups.
+Some groups may still require verification when you join (group settings can enforce per-join gates).
 
 **Commands:**
  `/status` - View your verification details
@@ -45,39 +45,22 @@ def verification_prompt_message(timeout_seconds: int) -> str:
     """Prompt message for verification with QR code."""
     minutes = timeout_seconds // 60
     
-    return f"""🔐 **Verify Your Identity**
+    return f"""🔐 **Verify with Mercle**
 
-Please complete biometric verification to access this group.
+Complete a quick verification in the Mercle app.
 
-**Two ways to verify:**
+📱 Tap the button below (recommended) or scan the QR in Mercle.
 
-📱 **Option 1: Tap the button below**
-The easiest way! It will open the Mercle app automatically.
-
-📷 **Option 2: Scan the QR code**
-Open the Mercle app and scan this QR code.
-
-⏱️ **You have {minutes} minutes to complete verification.**
-
-**Don't have the Mercle app?**
-Download it using the buttons below (it's free and takes 30 seconds!)"""
+⏱️ **Time limit: {minutes} minutes**"""
 
 
 def verification_success_message(mercle_user_id: str) -> str:
     """Success message after verification."""
-    return f"""✅ **Verification Successful!**
+    return f"""✅ **Verified!**
 
-Welcome! You've been verified and can now participate in the group.
+🆔 Verification ID: `{mercle_user_id}`
 
-🆔 Your Verification ID: `{mercle_user_id}`
-
-**What now?**
- You can chat freely in the group
- Your verification works across all groups using this bot
- You won't need to verify again
-
-**Love Mercle?**
-Download the full app to explore more features! 👇"""
+If you were verifying to access a group, go back to the group — you should be able to chat now."""
 
 
 def verification_failed_message() -> str:
@@ -99,17 +82,9 @@ def verification_timeout_message() -> str:
     """Message when verification times out."""
     return """⏰ **Verification Timed Out**
 
-You didn't complete verification in time.
+You didn’t complete verification in time.
 
-**What happens now:**
- You've been removed from the group
- You can rejoin and try again
- Make sure to complete verification quickly next time
-
-**Tips for faster verification:**
-1. Have the Mercle app installed before joining
-2. Be in a well-lit area
-3. Follow the prompts immediately"""
+Try again with `/verify` when you’re ready."""
 
 
 def group_welcome_message(group_name: str, timeout_seconds: int) -> str:

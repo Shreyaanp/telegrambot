@@ -4,7 +4,7 @@ from __future__ import annotations
 import html
 import logging
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from aiogram import F, Router

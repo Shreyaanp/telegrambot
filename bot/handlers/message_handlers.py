@@ -92,12 +92,22 @@ def create_message_handlers(container: ServiceContainer) -> Router:
         if is_flooding:
             # Mute the user for flooding
             try:
+                silent = False
+                mute_seconds = 300
+                try:
+                    group = await container.group_service.get_or_create_group(group_id)
+                    silent = bool(getattr(group, "silent_automations", False))
+                    mute_seconds = int(getattr(group, "antiflood_mute_seconds", 300) or 300)
+                except Exception:
+                    silent = False
+                    mute_seconds = 300
+
                 await container.admin_service.mute_user(
                     bot=message.bot,
                     group_id=group_id,
                     user_id=user_id,
                     admin_id=message.bot.id,
-                    duration=300,  # 5 minutes
+                    duration=mute_seconds,
                     reason=f"Flooding ({msg_count} messages)"
                 )
                 
@@ -106,17 +116,11 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                     await message.delete()
                 except:
                     pass
-                
-                silent = False
-                try:
-                    group = await container.group_service.get_or_create_group(group_id)
-                    silent = bool(getattr(group, "silent_automations", False))
-                except Exception:
-                    silent = False
 
                 if not silent:
+                    mins = max(1, int(round(mute_seconds / 60)))
                     await message.answer(
-                        f"🚫 {message.from_user.mention_html()} has been muted for 5 minutes due to flooding.\n\n"
+                        f"🚫 {message.from_user.mention_html()} has been muted for {mins} minutes due to flooding.\n\n"
                         f"📊 Sent {msg_count} messages too quickly.",
                         parse_mode="HTML"
                     )

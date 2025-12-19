@@ -1,5 +1,5 @@
 """Database models - Complete schema for full-featured bot."""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index, BigInteger, text
 from sqlalchemy.orm import declarative_base, relationship
@@ -104,7 +104,7 @@ class Group(Base):
     verification_enabled = Column(Boolean, default=True)
     verification_timeout = Column(Integer, default=300)  # 5 minutes
     kick_unverified = Column(Boolean, default=True)
-    join_gate_enabled = Column(Boolean, default=False)  # If group uses join requests, only approve after verification
+    join_gate_enabled = Column(Boolean, default=True)  # MANDATORY: If group uses join requests, only approve after verification
     require_rules_acceptance = Column(Boolean, default=False, nullable=False)
     captcha_enabled = Column(Boolean, default=False, nullable=False)
     captcha_style = Column(String, default="button", nullable=False)
@@ -121,6 +121,7 @@ class Group(Base):
     warn_limit = Column(Integer, default=3)  # Kick after X warns
     antiflood_enabled = Column(Boolean, default=True)
     antiflood_limit = Column(Integer, default=10)  # Messages per minute
+    antiflood_mute_seconds = Column(Integer, default=300)  # Mute duration when flooding
     silent_automations = Column(Boolean, default=False)
     raid_mode_until = Column(DateTime, nullable=True)
     lock_links = Column(Boolean, default=False)
@@ -273,6 +274,10 @@ class Permission(Base):
     
     # Relationships
     group = relationship("Group", back_populates="permissions")
+
+    __table_args__ = (
+        Index("uq_permissions_group_user", "group_id", "telegram_id", unique=True),
+    )
     
     def __repr__(self):
         return f"<Permission(group_id={self.group_id}, telegram_id={self.telegram_id}, role={self.role})>"

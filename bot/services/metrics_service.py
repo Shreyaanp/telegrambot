@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Tuple
 
 from sqlalchemy import select, text

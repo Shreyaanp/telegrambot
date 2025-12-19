@@ -1,6 +1,6 @@
 """Anti-flood service - rate limiting and spam detection."""
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, and_
 
 from database.db import db

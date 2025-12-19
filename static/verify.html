@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,31 +19,47 @@
             text-align: center;
             padding: 20px;
         }
+
         .container {
             max-width: 500px;
             width: 100%;
         }
+
         .loader {
             width: 50px;
             height: 50px;
-            border: 5px solid rgba(255,255,255,0.3);
+            border: 5px solid rgba(255, 255, 255, 0.3);
             border-top-color: white;
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin: 20px auto;
         }
+
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
-        h1 { margin: 0 0 10px 0; font-size: 24px; }
-        p { margin: 10px 0; opacity: 0.9; }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+
+        p {
+            margin: 10px 0;
+            opacity: 0.9;
+        }
+
         .button-group {
             margin: 20px 0;
             display: flex;
             flex-direction: column;
             gap: 15px;
         }
-        button, a.button {
+
+        button,
+        a.button {
             padding: 15px 30px;
             background: white;
             color: #667eea;
@@ -54,32 +71,38 @@
             cursor: pointer;
             transition: transform 0.2s;
             display: inline-block;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
-        button:hover, a.button:hover {
+
+        button:hover,
+        a.button:hover {
             transform: scale(1.05);
         }
+
         .small-button {
             font-size: 14px;
             padding: 10px 20px;
-            background: rgba(255,255,255,0.2);
+            background: rgba(255, 255, 255, 0.2);
             color: white;
         }
+
         .debug {
             margin-top: 20px;
             padding: 15px;
-            background: rgba(0,0,0,0.2);
+            background: rgba(0, 0, 0, 0.2);
             border-radius: 8px;
             font-size: 12px;
             text-align: left;
             max-height: 200px;
             overflow-y: auto;
         }
+
         .debug pre {
             margin: 5px 0;
             white-space: pre-wrap;
             word-break: break-all;
         }
+
         .fallback {
             margin-top: 20px;
             display: flex;
@@ -87,9 +110,10 @@
             justify-content: center;
             flex-wrap: wrap;
         }
+
         .fallback a {
             padding: 10px 20px;
-            background: rgba(255,255,255,0.3);
+            background: rgba(255, 255, 255, 0.3);
             color: white;
             border-radius: 6px;
             font-size: 14px;
@@ -97,19 +121,20 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <div class="loader" id="loader"></div>
         <h1 id="title">Opening Mercle App...</h1>
         <p id="status">Preparing...</p>
-        
+
         <div class="button-group" id="buttons" style="display: none;"></div>
-        
+
         <div class="fallback" id="fallback" style="display: none;">
             <a href="https://play.google.com/store/apps/details?id=com.mercle.app">📥 Get on Android</a>
             <a href="https://apps.apple.com/ng/app/mercle/id6751991316">📥 Get on iOS</a>
         </div>
-        
+
         <div class="debug" id="debug">
             <strong>Debug Log:</strong>
             <div id="debugLog"></div>
@@ -141,10 +166,10 @@
         const appDomain = params.get('app_domain') || 'telegram.mercle.ai';
         const base64Qr = params.get('base64_qr') || '';
 
-        log('📊 Session ID: ' + sessionId);
+        log('📊 Session ID: ' + (sessionId || 'MISSING'));
         log('📊 App Name: ' + appName);
         log('📊 App Domain: ' + appDomain);
-        if (base64Qr) log('📊 base64_qr: (present)');
+        if (base64Qr) log('📊 QR data: present');
 
         // ================================================================
         // BUILD DEEP LINKS
@@ -158,7 +183,7 @@
         if (base64Qr) {
             deepLinkParams.set('base64_qr', base64Qr);
         }
-        
+
         const directLink = `mercle://scan-authenticate?${deepLinkParams.toString()}`;
         const intentUrl = `intent://scan-authenticate?${deepLinkParams.toString()}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end`;
 
@@ -172,23 +197,21 @@
         const isAndroid = /Android/.test(navigator.userAgent);
         const isMobile = isIOS || isAndroid;
 
-        log('📱 iOS: ' + isIOS);
-        log('📱 Android: ' + isAndroid);
-        log('📱 Mobile: ' + isMobile);
+        log('📱 Platform: ' + (isIOS ? 'iOS' : isAndroid ? 'Android' : 'Desktop'));
         log('📱 User Agent: ' + navigator.userAgent);
 
         // ================================================================
-        // ATTEMPT COUNTER (NO SESSION STORAGE - ISSUE #1 FIXED!)
+        // ATTEMPT COUNTER
         // ================================================================
         let attemptCount = 0;
 
         // ================================================================
-        // TRY TO OPEN APP - MULTIPLE METHODS (ISSUE #3 FIXED!)
+        // TRY TO OPEN APP
         // ================================================================
         function tryOpenApp(method) {
             attemptCount++;
             log(`🚀 Attempt #${attemptCount} - Method: ${method}`);
-            
+
             if (method === 'intent' && isAndroid) {
                 log('📤 Opening Intent URL...');
                 window.location.href = intentUrl;
@@ -196,7 +219,7 @@
                 log('📤 Opening Direct Link...');
                 window.location.href = directLink;
             }
-            
+
             // Check if app opened after 3 seconds
             setTimeout(() => {
                 if (!document.hidden) {
@@ -209,23 +232,23 @@
         }
 
         // ================================================================
-        // SHOW RETRY BUTTONS (ISSUE #4 FIXED!)
+        // SHOW RETRY BUTTONS
         // ================================================================
         function showRetryButtons() {
             document.getElementById('loader').style.display = 'none';
-            document.getElementById('title').textContent = 'App Didn\'t Open?';
-            document.getElementById('status').textContent = 'Try the buttons below:';
-            
+            document.getElementById('title').textContent = 'Need Help Opening Mercle?';
+            document.getElementById('status').innerHTML = '<p>The app didn\'t open automatically. Try the buttons below:</p>';
+
             const buttonsDiv = document.getElementById('buttons');
             buttonsDiv.style.display = 'block';
-            
+
             if (isAndroid) {
                 buttonsDiv.innerHTML = `
                     <a href="${intentUrl}" class="button" onclick="log('🔄 Retry: Intent URL'); return true;">
-                        🚀 Try Method 1 (Intent URL)
+                        🚀 Open Mercle (Method 1)
                     </a>
                     <a href="${directLink}" class="button" onclick="log('🔄 Retry: Direct Link'); return true;">
-                        🔗 Try Method 2 (Direct Link)
+                        🔗 Open Mercle (Method 2)
                     </a>
                     <button class="button small-button" onclick="location.reload()">🔄 Refresh Page</button>
                 `;
@@ -238,10 +261,10 @@
                 `;
             } else {
                 buttonsDiv.innerHTML = `
-                    <p>Please use a mobile device</p>
+                    <p style="color: rgba(255,255,255,0.7);">Please open this link on your mobile device</p>
                 `;
             }
-            
+
             document.getElementById('fallback').style.display = 'flex';
         }
 
@@ -266,11 +289,11 @@
             document.getElementById('fallback').style.display = 'flex';
         } else if (isMobile) {
             document.getElementById('status').textContent = 'Launching Mercle app...';
-            
+
             // Try Intent URL first for Android
             if (isAndroid) {
                 tryOpenApp('intent');
-                
+
                 // If that fails, try direct link after 5 seconds
                 setTimeout(() => {
                     if (!document.hidden && attemptCount === 1) {
@@ -296,4 +319,5 @@
         log('✅ Script loaded successfully');
     </script>
 </body>
+
 </html>

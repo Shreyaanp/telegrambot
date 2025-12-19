@@ -7,7 +7,7 @@ This only works if the group is configured by admins to require join requests
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Router
 from aiogram.types import ChatJoinRequest, InlineKeyboardMarkup, InlineKeyboardButton

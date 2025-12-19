@@ -1,6 +1,6 @@
 """User management service."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import select, update, and_
 from sqlalchemy.exc import IntegrityError
@@ -90,27 +90,53 @@ class UserManager:
                 await session.flush()
                 logger.info(f"Created verified user: {telegram_id} ({username})")
                 return user
-            except IntegrityError:
+            except IntegrityError as e:
                 # Handle race/conflict without crashing the verification flow.
+                #
+                # This can happen if:
+                # - two pollers finish at the same time (double "approved" callback)
+                # - the user verifies twice quickly
+                # - the identity is already linked elsewhere (unique mercle_user_id)
                 try:
                     await session.rollback()
                 except Exception:
                     pass
 
+                # If the Mercle identity is already linked, enforce that invariant.
                 try:
                     result = await session.execute(select(User).where(User.mercle_user_id == mercle_user_id))
                     conflict_user = result.scalar_one_or_none()
                 except Exception:
                     conflict_user = None
 
-                if conflict_user and int(conflict_user.telegram_id) != int(telegram_id):
-                    logger.warning(
-                        "Mercle identity conflict on insert/update; telegram_id=%s conflicts_with=%s",
-                        int(telegram_id),
-                        int(conflict_user.telegram_id),
-                    )
-                    return None
-                raise
+                if conflict_user:
+                    if int(conflict_user.telegram_id) != int(telegram_id):
+                        logger.warning(
+                            "Mercle identity conflict on insert/update; telegram_id=%s conflicts_with=%s",
+                            int(telegram_id),
+                            int(conflict_user.telegram_id),
+                        )
+                        return None
+                    # Same Telegram account won the race: treat as success.
+                    conflict_user.username = username
+                    conflict_user.verified_at = datetime.utcnow()
+                    return conflict_user
+
+                # If the Telegram user row already exists (concurrent insert), treat as success.
+                try:
+                    result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+                    existing_user = result.scalar_one_or_none()
+                except Exception:
+                    existing_user = None
+
+                if existing_user:
+                    existing_user.mercle_user_id = mercle_user_id
+                    existing_user.username = username
+                    existing_user.verified_at = datetime.utcnow()
+                    return existing_user
+
+                # Unknown IntegrityError: bubble up so we can see it in logs/metrics.
+                raise e
 
     async def create_session(
         self,

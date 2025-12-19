@@ -1,7 +1,7 @@
 """Member event handlers for group management - simplified."""
 import logging
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from aiogram import Router
 from aiogram.types import ChatMemberUpdated, CallbackQuery
 from aiogram.filters import ChatMemberUpdatedFilter, MEMBER, RESTRICTED, LEFT, KICKED, ADMINISTRATOR, CREATOR
@@ -285,14 +285,11 @@ def create_member_handlers(container: ServiceContainer) -> Router:
             )
             deep_link = f"https://t.me/{bot_username}?start=ver_{token}" if bot_username else ""
 
-            prompt_text = f"{new_member.mention_html()} verify to chat.\nTime: {minutes} min"
+            prompt_text = f"👋 {new_member.mention_html()} — verify in DM to chat.\n⏱ Time left: {minutes} min"
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [InlineKeyboardButton(text="Verify in DM", url=deep_link)] if deep_link else [],
-                    [
-                        InlineKeyboardButton(text="Approve", callback_data=f"pv:{pending.id}:approve"),
-                        InlineKeyboardButton(text="Reject", callback_data=f"pv:{pending.id}:reject"),
-                    ],
+                    [InlineKeyboardButton(text="✅ Verify in DM", url=deep_link)] if deep_link else [],
+                    # Manual Approve/Reject removed - Mercle SDK is single source of truth
                 ]
             )
             keyboard.inline_keyboard = [row for row in keyboard.inline_keyboard if row]
@@ -312,72 +309,9 @@ def create_member_handlers(container: ServiceContainer) -> Router:
             except:
                     pass
     
-    @router.callback_query(lambda c: c.data and c.data.startswith("pv:"))
-    async def pending_verification_callbacks(callback: CallbackQuery):
-        # pv:<pending_id>:approve|reject
-        parts = callback.data.split(":")
-        if len(parts) != 3:
-            await callback.answer("Not allowed", show_alert=True)
-            return
-        _, pending_str, action = parts
-        try:
-            pending_id = int(pending_str)
-        except ValueError:
-            await callback.answer("Not allowed", show_alert=True)
-            return
-
-        pending = await container.pending_verification_service.get_pending(pending_id)
-        if not pending or pending.status != "pending":
-            await callback.answer("Link expired.", show_alert=True)
-            return
-
-        group_id = int(pending.group_id)
-        actor_id = callback.from_user.id
-
-        # Permission check: telegram admin OR custom role that can_verify
-        if not await can_user(callback.bot, group_id, actor_id, "verify"):
-            await callback.answer("Not allowed", show_alert=True)
-            return
-
-        # Bot needs restrict to approve/reject (kick)
-        if not await is_bot_admin(callback.bot, group_id):
-            await callback.answer("Bot not admin.", show_alert=True)
-            return
-
-        if action == "approve":
-            try:
-                perms = await get_chat_default_permissions(callback.bot, group_id)
-                await callback.bot.restrict_chat_member(
-                    chat_id=group_id,
-                    user_id=int(pending.telegram_id),
-                    permissions=perms,
-                )
-            except Exception:
-                await callback.answer("Failed.", show_alert=True)
-                return
-            await container.pending_verification_service.decide(pending_id, status="approved", decided_by=actor_id)
-            await container.pending_verification_service.delete_group_prompt(callback.bot, pending)
-            try:
-                member = await callback.bot.get_chat_member(group_id, int(pending.telegram_id))
-                await _send_welcome(callback.bot, group_id, member.user)
-            except Exception:
-                pass
-            await callback.answer("Approved")
-            return
-
-        if action == "reject":
-            try:
-                await callback.bot.ban_chat_member(chat_id=group_id, user_id=int(pending.telegram_id))
-                await callback.bot.unban_chat_member(chat_id=group_id, user_id=int(pending.telegram_id))
-            except Exception:
-                await callback.answer("Failed.", show_alert=True)
-                return
-            await container.pending_verification_service.decide(pending_id, status="rejected", decided_by=actor_id)
-            await container.pending_verification_service.edit_or_delete_group_prompt(callback.bot, pending, "🚫 Rejected")
-            await callback.answer("Rejected")
-            return
-
-        await callback.answer("Not allowed", show_alert=True)
+    # REMOVED: Manual verification approve/reject callbacks
+    # Mercle SDK is the single source of truth for verification
+    # The pv: callback handler has been disabled
 
     return router
 

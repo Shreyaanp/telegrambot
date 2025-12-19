@@ -1,6 +1,6 @@
 """Admin command handlers - kick, ban, warn, whitelist, settings."""
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from html import escape
 from aiogram import Router
 from aiogram.filters import Command
@@ -307,7 +307,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         if len(parts) >= 3:
             seconds = _parse_duration_token(parts[2])
             if seconds is not None:
-                from datetime import datetime, timedelta
+                from datetime import datetime, timedelta, timezone
                 until_date = datetime.utcnow() + timedelta(seconds=seconds)
                 # If reason was parsed as "duration rest...", strip the duration token.
                 if reason:
@@ -1742,7 +1742,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         elif action == "ban":
             success = await container.admin_service.ban_user(callback.bot, chat_id, target_id, actor_id, reason="(via /actions)")
         elif action == "tempban":
-            from datetime import datetime, timedelta
+            from datetime import datetime, timedelta, timezone
 
             until = datetime.utcnow() + timedelta(seconds=duration or 3600)
             success = await container.admin_service.ban_user(callback.bot, chat_id, target_id, actor_id, reason="(via /actions tempban)", until_date=until)

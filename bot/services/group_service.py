@@ -1,6 +1,6 @@
 """Group settings service - manage per-group configuration."""
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from sqlalchemy import select
 
@@ -62,6 +62,7 @@ class GroupService:
         block_no_username: Optional[bool] = None,
         antiflood_limit: Optional[int] = None,
         antiflood_enabled: Optional[bool] = None,
+        antiflood_mute_seconds: Optional[int] = None,
         silent_automations: Optional[bool] = None,
         raid_mode_enabled: Optional[bool] = None,
         raid_mode_minutes: Optional[int] = None,
@@ -104,6 +105,10 @@ class GroupService:
                 group.antiflood_enabled = True
             if antiflood_enabled is not None:
                 group.antiflood_enabled = antiflood_enabled
+            if antiflood_mute_seconds is not None:
+                secs = int(antiflood_mute_seconds or 0)
+                secs = max(30, min(secs, 24 * 60 * 60))
+                group.antiflood_mute_seconds = secs
             if silent_automations is not None:
                 group.silent_automations = bool(silent_automations)
             if raid_mode_enabled is not None:

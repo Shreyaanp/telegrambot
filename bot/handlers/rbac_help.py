@@ -70,7 +70,8 @@ def create_rbac_help_handlers(container: ServiceContainer) -> Router:
             "<b>Your commands</b>\n"
             + "\n".join(f"• {cmd}" for cmd in allowed)
             + "\n\n<i>Note:</i> Telegram’s “/” menu can’t be customized per custom role.\n"
-            "If you have a role, type the command manually (or run <code>/actions</code> on a reply)."
+            "If you have a role, type the command manually (or run <code>/actions</code> on a reply).\n\n"
+            "<i>Roles:</i> A Telegram admin can grant roles with <code>/roles add @user moderator</code> (or <code>helper</code>)."
         )
         await message.reply(text, parse_mode="HTML")
 

@@ -1,7 +1,7 @@
 """Logs service - query admin action logs."""
 import logging
 from typing import Optional, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, and_
 
 from database.db import db

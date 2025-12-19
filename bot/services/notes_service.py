@@ -1,6 +1,6 @@
 """Notes service - save and retrieve group notes."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 from sqlalchemy import select, and_, delete
 

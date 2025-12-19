@@ -12,6 +12,8 @@ ENV/
 
 # Database
 *.sqlite
+*.sqlite-wal
+*.sqlite-shm
 *.db
 bot_db.sqlite
 bot.db
