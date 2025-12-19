@@ -1107,6 +1107,34 @@ async def app_delete_rule(group_id: int, payload: _RuleDeletePayload):
     return {"group_id": gid, "rules": rules}
 
 
+class _RuleTogglePayload(BaseModel):
+    initData: str
+    enabled: bool
+
+
+@app.post("/api/app/group/{group_id}/rules/{rule_id}/toggle")
+async def app_toggle_rule(group_id: int, rule_id: int, payload: _RuleTogglePayload):
+    """Toggle a rule's enabled status."""
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    gid = int(group_id)
+
+    if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    try:
+        await container.rules_service.toggle_rule(group_id=gid, rule_id=rule_id, enabled=payload.enabled)
+        return {"success": True, "rule_id": rule_id, "enabled": payload.enabled}
+    except Exception as e:
+        logger.error(f"Failed to toggle rule {rule_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to toggle rule") from e
+
+
 @app.post("/api/app/group/{group_id}/tickets")
 async def app_list_tickets(group_id: int, payload: _TicketsListPayload):
     bot_obj, container = _require_container()

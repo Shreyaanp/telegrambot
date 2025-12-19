@@ -1264,85 +1264,350 @@
       if (!state.selectedGroup) return;
       
       try {
-        const timeout = document.getElementById('verificationTimeout').value;
-        // API call would go here
+        const groupId = state.selectedGroup.group_id;
+        const settings = state.selectedGroup.settings || {};
+        
+        // Get all current toggle states
+        const toggles = document.querySelectorAll('#settingsView .toggle');
+        const verificationEnabled = toggles[0]?.classList.contains('on') ?? settings.verification_enabled;
+        const kickUnverified = toggles[1]?.classList.contains('on') ?? (settings.action_on_timeout === 'kick');
+        const antifloodEnabled = toggles[2]?.classList.contains('on') ?? settings.antiflood_enabled;
+        const raidModeEnabled = toggles[3]?.classList.contains('on') ?? settings.raid_mode_enabled;
+        
+        const timeout = parseInt(document.getElementById('verificationTimeout').value) || 300;
+        
+        // Call API to save settings
+        await api(`/api/app/group/${groupId}/settings`, {
+          verification_enabled: verificationEnabled,
+          verification_timeout: timeout,
+          action_on_timeout: kickUnverified ? 'kick' : 'mute',
+          antiflood_enabled: antifloodEnabled,
+          raid_mode_enabled: raidModeEnabled
+        });
+        
+        // Update local state
+        state.selectedGroup.settings = {
+          ...settings,
+          verification_enabled: verificationEnabled,
+          verification_timeout: timeout,
+          action_on_timeout: kickUnverified ? 'kick' : 'mute',
+          antiflood_enabled: antifloodEnabled,
+          raid_mode_enabled: raidModeEnabled
+        };
+        
         showSuccess('Settings saved successfully');
       } catch (error) {
+        console.error('Failed to save settings:', error);
         showError('Failed to save settings: ' + error.message);
       }
     }
 
     function toggleSetting(key) {
-      // Toggle logic would update the UI and call API
-      console.log('Toggle:', key);
+      // Toggle the visual state
+      const toggle = event.target.closest('.toggle');
+      if (toggle) {
+        toggle.classList.toggle('on');
+      }
     }
 
     // ===== TICKETS =====
     async function loadTickets() {
+      if (!state.selectedGroup) return;
       showView('tickets');
       const view = document.getElementById('ticketsView');
-      view.innerHTML = `
-        <div class="detail-card">
-          <div class="detail-title">🎫 Support Tickets</div>
-          <p style="color: var(--text-secondary);">Manage user support requests and tickets.</p>
-          <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
-            No active tickets
+      view.innerHTML = '<div style="padding: 20px; text-align: center;">Loading tickets...</div>';
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        const data = await api(`/api/app/group/${groupId}/tickets`);
+        const tickets = data.tickets || [];
+        
+        if (tickets.length === 0) {
+          view.innerHTML = `
+            <div class="detail-card">
+              <div class="detail-title">🎫 Support Tickets</div>
+              <p style="color: var(--text-secondary);">Manage user support requests and tickets.</p>
+              <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
+                No active tickets
+              </div>
+            </div>
+          `;
+          return;
+        }
+        
+        const ticketHtml = tickets.map(t => `
+          <div class="card-row" style="border-bottom: 1px solid var(--separator); padding: 12px 0;">
+            <div class="card-content">
+              <div class="card-title">#${t.id} - ${t.subject || 'No subject'}</div>
+              <div class="card-subtitle">Status: ${t.status} | Priority: ${t.priority || 'normal'}</div>
+            </div>
+            <span style="color: ${t.status === 'open' ? 'var(--success)' : 'var(--text-secondary)'};">
+              ${t.status === 'open' ? '●' : '○'}
+            </span>
           </div>
-        </div>
-      `;
+        `).join('');
+        
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">🎫 Support Tickets (${tickets.length})</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Manage user support requests and tickets.</p>
+            ${ticketHtml}
+          </div>
+        `;
+      } catch (error) {
+        console.error('Failed to load tickets:', error);
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">🎫 Support Tickets</div>
+            <p style="color: var(--text-secondary);">Manage user support requests and tickets.</p>
+            <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
+              No active tickets
+            </div>
+          </div>
+        `;
+      }
     }
 
     // ===== ANALYTICS =====
     async function loadAnalytics() {
+      if (!state.selectedGroup) return;
       showView('analytics');
       const view = document.getElementById('analyticsView');
+      view.innerHTML = '<div style="padding: 20px; text-align: center;">Loading analytics...</div>';
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        const data = await api(`/api/app/group/${groupId}/analytics`);
+        
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">📊 Analytics</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">View group statistics and metrics.</p>
+            
+            <div class="card-row">
+              <div class="card-content">
+                <div class="card-title">Total Members</div>
+                <div class="card-subtitle">${data.member_count || state.selectedGroup?.member_count || 0}</div>
+              </div>
+            </div>
+            
+            <div class="card-row">
+              <div class="card-content">
+                <div class="card-title">Verified Users</div>
+                <div class="card-subtitle">${data.verified_count || 0}</div>
+              </div>
+            </div>
+            
+            <div class="card-row">
+              <div class="card-content">
+                <div class="card-title">Pending Verifications</div>
+                <div class="card-subtitle">${data.pending_count || 0}</div>
+              </div>
+            </div>
+            
+            <div class="card-row">
+              <div class="card-content">
+                <div class="card-title">Warnings Issued</div>
+                <div class="card-subtitle">${data.warning_count || 0}</div>
+              </div>
+            </div>
+            
+            <div class="card-row">
+              <div class="card-content">
+                <div class="card-title">Active Tickets</div>
+                <div class="card-subtitle">${data.ticket_count || 0}</div>
+              </div>
+            </div>
+          </div>
+        `;
+      } catch (error) {
+        console.error('Failed to load analytics:', error);
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">📊 Analytics</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">View group statistics and metrics.</p>
+            
+            <div class="card-row">
+              <div class="card-content">
+                <div class="card-title">Total Members</div>
+                <div class="card-subtitle">${state.selectedGroup?.member_count || 0}</div>
+              </div>
+            </div>
+            
+            <div style="margin-top: 16px; text-align: center; color: var(--text-secondary);">
+              Unable to load detailed analytics
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    // ===== RULES =====
+    async function loadRules() {
+      if (!state.selectedGroup) return;
+      showView('rules');
+      const view = document.getElementById('rulesView');
+      view.innerHTML = '<div style="padding: 20px; text-align: center;">Loading rules...</div>';
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        const data = await api(`/api/app/group/${groupId}/rules`);
+        const rules = data.rules || [];
+        
+        if (rules.length === 0) {
+          view.innerHTML = `
+            <div class="detail-card">
+              <div class="detail-title">📋 Auto-Moderation Rules</div>
+              <p style="color: var(--text-secondary); margin-bottom: 16px;">Create and manage automated moderation rules.</p>
+              
+              <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
+                No rules configured
+              </div>
+              
+              <button class="btn btn-primary" style="margin-top: 16px;" onclick="showAddRuleForm()">
+                + Add Rule
+              </button>
+            </div>
+          `;
+          return;
+        }
+        
+        const rulesHtml = rules.map(r => `
+          <div class="card-row" style="border-bottom: 1px solid var(--separator); padding: 12px 0;">
+            <div class="card-content">
+              <div class="card-title">${r.name || 'Unnamed Rule'}</div>
+              <div class="card-subtitle">${r.match_type}: "${r.pattern}" → ${r.action_type}</div>
+            </div>
+            <div class="toggle ${r.enabled ? 'on' : ''}" onclick="toggleRule(${r.id})">
+              <div class="toggle-knob"></div>
+            </div>
+          </div>
+        `).join('');
+        
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">📋 Auto-Moderation Rules (${rules.length})</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Create and manage automated moderation rules.</p>
+            ${rulesHtml}
+            <button class="btn btn-primary" style="margin-top: 16px;" onclick="showAddRuleForm()">
+              + Add Rule
+            </button>
+          </div>
+        `;
+      } catch (error) {
+        console.error('Failed to load rules:', error);
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">📋 Auto-Moderation Rules</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Create and manage automated moderation rules.</p>
+            
+            <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
+              No rules configured
+            </div>
+            
+            <button class="btn btn-primary" style="margin-top: 16px;" onclick="showAddRuleForm()">
+              + Add Rule
+            </button>
+          </div>
+        `;
+      }
+    }
+
+    async function toggleRule(ruleId) {
+      // Toggle visual state
+      const toggle = event.target.closest('.toggle');
+      if (toggle) {
+        toggle.classList.toggle('on');
+        const enabled = toggle.classList.contains('on');
+        
+        try {
+          const groupId = state.selectedGroup.group_id;
+          await api(`/api/app/group/${groupId}/rules/${ruleId}/toggle`, { enabled });
+        } catch (error) {
+          // Revert toggle on error
+          toggle.classList.toggle('on');
+          showError('Failed to toggle rule: ' + error.message);
+        }
+      }
+    }
+
+    function showAddRuleForm() {
+      const view = document.getElementById('rulesView');
       view.innerHTML = `
         <div class="detail-card">
-          <div class="detail-title">📊 Analytics</div>
-          <p style="color: var(--text-secondary); margin-bottom: 16px;">View group statistics and metrics.</p>
+          <div class="detail-title">📋 Add New Rule</div>
           
-          <div class="card-row">
-            <div class="card-content">
-              <div class="card-title">Total Members</div>
-              <div class="card-subtitle">${state.selectedGroup?.member_count || 0}</div>
-            </div>
+          <div class="form-group">
+            <label class="form-label">Rule Name</label>
+            <input type="text" class="form-input" id="ruleName" placeholder="e.g., Block spam links" />
           </div>
           
-          <div class="card-row">
-            <div class="card-content">
-              <div class="card-title">Verified Users</div>
-              <div class="card-subtitle">Loading...</div>
-            </div>
+          <div class="form-group">
+            <label class="form-label">Match Type</label>
+            <select class="form-input" id="ruleMatchType">
+              <option value="contains">Contains</option>
+              <option value="exact">Exact Match</option>
+              <option value="regex">Regex</option>
+              <option value="starts_with">Starts With</option>
+              <option value="ends_with">Ends With</option>
+            </select>
           </div>
           
-          <div class="card-row">
-            <div class="card-content">
-              <div class="card-title">Pending Verifications</div>
-              <div class="card-subtitle">Loading...</div>
-            </div>
+          <div class="form-group">
+            <label class="form-label">Pattern</label>
+            <input type="text" class="form-input" id="rulePattern" placeholder="Text to match..." />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Action</label>
+            <select class="form-input" id="ruleAction">
+              <option value="delete">Delete Message</option>
+              <option value="warn">Warn User</option>
+              <option value="mute">Mute User</option>
+              <option value="kick">Kick User</option>
+              <option value="ban">Ban User</option>
+            </select>
+          </div>
+          
+          <div style="display: flex; gap: 12px;">
+            <button class="btn btn-secondary" style="flex: 1;" onclick="loadRules()">Cancel</button>
+            <button class="btn btn-primary" style="flex: 1;" onclick="saveRule()">Save Rule</button>
           </div>
         </div>
       `;
     }
 
-    // ===== RULES =====
-    async function loadRules() {
-      showView('rules');
-      const view = document.getElementById('rulesView');
-      view.innerHTML = `
-        <div class="detail-card">
-          <div class="detail-title">📋 Auto-Moderation Rules</div>
-          <p style="color: var(--text-secondary); margin-bottom: 16px;">Create and manage automated moderation rules.</p>
-          
-          <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
-            No rules configured
-          </div>
-          
-          <button class="btn btn-primary" style="margin-top: 16px;" onclick="alert('Add rule functionality coming soon')">
-            + Add Rule
-          </button>
-        </div>
-      `;
+    async function saveRule() {
+      if (!state.selectedGroup) return;
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        const name = document.getElementById('ruleName').value.trim();
+        const matchType = document.getElementById('ruleMatchType').value;
+        const pattern = document.getElementById('rulePattern').value.trim();
+        const actionType = document.getElementById('ruleAction').value;
+        
+        if (!name || !pattern) {
+          showError('Please fill in all required fields');
+          return;
+        }
+        
+        // Use the correct endpoint for creating rules
+        await api(`/api/app/group/${groupId}/rules/create`, {
+          name,
+          match_type: matchType,
+          pattern,
+          action_type: actionType,
+          enabled: true,
+          trigger: 'message_group'
+        });
+        
+        showSuccess('Rule created successfully');
+        loadRules(); // Reload rules list
+      } catch (error) {
+        console.error('Failed to save rule:', error);
+        showError('Failed to save rule: ' + error.message);
+      }
     }
 
     // ===== ONBOARDING =====
@@ -1385,16 +1650,43 @@
 
     function toggleOnboarding() {
       const toggle = event.target.closest('.toggle');
-      toggle.classList.toggle('on');
+      if (toggle) {
+        toggle.classList.toggle('on');
+      }
     }
 
     async function saveOnboarding() {
+      if (!state.selectedGroup) return;
+      
       try {
-        const text = document.getElementById('onboardingText').value;
-        const delay = document.getElementById('onboardingDelay').value;
-        // API call would go here
+        const groupId = state.selectedGroup.group_id;
+        
+        // Get toggle state
+        const toggle = document.querySelector('#onboardingView .toggle');
+        const enabled = toggle?.classList.contains('on') ?? false;
+        
+        const text = document.getElementById('onboardingText').value.trim();
+        const delaySeconds = parseInt(document.getElementById('onboardingDelay').value) || 0;
+        
+        // Call API to save onboarding settings
+        await api(`/api/app/group/${groupId}/onboarding`, {
+          enabled: enabled,
+          text: text,
+          delay_seconds: delaySeconds,
+          parse_mode: 'HTML'
+        });
+        
+        // Update local state
+        state.selectedGroup.onboarding = {
+          enabled: enabled,
+          text: text,
+          delay_seconds: delaySeconds,
+          parse_mode: 'HTML'
+        };
+        
         showSuccess('Onboarding settings saved');
       } catch (error) {
+        console.error('Failed to save onboarding:', error);
         showError('Failed to save: ' + error.message);
       }
     }

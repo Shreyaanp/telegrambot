@@ -187,6 +187,16 @@ class RulesService:
             await session.delete(rule)
             return True
 
+    async def toggle_rule(self, *, group_id: int, rule_id: int, enabled: bool) -> bool:
+        """Toggle a rule's enabled status."""
+        async with db.session() as session:
+            rule = await session.get(Rule, int(rule_id))
+            if not rule or int(rule.group_id) != int(group_id):
+                return False
+            rule.enabled = enabled
+            await session.commit()
+            return True
+
     def _matches(self, rule: Rule, text: str) -> bool:
         pattern = str(getattr(rule, "pattern", "") or "")
         if not pattern:
