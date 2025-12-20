@@ -59,12 +59,12 @@ async def open_ticket_intake(bot, container: ServiceContainer, *, user_id: int, 
     group = await container.group_service.get_or_create_group(group_id)
     title = group.group_name or str(group.group_id)
     text = (
-        f"<b>Support ticket</b>\n"
+        f"<b>📝 Create Support Ticket</b>\n"
         f"Group: {title}\n\n"
-        "Send your message (one message for now)."
+        "Please send your message. You can include text and/or a photo."
     )
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="Cancel", callback_data=f"ticket:cancel:{group_id}")]]
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Cancel", callback_data=f"ticket:cancel:{group_id}")]]
     )
     await container.panel_service.upsert_dm_panel(
         bot=bot,
@@ -483,7 +483,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 await container.ticket_service.set_active_ticket(user_id=int(message.from_user.id), ticket_id=int(ticket_id))
                 
                 await message.answer(
-                    f"✅ Ticket <code>#{ticket_id}</code> created.\n\n"
+                    f"✅ Ticket <code>#{ticket_id}</code> created!\n\n"
                     "Send messages here to add updates.\n"
                     "Send <code>/close</code> to close the ticket.",
                     parse_mode="HTML",
@@ -597,11 +597,19 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             try:
                 caption = (message.caption or "").strip()
                 seed = caption if caption else f"[{str(message.content_type)}]"
+                
+                # Extract photo file_id if it's a photo
+                image_file_id = None
+                if message.photo:
+                    # Get the largest photo
+                    image_file_id = message.photo[-1].file_id
+                
                 ticket_id = await container.ticket_service.create_ticket(
                     bot=message.bot,
                     group_id=int(ticket_group_id),
                     user_id=int(message.from_user.id),
                     message=seed,
+                    image_file_id=image_file_id,
                 )
                 await container.ticket_service.set_active_ticket(user_id=int(message.from_user.id), ticket_id=int(ticket_id))
                 async with db.session() as session:
@@ -616,7 +624,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                     if state:
                         await session.delete(state)
                 await message.answer(
-                    f"✅ Ticket <code>#{ticket_id}</code> created.\n\n"
+                    f"✅ Ticket <code>#{ticket_id}</code> created!\n\n"
                     "Send messages here to add updates.\n"
                     "Send <code>/close</code> to close the ticket.",
                     parse_mode="HTML",
@@ -663,6 +671,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         if len(parts) < 2:
             return
         action = parts[1]
+        
         if action == "cancel" and len(parts) >= 3:
             try:
                 gid = int(parts[2])
@@ -876,7 +885,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                         kwargs["message_thread_id"] = thread_id
                     await callback.bot.send_message(
                         chat_id=dest_chat_id,
-                        text=f"<b>Log test</b>\nGroup: <code>{group_id}</code>",
+                        text=f"<b>✅ Log Test Successful</b>\n\nThis is a test message from your bot's logging system.",
                         parse_mode="HTML",
                         **kwargs,
                     )

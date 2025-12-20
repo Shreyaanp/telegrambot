@@ -723,11 +723,22 @@ class VerificationService:
                     logger.error(f"Failed to unmute user: {e}")
             
             if send_followup:
-                success_msg = verification_success_message(mercle_user_id)
+                # Get bot username for Mini App deep link
+                try:
+                    bot_me = await bot.get_me()
+                    bot_username = bot_me.username
+                except Exception:
+                    bot_username = None
+                
+                success_msg = verification_success_message(mercle_user_id, bot_username)
                 keyboard = [
+                    [InlineKeyboardButton(text="🏠 Return to Mini App", url=f"https://t.me/{bot_username}/app")] if bot_username else [],
                     [InlineKeyboardButton(text="📥 Download Mercle (iOS)", url=self.config.mercle_ios_url)],
                     [InlineKeyboardButton(text="📥 Download Mercle (Android)", url=self.config.mercle_android_url)],
                 ]
+                # Filter out empty rows
+                keyboard = [row for row in keyboard if row]
+                
                 await bot.send_message(
                     chat_id=chat_id,
                     text=success_msg,

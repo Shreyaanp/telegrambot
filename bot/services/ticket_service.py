@@ -278,6 +278,8 @@ class TicketService:
         user_id: int,
         message: str,
         subject: Optional[str] = None,
+        priority: Optional[str] = None,
+        image_file_id: Optional[str] = None,
     ) -> int:
         msg = (message or "").strip()
         if not msg:
@@ -286,6 +288,10 @@ class TicketService:
             raise ValueError("message is too long")
 
         subject_norm = (subject or "").strip() or msg.splitlines()[0][:80]
+        priority_norm = (priority or "normal").strip().lower()
+        if priority_norm not in ("low", "normal", "high", "urgent"):
+            priority_norm = "normal"
+        
         now = datetime.utcnow()
 
         staff_chat_id: int
@@ -309,6 +315,7 @@ class TicketService:
                 status="open",
                 subject=subject_norm,
                 message=msg,
+                priority=priority_norm,
                 created_at=now,
                 closed_at=None,
                 staff_chat_id=staff_chat_id,
@@ -327,8 +334,9 @@ class TicketService:
                 ticket_id=ticket_id,
                 sender_type="user",
                 sender_id=int(user_id),
-                message_type="text",
+                message_type="photo" if image_file_id else "text",
                 content=msg,
+                file_id=image_file_id,
                 created_at=now,
             )
             session.add(initial_msg)
@@ -349,10 +357,14 @@ class TicketService:
             logger.warning(f"Could not create forum topic for ticket #{ticket_id}: {e}")
             topic_thread_id = None
 
+        # Priority emoji
+        priority_emoji = {"low": "🟢", "normal": "🟡", "high": "🟠", "urgent": "🔴"}.get(priority_norm, "🟡")
+        
         text = (
-            f"<b>Ticket #{ticket_id}</b>\n"
+            f"<b>{priority_emoji} Ticket #{ticket_id}</b>\n"
             f"Group: <code>{int(group_id)}</code>\n"
             f"User: <code>{int(user_id)}</code>\n"
+            f"Priority: <b>{priority_norm.upper()}</b>\n"
             f"Subject: {escape(subject_norm)}\n\n"
             f"{escape(msg)}"
         )
@@ -366,7 +378,24 @@ class TicketService:
             kwargs["message_thread_id"] = logs_thread_id
 
         try:
-            sent = await bot.send_message(chat_id=staff_chat_id, text=text, parse_mode="HTML", reply_markup=kb, **kwargs)
+            # If there's an image, send it with the caption
+            if image_file_id:
+                sent = await bot.send_photo(
+                    chat_id=staff_chat_id,
+                    photo=image_file_id,
+                    caption=text,
+                    parse_mode="HTML",
+                    reply_markup=kb,
+                    **kwargs
+                )
+            else:
+                sent = await bot.send_message(
+                    chat_id=staff_chat_id,
+                    text=text,
+                    parse_mode="HTML",
+                    reply_markup=kb,
+                    **kwargs
+                )
             logger.info(f"Sent ticket #{ticket_id} to staff chat {staff_chat_id}")
         except Exception as e:
             logger.error(f"Failed to send ticket #{ticket_id} to staff chat: {e}")

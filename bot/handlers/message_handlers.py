@@ -131,9 +131,8 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                     if not silent:
                         remaining_warnings = warn_threshold - warning_count + 1
                         await message.answer(
-                            f"⚠️ {message.from_user.mention_html()}, slow down! You're sending messages too fast.\n"
-                            f"📊 {msg_count} messages in the last minute (limit: {flood_settings.get('limit', 10)})\n"
-                            f"⏳ {remaining_warnings} warning(s) remaining before action.",
+                            f"⚠️ {message.from_user.mention_html()}, please slow down! You're sending messages too quickly.\n\n"
+                            f"⏳ {remaining_warnings} warning(s) remaining.",
                             parse_mode="HTML"
                         )
                     logger.info(f"Warned user {user_id} for flooding ({warning_count}/{warn_threshold} warnings)")
@@ -175,8 +174,7 @@ def create_message_handlers(container: ServiceContainer) -> Router:
 
                 if not silent and action_taken:
                     await message.answer(
-                        f"🚫 {message.from_user.mention_html()} has been {action_taken} for flooding.\n\n"
-                        f"📊 Sent {msg_count} messages too quickly (limit: {flood_settings.get('limit', 10)}/min).",
+                        f"🚫 {message.from_user.mention_html()} has been {action_taken} for sending messages too quickly.",
                         parse_mode="HTML"
                     )
                 

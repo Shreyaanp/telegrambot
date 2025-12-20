@@ -70,10 +70,9 @@ def create_join_request_handlers(container: ServiceContainer) -> Router:
 
         if not can_manage_join_requests:
             await _maybe_send_admin_log(
-                "<b>Join gate misconfigured</b>\n"
-                f"Group: <code>{group_id}</code>\n\n"
-                "Join gate is enabled, but I can't approve/decline join requests.\n"
-                "Fix: promote the bot to admin and enable <b>Invite Users</b>."
+                "<b>⚠️ Join gate misconfigured</b>\n\n"
+                "Join gate is enabled, but I can't approve/decline join requests.\n\n"
+                "<b>Fix:</b> Promote the bot to admin and enable <b>Invite Users</b> permission."
             )
             try:
                 if user_chat_id is not None:

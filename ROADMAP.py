@@ -3,7 +3,7 @@ MERCLE TELEGRAM BOT - DEVELOPMENT ROADMAP
 ==========================================
 Generated: 2024-12-20
 Last Updated: 2024-12-20
-Status: IN PROGRESS - Phase 0, 1, 2 COMPLETE. Phase 3 PENDING.
+Status: IN PROGRESS - Phase 0, 1, 2 COMPLETE. Phase 3 (UX) IN PROGRESS.
 
 This file serves as both documentation AND executable checklist.
 Run `python ROADMAP.py` to see current progress.
@@ -221,124 +221,104 @@ ROADMAP = {
     },
 
     # =========================================================================
-    # PHASE 3: FEATURE COMPLETENESS (P1) - PENDING
+    # PHASE 3: UX IMPROVEMENTS (P1) - IN PROGRESS
     # =========================================================================
-    "phase_3_features": {
-        "title": "✨ Feature Completeness",
+    "phase_3_ux": {
+        "title": "🎯 UX Improvements",
         "priority": "P1",
-        "estimated_hours": 12,
+        "estimated_hours": 8,
         "tasks": [
             {
-                "id": "FEAT-001",
-                "title": "Verification flow return logic",
+                "id": "UX-001",
+                "title": "Remove duplicate Welcome Messages from Settings",
                 "description": """
-                    Problem: Verification flow jumps to bot DM without guidance or return.
+                    Problem: Welcome Messages section exists in both Settings page AND 
+                    Onboarding page - confusing duplicate.
                     
-                    Solution:
-                    1. Show clear instructions before redirect
-                    2. After verification completes, send user back to Mini App or group
-                    3. Add deep link that reopens Mini App after verification
+                    Solution: Remove Welcome Messages from Settings, keep only Onboarding page.
                     
-                    Files: static/app.html, bot/handlers/commands.py, bot/services/verification.py
+                    Files: static/app.html
                 """,
                 "status": "pending",
             },
             {
-                "id": "FEAT-002",
-                "title": "Welcome message channel choice",
+                "id": "UX-002",
+                "title": "Mod logs - simple message in group, details in Mini App",
                 "description": """
-                    Problem: No choice for welcome message destination (group vs DM).
+                    Problem: Detailed log messages with IDs shown in group chat.
                     
                     Solution:
-                    1. Add setting: welcome_destination (group/dm/both)
-                    2. Update onboarding service to respect this setting
-                    3. Add to Mini App settings UI
+                    1. Keep simple message in group (e.g., "User was muted for 1 minute")
+                    2. Detailed logs viewable only in Mini App Settings → Logs section
+                    3. Scrollable list of recent logs (timestamp, action, target, admin, reason)
                     
-                    Files: database/models.py, bot/services/onboarding_service.py, 
-                           static/app.html, webhook_server.py
+                    Files: static/app.html, webhook_server.py, bot/services/mod_log_service.py
                 """,
                 "status": "pending",
             },
             {
-                "id": "FEAT-003",
-                "title": "Rules: warn count before escalation",
+                "id": "UX-003",
+                "title": "Smart verification button (mobile-aware)",
                 "description": """
-                    Problem: If rule action is "warn", how many warnings before kick?
+                    Problem: QR code shows on mobile, should only show on desktop.
+                    Download button isn't smart about app detection.
                     
                     Solution:
-                    1. Add warn_threshold field to rules
-                    2. Track warning count per user per rule
-                    3. Escalate to kick/ban after threshold
+                    1. Mobile: Smart button that tries mercle:// deep link, falls back to store
+                    2. Desktop: Show QR code as-is
+                    3. Use Android Intent fallback logic from verify.html
                     
-                    Files: database/models.py, bot/services/rules_service.py, static/app.html
+                    Files: bot/services/verification.py, bot/handlers/commands.py
                 """,
                 "status": "pending",
             },
             {
-                "id": "FEAT-004",
-                "title": "Ticket system improvements",
+                "id": "UX-004",
+                "title": "Remove /menu command entirely",
                 "description": """
-                    Problems:
-                    - UI/UX is bad for ticket creation
-                    - No image support
-                    - Bot doesn't ask enough questions
+                    Problem: Users shouldn't configure menu via commands.
                     
-                    Solution:
-                    1. Multi-step ticket creation wizard in DM
-                    2. Image handling (up to 5MB, save locally)
-                    3. Priority levels (low/medium/high/urgent)
+                    Solution: Remove /menu command and all related code.
                     
-                    Files: bot/handlers/commands.py, bot/services/ticket_service.py,
-                           database/models.py, static/app.html, webhook_server.py
+                    Files: bot/handlers/commands.py, bot/main.py
                 """,
                 "status": "pending",
             },
             {
-                "id": "FEAT-005",
-                "title": "Re-verification flow audit",
+                "id": "UX-005",
+                "title": "Remove 'Add to group' from /start for unverified users",
                 "description": """
-                    Problem: Need to check re-verification logic for gaps.
+                    Problem: Unverified users see "Add to group" option which doesn't make sense.
                     
-                    Audit checklist:
-                    1. What happens when verification expires?
-                    2. Is user automatically restricted again?
-                    3. How does re-verify button work?
-                    4. Are there race conditions?
-                    5. Does it work for users in multiple groups?
+                    Solution: Remove that option from /start response for unverified users.
                     
-                    Files: bot/services/verification.py, bot/handlers/member_events.py
+                    Files: bot/handlers/commands.py
                 """,
                 "status": "pending",
             },
             {
-                "id": "FEAT-006",
-                "title": "Improve bot response messages",
+                "id": "UX-006",
+                "title": "Mini App Verify button links directly to verification",
                 "description": """
-                    Problem: Bot output messages need to be better/more helpful.
+                    Problem: Clicking Verify in Mini App shows popup but doesn't link to 
+                    actual verification flow.
                     
-                    Solution:
-                    1. Audit all bot responses
-                    2. Make them more conversational and helpful
-                    3. Add context-specific tips
-                    4. Ensure consistent tone
+                    Solution: Link directly to verification (same as /start for unverified).
                     
-                    Files: All handler files
+                    Files: static/app.html
                 """,
                 "status": "pending",
             },
             {
-                "id": "FEAT-007",
-                "title": "Document mod logs flow",
+                "id": "UX-007",
+                "title": "Remove 'Return to Mini App' when user verified manually",
                 "description": """
-                    Problem: Unclear how mod logs are created and work.
+                    Problem: Shows "Return to Mini App" even when user verified via bot 
+                    directly (not from Mini App).
                     
-                    Solution:
-                    1. Audit current implementation
-                    2. Document the flow
-                    3. Ensure all mod actions are logged
-                    4. Make logs destination configurable in Mini App
+                    Solution: Only show return button if user came from Mini App.
                     
-                    Files: bot/services/mod_log_service.py, webhook_server.py
+                    Files: bot/services/verification.py
                 """,
                 "status": "pending",
             },
@@ -373,72 +353,17 @@ ROADMAP = {
             },
         ]
     },
-
-    # =========================================================================
-    # PHASE 5: ADVANCED FEATURES (P3) - PENDING
-    # =========================================================================
-    "phase_5_advanced": {
-        "title": "🚀 Advanced Features",
-        "priority": "P3",
-        "estimated_hours": 20,
-        "tasks": [
-            {
-                "id": "ADV-001",
-                "title": "T5 content filtering model",
-                "description": """
-                    Goal: Use T5 model for intelligent content filtering by category.
-                    
-                    Implementation plan:
-                    1. Local implementation first (can convert to API later)
-                    2. Categories: spam, hate speech, adult content, scam, etc.
-                    3. Model: distilbert or similar lightweight model
-                    4. Integration points:
-                       - Message handler checks content
-                       - Returns category + confidence
-                       - Rules engine uses this for actions
-                    
-                    Infrastructure notes:
-                    - Will need GPU for reasonable performance
-                    - User will move to better infra later
-                    - Design as pluggable service
-                    
-                    Files: New bot/services/content_filter_service.py
-                """,
-                "status": "pending",
-            },
-            {
-                "id": "ADV-002",
-                "title": "User roles system",
-                "description": """
-                    Goal: Granular permission system for users.
-                    
-                    Current: Basic admin/mod detection from Telegram
-                    
-                    Proposed:
-                    1. Custom roles (owner, admin, moderator, trusted, member)
-                    2. Per-role permissions (can_warn, can_kick, can_ban, can_settings, etc.)
-                    3. Role assignment via commands and Mini App
-                    4. Role-based UI in Mini App
-                    
-                    Files: database/models.py, bot/services/roles_service.py,
-                           webhook_server.py, static/app.html
-                """,
-                "status": "pending",
-            },
-        ]
-    },
 }
 
 # =========================================================================
 # EXECUTION ORDER
 # =========================================================================
 EXECUTION_ORDER = [
-    "phase_0_security",   # COMPLETE ✅
-    "phase_1_bugs",       # COMPLETE ✅
-    "phase_2_design_system",  # COMPLETE ✅
-    "phase_3_features",   # IN PROGRESS
-    "phase_4_performance", # PENDING
-    "phase_5_advanced",   # PENDING (post-MVP)
+    "phase_0_security",      # COMPLETE ✅
+    "phase_1_bugs",          # COMPLETE ✅
+    "phase_2_design_system", # COMPLETE ✅
+    "phase_3_ux",            # IN PROGRESS
+    "phase_4_performance",   # PENDING
 ]
 
 # =========================================================================
@@ -500,6 +425,6 @@ if __name__ == "__main__":
     
     print("\n📋 NEXT TASKS TO WORK ON:")
     print("-" * 40)
-    for task in get_next_tasks(5):
+    for task in get_next_tasks(7):
         print(f"[{task['priority']}] {task['id']}: {task['title']}")
     print()

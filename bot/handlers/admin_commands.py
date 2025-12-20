@@ -364,7 +364,8 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         await container.metrics_service.incr_admin_action("unban", message.chat.id)
         
         if success:
-            await message.answer(f"✅ User <code>{user_id}</code> has been unbanned.", parse_mode="HTML")
+            user_mention = await get_user_mention(message, user_id)
+            await message.answer(f"✅ {escape(user_mention)} has been unbanned.", parse_mode="HTML")
         else:
             await message.answer("❌ Failed to unban user.")
     
@@ -527,7 +528,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
                 f"👤 User: {escape(user_mention)}\n"
                 f"📊 Warnings: {warn_count}/{warn_limit}"
                 f"{reason_line}\n\n"
-                f"🚫 User has been kicked from the group.",
+                f"🚫 User has been removed from the group.",
                 parse_mode="HTML",
             )
         else:
@@ -904,9 +905,10 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             pass
 
         await container.metrics_service.incr_admin_action("fban", group_id)
+        user_mention = await get_user_mention(message, user_id)
         await message.reply(
-            f"🚫 Federation banned <code>{int(user_id)}</code> (fed <code>{fid}</code>).\n"
-            f"Applied: <code>{ok}</code> ok, <code>{fail}</code> failed.",
+            f"🚫 Federation ban applied to {escape(user_mention)}.\n"
+            f"✅ Applied to {ok} group(s), ❌ {fail} failed.",
             parse_mode="HTML",
         )
 
@@ -953,10 +955,10 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
             pass
 
         await container.metrics_service.incr_admin_action("funban", group_id)
+        user_mention = await get_user_mention(message, user_id)
         await message.reply(
-            f"✅ Federation unban <code>{int(user_id)}</code> (fed <code>{fid}</code>)\n"
-            f"Removed from list: <code>{'yes' if removed else 'no'}</code>\n"
-            f"Applied: <code>{ok}</code> ok, <code>{fail}</code> failed.",
+            f"✅ Federation unban applied to {escape(user_mention)}.\n"
+            f"✅ Applied to {ok} group(s), ❌ {fail} failed.",
             parse_mode="HTML",
         )
 
@@ -1514,7 +1516,8 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
                 role=role,
                 granted_by=message.from_user.id
             )
-            await message.reply(f"✅ Assigned role *{perm.role}* to `{user_id}`.", parse_mode="Markdown")
+            user_mention = await get_user_mention(message, user_id)
+            await message.reply(f"✅ Assigned role *{perm.role}* to {escape(user_mention)}.", parse_mode="HTML")
         elif action == "show":
             user_id, _ = await extract_user_and_reason(message, user_arg_index=2)
             if not user_id:
@@ -1525,7 +1528,8 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
                 await message.reply("ℹ️ No role found for that user.")
                 return
             flags = container.roles_service.format_flags(perm)
-            await message.reply(f"🧑‍💼 Role for `{user_id}`: *{perm.role}*\n{flags}", parse_mode="Markdown")
+            user_mention = await get_user_mention(message, user_id)
+            await message.reply(f"🧑‍💼 Role for {escape(user_mention)}: *{perm.role}*\n{flags}", parse_mode="HTML")
         elif action == "set":
             # /roles set @user kick on
             # (reply) /roles set kick on
@@ -1571,7 +1575,8 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
                 return
             perm = await container.roles_service.get_role(message.chat.id, user_id)
             flags = container.roles_service.format_flags(perm) if perm else ""
-            await message.reply(f"✅ Updated `{perm_key}` for `{user_id}`.\n{flags}", parse_mode="Markdown")
+            user_mention = await get_user_mention(message, user_id)
+            await message.reply(f"✅ Updated `{perm_key}` for {escape(user_mention)}.\n{flags}", parse_mode="HTML")
         elif action == "remove":
             user_id, _ = await extract_user_and_reason(message, user_arg_index=2)
             if not user_id:
@@ -1579,7 +1584,8 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
                 return
             removed = await container.roles_service.remove_role(message.chat.id, user_id)
             if removed:
-                await message.reply(f"✅ Removed role for `{user_id}`.", parse_mode="Markdown")
+                user_mention = await get_user_mention(message, user_id)
+                await message.reply(f"✅ Removed role for {escape(user_mention)}.", parse_mode="HTML")
             else:
                 await message.reply("ℹ️ No role found for that user.")
         else:

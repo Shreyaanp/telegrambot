@@ -21,7 +21,8 @@ class WelcomeService:
         self,
         group_id: int,
         message: str,
-        enabled: bool = True
+        enabled: bool = True,
+        destination: str = "group"
     ) -> bool:
         """
         Set welcome message for a group.
@@ -30,10 +31,15 @@ class WelcomeService:
             group_id: Group ID
             message: Welcome message text
             enabled: Whether welcome is enabled
+            destination: Where to send welcome (group|dm|both)
             
         Returns:
             True if successful
         """
+        # Validate destination
+        if destination not in ["group", "dm", "both"]:
+            destination = "group"
+            
         async with db.session() as session:
             result = await session.execute(
                 select(Group).where(Group.group_id == group_id)
@@ -45,15 +51,17 @@ class WelcomeService:
                 group = Group(
                     group_id=group_id,
                     welcome_enabled=enabled,
-                    welcome_message=message
+                    welcome_message=message,
+                    welcome_destination=destination
                 )
                 session.add(group)
             else:
                 group.welcome_enabled = enabled
                 group.welcome_message = message
+                group.welcome_destination = destination
             
             await session.commit()
-            logger.info(f"Welcome message set for group {group_id}")
+            logger.info(f"Welcome message set for group {group_id}, destination: {destination}")
             return True
     
     async def set_goodbye(
@@ -94,7 +102,7 @@ class WelcomeService:
             logger.info(f"Goodbye message set for group {group_id}")
             return True
     
-    async def get_welcome(self, group_id: int) -> Optional[tuple[bool, str]]:
+    async def get_welcome(self, group_id: int) -> Optional[tuple[bool, str, str]]:
         """
         Get welcome message for a group.
         
@@ -102,7 +110,7 @@ class WelcomeService:
             group_id: Group ID
             
         Returns:
-            Tuple of (enabled, message) or None
+            Tuple of (enabled, message, destination) or None
         """
         async with db.session() as session:
             result = await session.execute(
@@ -111,7 +119,8 @@ class WelcomeService:
             group = result.scalar_one_or_none()
             
             if group and group.welcome_message:
-                return (group.welcome_enabled, group.welcome_message)
+                destination = getattr(group, 'welcome_destination', 'group') or 'group'
+                return (group.welcome_enabled, group.welcome_message, destination)
             return None
     
     async def get_goodbye(self, group_id: int) -> Optional[tuple[bool, str]]:

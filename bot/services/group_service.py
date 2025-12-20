@@ -70,6 +70,7 @@ class GroupService:
         raid_mode_enabled: Optional[bool] = None,
         raid_mode_minutes: Optional[int] = None,
         welcome_enabled: Optional[bool] = None,
+        welcome_destination: Optional[str] = None,  # group|dm|both
         verification_enabled: Optional[bool] = None,
         join_gate_enabled: Optional[bool] = None,
         logs_enabled: Optional[bool] = None,
@@ -132,6 +133,11 @@ class GroupService:
                     group.raid_mode_until = None
             if welcome_enabled is not None:
                 group.welcome_enabled = welcome_enabled
+            if welcome_destination is not None:
+                dest = str(welcome_destination or "").strip() or "group"
+                if dest not in ("group", "dm", "both"):
+                    dest = "group"
+                group.welcome_destination = dest
             if verification_enabled is not None:
                 group.verification_enabled = verification_enabled
             if join_gate_enabled is not None:

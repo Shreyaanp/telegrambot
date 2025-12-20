@@ -15,7 +15,7 @@ from aiogram.types import Message
 from sqlalchemy import select
 
 from database.db import db
-from database.models import Rule, RuleAction
+from database.models import Rule, RuleAction, RuleWarning
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +164,8 @@ class RulesService:
                         "match_type": str(rule.match_type),
                         "pattern": str(rule.pattern),
                         "case_sensitive": bool(rule.case_sensitive),
+                        "warn_threshold": int(getattr(rule, 'warn_threshold', 3) or 3),
+                        "warn_escalation_action": str(getattr(rule, 'warn_escalation_action', 'kick') or 'kick'),
                         "actions": actions,
                     }
                 )
@@ -184,6 +186,8 @@ class RulesService:
         enabled: bool = True,
         trigger: str = "message_group",
         case_sensitive: bool = False,
+        warn_threshold: int = 3,
+        warn_escalation_action: str = "kick",
     ) -> int:
         name = (name or "").strip() or "Rule"
         pattern = (pattern or "").strip()
@@ -215,6 +219,11 @@ class RulesService:
                 raise ValueError("sequence_key is required for start_sequence")
         params_json = json.dumps(params, separators=(",", ":"), ensure_ascii=False)
 
+        # Validate warn escalation settings
+        warn_threshold = max(0, min(int(warn_threshold or 3), 100))
+        if warn_escalation_action not in ("kick", "ban"):
+            warn_escalation_action = "kick"
+        
         now = datetime.utcnow()
         rule = Rule(
             group_id=int(group_id),
@@ -226,6 +235,8 @@ class RulesService:
             match_type=str(match_type),
             pattern=pattern,
             case_sensitive=bool(case_sensitive),
+            warn_threshold=warn_threshold,
+            warn_escalation_action=str(warn_escalation_action),
             created_by=int(created_by),
             created_at=now,
             updated_at=now,
@@ -259,6 +270,8 @@ class RulesService:
         enabled: bool = True,
         trigger: str = "message_group",
         case_sensitive: bool = False,
+        warn_threshold: int = 3,
+        warn_escalation_action: str = "kick",
     ) -> int:
         """
         Alias for create_simple_rule for API consistency.
@@ -279,6 +292,8 @@ class RulesService:
             enabled=enabled,
             trigger=trigger,
             case_sensitive=case_sensitive,
+            warn_threshold=warn_threshold,
+            warn_escalation_action=warn_escalation_action,
         )
 
     async def delete_rule(self, *, group_id: int, rule_id: int) -> bool:
@@ -300,6 +315,75 @@ class RulesService:
             if not rule or int(rule.group_id) != int(group_id):
                 return False
             rule.enabled = enabled
+            await session.commit()
+            return True
+
+    async def update_rule(
+        self,
+        *,
+        group_id: int,
+        rule_id: int,
+        name: str | None = None,
+        match_type: str | None = None,
+        pattern: str | None = None,
+        action_type: str | None = None,
+        enabled: bool | None = None,
+        warn_threshold: int | None = None,
+        warn_escalation_action: str | None = None,
+    ) -> bool:
+        """Update an existing rule."""
+        async with db.session() as session:
+            rule = await session.get(Rule, int(rule_id))
+            if not rule or int(rule.group_id) != int(group_id):
+                return False
+            
+            # Update fields if provided
+            if name is not None:
+                rule.name = str(name).strip()[:100]
+            if match_type is not None:
+                if match_type not in ("contains", "exact", "regex", "starts_with", "ends_with"):
+                    raise ValueError(f"Invalid match_type: {match_type}")
+                rule.match_type = match_type
+            if pattern is not None:
+                pattern = str(pattern).strip()
+                if not pattern:
+                    raise ValueError("Pattern cannot be empty")
+                # Validate regex if match_type is regex
+                if (match_type or rule.match_type) == "regex":
+                    is_valid, error = validate_regex_pattern(pattern)
+                    if not is_valid:
+                        raise ValueError(error)
+                rule.pattern = pattern
+            if enabled is not None:
+                rule.enabled = bool(enabled)
+            if warn_threshold is not None:
+                rule.warn_threshold = max(0, min(int(warn_threshold), 100))
+            if warn_escalation_action is not None:
+                if warn_escalation_action not in ("kick", "ban"):
+                    warn_escalation_action = "kick"
+                rule.warn_escalation_action = warn_escalation_action
+            
+            # Update action if action_type changed
+            if action_type is not None:
+                # Get existing actions
+                actions_result = await session.execute(
+                    select(RuleAction).where(RuleAction.rule_id == int(rule.id))
+                )
+                existing_actions = list(actions_result.scalars().all())
+                
+                # If there's exactly one action and it's different, update it
+                if len(existing_actions) == 1:
+                    existing_actions[0].action_type = action_type
+                elif len(existing_actions) == 0:
+                    # Create new action
+                    new_action = RuleAction(
+                        rule_id=int(rule.id),
+                        action_order=0,
+                        action_type=action_type,
+                        params="{}",
+                    )
+                    session.add(new_action)
+            
             await session.commit()
             return True
 
@@ -405,6 +489,54 @@ class RulesService:
 
         return matched
 
+    async def _get_rule_warning_count(self, rule_id: int, telegram_id: int) -> int:
+        """Get the number of warnings a user has received for a specific rule."""
+        async with db.session() as session:
+            result = await session.execute(
+                select(RuleWarning)
+                .where(
+                    RuleWarning.rule_id == int(rule_id),
+                    RuleWarning.telegram_id == int(telegram_id),
+                )
+            )
+            warnings = list(result.scalars().all())
+            return len(warnings)
+
+    async def _add_rule_warning(
+        self,
+        *,
+        rule_id: int,
+        group_id: int,
+        telegram_id: int,
+        message_text: str | None = None,
+    ) -> None:
+        """Record a warning for a specific rule."""
+        async with db.session() as session:
+            warning = RuleWarning(
+                rule_id=int(rule_id),
+                group_id=int(group_id),
+                telegram_id=int(telegram_id),
+                warned_at=datetime.utcnow(),
+                message_text=message_text[:500] if message_text else None,
+            )
+            session.add(warning)
+            await session.commit()
+
+    async def _clear_rule_warnings(self, rule_id: int, telegram_id: int) -> None:
+        """Clear all warnings for a user on a specific rule (e.g., after escalation)."""
+        async with db.session() as session:
+            result = await session.execute(
+                select(RuleWarning)
+                .where(
+                    RuleWarning.rule_id == int(rule_id),
+                    RuleWarning.telegram_id == int(telegram_id),
+                )
+            )
+            warnings = list(result.scalars().all())
+            for warning in warnings:
+                await session.delete(warning)
+            await session.commit()
+
     async def apply_group_text_rules(
         self,
         *,
@@ -456,16 +588,59 @@ class RulesService:
                     continue
 
                 if a_type == "warn":
-                    try:
-                        await admin_service.warn_user(
-                            bot=message.bot,
-                            group_id=group_id,
-                            user_id=int(message.from_user.id),
-                            admin_id=int(message.bot.id),
-                            reason=f"Rule: {rule.name}",
-                        )
-                    except Exception:
-                        pass
+                    user_id = int(message.from_user.id)
+                    rule_id = int(rule.id)
+                    
+                    # Get warning threshold and escalation action from rule
+                    warn_threshold = int(getattr(rule, 'warn_threshold', 3) or 3)
+                    escalation_action = str(getattr(rule, 'warn_escalation_action', 'kick') or 'kick')
+                    
+                    # Get current warning count for this rule
+                    current_warnings = await self._get_rule_warning_count(rule_id, user_id)
+                    
+                    # Check if we should escalate (threshold > 0 means escalation is enabled)
+                    if warn_threshold > 0 and current_warnings >= warn_threshold:
+                        # Escalate: kick or ban the user
+                        try:
+                            if escalation_action == "ban":
+                                await admin_service.ban_user(
+                                    bot=message.bot,
+                                    group_id=group_id,
+                                    user_id=user_id,
+                                    admin_id=int(message.bot.id),
+                                    reason=f"Rule: {rule.name} (exceeded {warn_threshold} warnings)",
+                                )
+                            else:  # kick
+                                await admin_service.kick_user(
+                                    bot=message.bot,
+                                    group_id=group_id,
+                                    user_id=user_id,
+                                    admin_id=int(message.bot.id),
+                                    reason=f"Rule: {rule.name} (exceeded {warn_threshold} warnings)",
+                                )
+                            # Clear warnings after escalation
+                            await self._clear_rule_warnings(rule_id, user_id)
+                        except Exception as e:
+                            logger.error(f"Failed to escalate rule warning: {e}")
+                    else:
+                        # Issue warning and track it
+                        try:
+                            await admin_service.warn_user(
+                                bot=message.bot,
+                                group_id=group_id,
+                                user_id=user_id,
+                                admin_id=int(message.bot.id),
+                                reason=f"Rule: {rule.name} ({current_warnings + 1}/{warn_threshold})",
+                            )
+                            # Record the warning
+                            await self._add_rule_warning(
+                                rule_id=rule_id,
+                                group_id=group_id,
+                                telegram_id=user_id,
+                                message_text=str(message.text or ""),
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to warn user for rule: {e}")
                     continue
 
                 if a_type == "mute":

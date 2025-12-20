@@ -801,12 +801,46 @@
         // Navigate to the view without adding to history
         showView(previousEntry.view, false);
         
-        // If it was a ticket detail, reload it
-        if (previousEntry.view === 'ticketDetail' && previousEntry.ticketId) {
-          loadTicketDetail(previousEntry.ticketId);
+        // Reload view-specific content
+        switch (previousEntry.view) {
+          case 'ticketDetail':
+            if (previousEntry.ticketId) {
+              loadTicketDetail(previousEntry.ticketId);
+            }
+            break;
+          case 'tickets':
+            loadTickets();
+            break;
+          case 'dashboard':
+            renderDashboard();
+            break;
+          case 'settings':
+            loadSettings();
+            break;
+          case 'rules':
+            loadRules();
+            break;
+          case 'analytics':
+            loadAnalytics();
+            break;
+          case 'onboarding':
+            loadOnboarding();
+            break;
+          case 'broadcast':
+            loadBroadcast();
+            break;
+          case 'groupSelection':
+            renderGroups();
+            break;
         }
       } else {
-        showView('status', false);
+        // Default: go to dashboard if we have a selected group, otherwise status
+        if (state.selectedGroup) {
+          showView('dashboard', false);
+          renderDashboard();
+        } else {
+          showView('status', false);
+        }
       }
     }
 
@@ -1281,16 +1315,35 @@
         const botUsername = state.botInfo?.username || 'mercleMerci_bot';
         const verifyLink = `https://t.me/${botUsername}?start=verify`;
         
-        // Try to open the bot chat with verify command
-        if (tg?.openTelegramLink) {
-          tg.openTelegramLink(verifyLink);
-        } else if (tg?.openLink) {
-          tg.openLink(verifyLink);
+        // Show instructions before redirecting
+        if (tg?.showAlert) {
+          tg.showAlert(
+            '📱 Starting Verification\n\n' +
+            '1. You\'ll be redirected to the bot chat\n' +
+            '2. Follow the verification instructions\n' +
+            '3. After verification, tap "Return to App" to come back\n\n' +
+            'Ready to proceed?',
+            () => {
+              // After user acknowledges, open the link
+              if (tg?.openTelegramLink) {
+                tg.openTelegramLink(verifyLink);
+              } else if (tg?.openLink) {
+                tg.openLink(verifyLink);
+              }
+            }
+          );
         } else {
-          // Fallback: just close and show message
-          showError('Please open @' + botUsername + ' and send /verify');
-          if (tg?.close) {
-            setTimeout(() => tg.close(), 2000);
+          // No showAlert available, proceed directly
+          if (tg?.openTelegramLink) {
+            tg.openTelegramLink(verifyLink);
+          } else if (tg?.openLink) {
+            tg.openLink(verifyLink);
+          } else {
+            // Fallback: just close and show message
+            showError('Please open @' + botUsername + ' and send /verify');
+            if (tg?.close) {
+              setTimeout(() => tg.close(), 2000);
+            }
           }
         }
       } catch (error) {
@@ -2062,6 +2115,30 @@
             <small style="color: var(--text-secondary); display: block; margin: -8px 0 12px 0;">Don't send public messages for automated actions (mutes, warns, etc.)</small>
           </div>
           
+          <div class="detail-card" style="margin-top: 16px;">
+            <div class="detail-title">👋 Welcome Messages</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Configure where to send welcome messages for new members.</p>
+            
+            <div class="toggle-row">
+              <span>Enable Welcome</span>
+              <div class="toggle ${settings.welcome_enabled !== false ? 'on' : ''}" data-setting="welcome_enabled" onclick="toggleSetting('welcome_enabled')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            
+            <div id="welcomeSettingsGroup" style="display: ${settings.welcome_enabled !== false ? 'block' : 'none'};">
+              <div class="form-group">
+                <label class="form-label">Send Welcome To</label>
+                <select class="form-input" id="welcomeDestination">
+                  <option value="group" ${!settings.welcome_destination || settings.welcome_destination === 'group' ? 'selected' : ''}>Group Chat</option>
+                  <option value="dm" ${settings.welcome_destination === 'dm' ? 'selected' : ''}>Direct Message</option>
+                  <option value="both" ${settings.welcome_destination === 'both' ? 'selected' : ''}>Both (Group + DM)</option>
+                </select>
+                <small style="color: var(--text-secondary);">Choose where to send the welcome message. Use /setwelcome in the group to configure the message text.</small>
+              </div>
+            </div>
+          </div>
+          
           <div id="settingsSaveBar" style="position: sticky; bottom: 0; background: var(--bg); padding: 16px 0; margin-top: 16px; border-top: 1px solid var(--separator);">
             <button id="saveSettingsBtn" class="btn btn-primary" style="width: 100%;" onclick="saveSettings()">
               <span id="saveSettingsBtnText">Save All Settings</span>
@@ -2096,6 +2173,7 @@
         const lockMedia = document.querySelector('[data-setting="lock_media"]')?.classList.contains('on') ?? settings.lock_media;
         const logsEnabled = document.querySelector('[data-setting="logs_enabled"]')?.classList.contains('on') ?? settings.logs_enabled;
         const silentAutomations = document.querySelector('[data-setting="silent_automations"]')?.classList.contains('on') ?? settings.silent_automations;
+        const welcomeEnabled = document.querySelector('[data-setting="welcome_enabled"]')?.classList.contains('on') ?? (settings.welcome_enabled !== false);
         
         // Get form values
         const timeout = parseInt(document.getElementById('verificationTimeout')?.value) || 300;
@@ -2106,6 +2184,7 @@
         const antifloodWarnThreshold = parseInt(document.getElementById('antifloodWarnThreshold')?.value) || 0;
         const raidModeDuration = parseInt(document.getElementById('raidModeDuration')?.value) || 30;
         const logsChannelId = document.getElementById('logsChannelId')?.value?.trim() || null;
+        const welcomeDestination = document.getElementById('welcomeDestination')?.value || 'group';
         
         // Call API to save settings
         await api(`/api/app/group/${groupId}/settings`, {
@@ -2123,7 +2202,9 @@
           lock_links: lockLinks,
           lock_media: lockMedia,
           logs_mode: logsEnabled ? 'group' : 'off',
-          silent_automations: silentAutomations
+          silent_automations: silentAutomations,
+          welcome_enabled: welcomeEnabled,
+          welcome_destination: welcomeDestination
         });
         
         // If logs enabled, set the channel ID separately
@@ -2154,7 +2235,9 @@
           lock_media: lockMedia,
           logs_enabled: logsEnabled,
           logs_chat_id: logsChannelId ? parseInt(logsChannelId) : null,
-          silent_automations: silentAutomations
+          silent_automations: silentAutomations,
+          welcome_enabled: welcomeEnabled,
+          welcome_destination: welcomeDestination
         };
         
         // Show success state
@@ -2210,6 +2293,10 @@
         }
         if (key === 'logs_enabled') {
           const group = document.getElementById('logsSettingsGroup');
+          if (group) group.style.display = isOn ? 'block' : 'none';
+        }
+        if (key === 'welcome_enabled') {
+          const group = document.getElementById('welcomeSettingsGroup');
           if (group) group.style.display = isOn ? 'block' : 'none';
         }
       }
@@ -2618,15 +2705,16 @@
         
         const rulesHtml = rules.map(r => `
           <div class="card-row" style="border-bottom: 1px solid var(--separator); padding: 12px 0;">
-            <div class="card-content" style="flex: 1;">
+            <div class="card-content" style="flex: 1; cursor: pointer;" onclick="showEditRuleForm(${r.id}, ${JSON.stringify(r).replace(/"/g, '&quot;')})">
               <div class="card-title">${escapeHtml(r.name || 'Unnamed Rule')}</div>
-              <div class="card-subtitle">${escapeHtml(r.match_type)}: "${escapeHtml(r.pattern)}" → ${escapeHtml(r.action_type)}</div>
+              <div class="card-subtitle">${escapeHtml(r.match_type)}: "${escapeHtml(r.pattern)}" → ${escapeHtml(r.action_type)}${r.action_type === 'warn' && r.warn_threshold > 0 ? ` (${r.warn_threshold} warns → ${r.warn_escalation_action})` : ''}</div>
             </div>
-            <div style="display: flex; align-items: center; gap: 16px;">
-              <div class="toggle ${r.enabled ? 'on' : ''}" onclick="toggleRule(${r.id})" title="${r.enabled ? 'Enabled' : 'Disabled'}">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <button onclick="event.stopPropagation(); showEditRuleForm(${r.id}, ${JSON.stringify(r).replace(/"/g, '&quot;')})" style="background: var(--bg-tertiary); border: none; color: var(--accent); font-size: 16px; cursor: pointer; padding: 8px 12px; border-radius: 8px;" title="Edit rule">✏️</button>
+              <div class="toggle ${r.enabled ? 'on' : ''}" onclick="event.stopPropagation(); toggleRule(${r.id})" title="${r.enabled ? 'Enabled' : 'Disabled'}">
                 <div class="toggle-knob"></div>
               </div>
-              <button onclick="confirmDeleteRule(${r.id}, '${escapeHtml(r.name || 'this rule')}')" style="background: var(--bg-tertiary); border: none; color: var(--danger); font-size: 16px; cursor: pointer; padding: 8px 12px; border-radius: 8px;" title="Delete rule">🗑️</button>
+              <button onclick="event.stopPropagation(); confirmDeleteRule(${r.id}, '${escapeHtml(r.name || 'this rule')}')" style="background: var(--bg-tertiary); border: none; color: var(--danger); font-size: 16px; cursor: pointer; padding: 8px 12px; border-radius: 8px;" title="Delete rule">🗑️</button>
             </div>
           </div>
         `).join('');
@@ -2706,6 +2794,14 @@
       }
     }
 
+    function toggleWarnSettings() {
+      const actionType = document.getElementById('ruleAction')?.value;
+      const warnSettings = document.getElementById('warnSettingsGroup');
+      if (warnSettings) {
+        warnSettings.style.display = actionType === 'warn' ? 'block' : 'none';
+      }
+    }
+    
     function showAddRuleForm() {
       const view = document.getElementById('rulesView');
       view.innerHTML = `
@@ -2735,7 +2831,7 @@
           
           <div class="form-group">
             <label class="form-label">Action</label>
-            <select class="form-input" id="ruleAction">
+            <select class="form-input" id="ruleAction" onchange="toggleWarnSettings()">
               <option value="delete">Delete Message</option>
               <option value="warn">Warn User</option>
               <option value="mute">Mute User</option>
@@ -2744,12 +2840,141 @@
             </select>
           </div>
           
+          <div id="warnSettingsGroup" style="display: none;">
+            <div class="form-group">
+              <label class="form-label">Warnings Before Escalation</label>
+              <input type="number" class="form-input" id="warnThreshold" value="3" min="0" max="100" />
+              <small style="color: var(--text-secondary);">Number of warnings before taking escalation action (0 = no escalation)</small>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Escalation Action</label>
+              <select class="form-input" id="warnEscalationAction">
+                <option value="kick">Kick from group</option>
+                <option value="ban">Ban from group</option>
+              </select>
+              <small style="color: var(--text-secondary);">Action to take after threshold is reached</small>
+            </div>
+          </div>
+          
           <div style="display: flex; gap: 12px;">
             <button class="btn btn-secondary" style="flex: 1;" onclick="loadRules()">Cancel</button>
             <button class="btn btn-primary" style="flex: 1;" onclick="saveRule()">Save Rule</button>
           </div>
         </div>
       `;
+    }
+
+    function showEditRuleForm(ruleId, rule) {
+      state.currentRuleId = ruleId;
+      const view = document.getElementById('rulesView');
+      const isWarn = rule.action_type === 'warn';
+      view.innerHTML = `
+        <div class="detail-card">
+          <div class="detail-title">✏️ Edit Rule</div>
+          
+          <div class="form-group">
+            <label class="form-label">Rule Name</label>
+            <input type="text" class="form-input" id="ruleName" value="${escapeHtml(rule.name || '')}" placeholder="e.g., Block spam links" />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Match Type</label>
+            <select class="form-input" id="ruleMatchType">
+              <option value="contains" ${rule.match_type === 'contains' ? 'selected' : ''}>Contains</option>
+              <option value="exact" ${rule.match_type === 'exact' ? 'selected' : ''}>Exact Match</option>
+              <option value="regex" ${rule.match_type === 'regex' ? 'selected' : ''}>Regex</option>
+              <option value="starts_with" ${rule.match_type === 'starts_with' ? 'selected' : ''}>Starts With</option>
+              <option value="ends_with" ${rule.match_type === 'ends_with' ? 'selected' : ''}>Ends With</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Pattern</label>
+            <input type="text" class="form-input" id="rulePattern" value="${escapeHtml(rule.pattern || '')}" placeholder="Text to match..." />
+          </div>
+          
+          <div class="form-group">
+            <label class="form-label">Action</label>
+            <select class="form-input" id="ruleAction" onchange="toggleWarnSettings()">
+              <option value="delete" ${rule.action_type === 'delete' ? 'selected' : ''}>Delete Message</option>
+              <option value="warn" ${rule.action_type === 'warn' ? 'selected' : ''}>Warn User</option>
+              <option value="mute" ${rule.action_type === 'mute' ? 'selected' : ''}>Mute User</option>
+              <option value="kick" ${rule.action_type === 'kick' ? 'selected' : ''}>Kick User</option>
+              <option value="ban" ${rule.action_type === 'ban' ? 'selected' : ''}>Ban User</option>
+            </select>
+          </div>
+          
+          <div id="warnSettingsGroup" style="display: ${isWarn ? 'block' : 'none'};">
+            <div class="form-group">
+              <label class="form-label">Warnings Before Escalation</label>
+              <input type="number" class="form-input" id="warnThreshold" value="${rule.warn_threshold || 3}" min="0" max="100" />
+              <small style="color: var(--text-secondary);">Number of warnings before taking escalation action (0 = no escalation)</small>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Escalation Action</label>
+              <select class="form-input" id="warnEscalationAction">
+                <option value="kick" ${rule.warn_escalation_action === 'kick' ? 'selected' : ''}>Kick from group</option>
+                <option value="ban" ${rule.warn_escalation_action === 'ban' ? 'selected' : ''}>Ban from group</option>
+              </select>
+              <small style="color: var(--text-secondary);">Action to take after threshold is reached</small>
+            </div>
+          </div>
+          
+          <div class="toggle-row" style="margin-bottom: 16px;">
+            <span>Rule Enabled</span>
+            <div class="toggle ${rule.enabled ? 'on' : ''}" id="ruleEnabledToggle" onclick="this.classList.toggle('on')">
+              <div class="toggle-knob"></div>
+            </div>
+          </div>
+          
+          <div style="display: flex; gap: 12px;">
+            <button class="btn btn-secondary" style="flex: 1;" onclick="loadRules()">Cancel</button>
+            <button class="btn btn-primary" style="flex: 1;" onclick="updateRule(${ruleId})">Update Rule</button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function updateRule(ruleId) {
+      if (!state.selectedGroup) return;
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        const name = document.getElementById('ruleName').value.trim();
+        const matchType = document.getElementById('ruleMatchType').value;
+        const pattern = document.getElementById('rulePattern').value.trim();
+        const actionType = document.getElementById('ruleAction').value;
+        const enabled = document.getElementById('ruleEnabledToggle').classList.contains('on');
+        
+        if (!name || !pattern) {
+          showError('Please fill in all required fields');
+          return;
+        }
+        
+        const payload = {
+          name,
+          match_type: matchType,
+          pattern,
+          action_type: actionType,
+          enabled,
+        };
+        
+        // Add warn settings if action is warn
+        if (actionType === 'warn') {
+          payload.warn_threshold = parseInt(document.getElementById('warnThreshold')?.value || 3);
+          payload.warn_escalation_action = document.getElementById('warnEscalationAction')?.value || 'kick';
+        }
+        
+        await api(`/api/app/group/${groupId}/rules/${ruleId}/update`, payload);
+        
+        showSuccess('Rule updated successfully');
+        loadRules(); // Reload rules list
+      } catch (error) {
+        console.error('Failed to update rule:', error);
+        showError('Failed to update rule: ' + error.message);
+      }
     }
 
     async function saveRule() {
@@ -2767,15 +2992,23 @@
           return;
         }
         
-        // Use the correct endpoint for creating rules
-        await api(`/api/app/group/${groupId}/rules/create`, {
+        const payload = {
           name,
           match_type: matchType,
           pattern,
           action_type: actionType,
           enabled: true,
           trigger: 'message_group'
-        });
+        };
+        
+        // Add warn settings if action is warn
+        if (actionType === 'warn') {
+          payload.warn_threshold = parseInt(document.getElementById('warnThreshold')?.value || 3);
+          payload.warn_escalation_action = document.getElementById('warnEscalationAction')?.value || 'kick';
+        }
+        
+        // Use the correct endpoint for creating rules
+        await api(`/api/app/group/${groupId}/rules/create`, payload);
         
         showSuccess('Rule created successfully');
         loadRules(); // Reload rules list
@@ -2793,6 +3026,7 @@
       
       try {
         const onboarding = state.selectedGroup?.onboarding || {};
+        const destination = onboarding.destination || 'group';
         view.innerHTML = `
           <div class="detail-card">
             <div class="detail-title">👋 Welcome Flow</div>
@@ -2808,6 +3042,18 @@
             <div class="form-group">
               <label class="form-label">Welcome Message</label>
               <textarea class="form-textarea" id="onboardingText" placeholder="Enter welcome message...">${onboarding.text || ''}</textarea>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Send Welcome To</label>
+              <select class="form-input" id="onboardingDestination">
+                <option value="group" ${destination === 'group' ? 'selected' : ''}>Group Chat</option>
+                <option value="dm" ${destination === 'dm' ? 'selected' : ''}>Direct Message</option>
+                <option value="both" ${destination === 'both' ? 'selected' : ''}>Both (Group + DM)</option>
+              </select>
+              <p style="color: var(--text-secondary); font-size: 12px; margin-top: 8px;">
+                Choose where to send the welcome message: in the group, as a DM to the user, or both.
+              </p>
             </div>
             
             <div class="form-group">
@@ -2842,12 +3088,14 @@
         
         const text = document.getElementById('onboardingText').value.trim();
         const delaySeconds = parseInt(document.getElementById('onboardingDelay').value) || 0;
+        const destination = document.getElementById('onboardingDestination').value;
         
         // Call API to save onboarding settings
         await api(`/api/app/group/${groupId}/onboarding`, {
           enabled: enabled,
           text: text,
           delay_seconds: delaySeconds,
+          destination: destination,
           parse_mode: 'HTML'
         });
         
@@ -2856,6 +3104,7 @@
           enabled: enabled,
           text: text,
           delay_seconds: delaySeconds,
+          destination: destination,
           parse_mode: 'HTML'
         };
         

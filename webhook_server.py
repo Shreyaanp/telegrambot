@@ -14,6 +14,7 @@ from bot.main import TelegramBot
 from bot.config import Config
 from bot.utils.permissions import can_delete_messages, can_pin_messages, can_restrict_members, can_user, is_bot_admin
 from bot.utils.webapp_auth import WebAppAuthError, validate_webapp_init_data
+from database.db import db
 
 # Don't configure logging here - it's configured in bot/main.py
 logger = logging.getLogger(__name__)
@@ -268,6 +269,8 @@ class _GroupSettingsUpdate(BaseModel):
     lock_links: bool | None = None
     lock_media: bool | None = None
     logs_mode: str | None = None  # off|group
+    welcome_enabled: bool | None = None
+    welcome_destination: str | None = None  # group|dm|both
 
 
 class _LogsTestPayload(BaseModel):
@@ -352,6 +355,8 @@ class _RuleCreatePayload(BaseModel):
     ticket_subject: str | None = None
     priority: int = 100
     stop_processing: bool = True
+    warn_threshold: int = 3  # Warnings before escalation (0 = no escalation)
+    warn_escalation_action: str = "kick"  # kick|ban
 
 
 class _RuleTestPayload(BaseModel):
@@ -604,6 +609,11 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
     elif logs_mode == "group":
         await container.group_service.update_setting(gid, logs_enabled=True, logs_chat_id=gid, logs_thread_id=None)
 
+    # Validate welcome_destination
+    welcome_destination = payload.welcome_destination
+    if welcome_destination is not None and welcome_destination not in ("group", "dm", "both"):
+        raise HTTPException(status_code=400, detail="welcome_destination must be group|dm|both")
+
     await container.group_service.update_setting(
         gid,
         verification_enabled=payload.verification_enabled,
@@ -624,6 +634,8 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
         silent_automations=payload.silent_automations,
         raid_mode_enabled=payload.raid_mode_enabled,
         raid_mode_minutes=payload.raid_mode_minutes or payload.raid_mode_duration_minutes,
+        welcome_enabled=payload.welcome_enabled,
+        welcome_destination=welcome_destination,
     )
 
     if payload.lock_links is not None or payload.lock_media is not None:
@@ -665,6 +677,8 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
             "logs_enabled": bool(getattr(group, "logs_enabled", False)),
             "logs_chat_id": int(group.logs_chat_id) if getattr(group, "logs_chat_id", None) else None,
             "logs_thread_id": int(group.logs_thread_id) if getattr(group, "logs_thread_id", None) else None,
+            "welcome_enabled": bool(getattr(group, "welcome_enabled", True)),
+            "welcome_destination": str(getattr(group, "welcome_destination", "group") or "group"),
         },
         "preflight": preflight,
     }
@@ -1182,6 +1196,8 @@ async def app_create_rule(group_id: int, payload: _RuleCreatePayload):
             action_params=action_params,
             priority=int(payload.priority or 100),
             stop_processing=bool(payload.stop_processing),
+            warn_threshold=int(payload.warn_threshold or 3),
+            warn_escalation_action=str(payload.warn_escalation_action or "kick"),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1261,6 +1277,54 @@ async def app_toggle_rule(group_id: int, rule_id: int, payload: _RuleTogglePaylo
     except Exception as e:
         logger.error(f"Failed to toggle rule {rule_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to toggle rule") from e
+
+
+class _RuleUpdatePayload(BaseModel):
+    initData: str
+    name: str | None = None
+    match_type: str | None = None
+    pattern: str | None = None
+    action_type: str | None = None
+    enabled: bool | None = None
+    warn_threshold: int | None = None
+    warn_escalation_action: str | None = None
+
+
+@app.post("/api/app/group/{group_id}/rules/{rule_id}/update")
+async def app_update_rule(group_id: int, rule_id: int, payload: _RuleUpdatePayload):
+    """Update an existing rule."""
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    gid = int(group_id)
+
+    if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    try:
+        updated = await container.rules_service.update_rule(
+            group_id=gid,
+            rule_id=rule_id,
+            name=payload.name,
+            match_type=payload.match_type,
+            pattern=payload.pattern,
+            action_type=payload.action_type,
+            enabled=payload.enabled,
+            warn_threshold=payload.warn_threshold,
+            warn_escalation_action=payload.warn_escalation_action,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        return {"success": True, "rule_id": rule_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        logger.error(f"Failed to update rule {rule_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update rule") from e
 
 
 @app.post("/api/app/group/{group_id}/tickets")
@@ -1451,21 +1515,50 @@ async def app_group_analytics(group_id: int, payload: _InitDataPayload):
         raise HTTPException(status_code=403, detail="not allowed")
 
     from sqlalchemy import select, func
-    from database.db import db
     from database.models import (
         Group,
+        GroupMember,
+        User,
         PendingJoinVerification,
         VerificationSession,
         Warning,
         AdminLog,
         FederationBan,
+        Ticket,
     )
 
     now = datetime.utcnow()
     since = now - timedelta(hours=24)
 
+    # Get member count from Telegram
+    member_count = 0
+    try:
+        member_count = await bot_obj.get_bot().get_chat_member_count(gid)
+    except Exception as e:
+        logger.debug(f"Could not get member count for {gid}: {e}")
+
     async with db.session() as session:
         group = await session.get(Group, gid)
+
+        # Count verified members (users in GroupMember who are also in User table)
+        verified_count = (
+            await session.execute(
+                select(func.count(GroupMember.id))
+                .join(User, User.telegram_id == GroupMember.telegram_id)
+                .where(GroupMember.group_id == gid)
+            )
+        ).scalar_one_or_none() or 0
+
+        # Count pending verifications
+        pending_count = (
+            await session.execute(
+                select(func.count(PendingJoinVerification.id))
+                .where(
+                    PendingJoinVerification.group_id == gid,
+                    PendingJoinVerification.status == "pending"
+                )
+            )
+        ).scalar_one_or_none() or 0
 
         pv_rows = await session.execute(
             select(PendingJoinVerification.status, func.count(PendingJoinVerification.id))
@@ -1481,8 +1574,17 @@ async def app_group_analytics(group_id: int, payload: _InitDataPayload):
         )
         vs_counts = {str(status): int(count) for status, count in vs_rows.all()}
 
+        # Warning count
         warn_total = (
             await session.execute(select(func.count(Warning.id)).where(Warning.group_id == gid))
+        ).scalar_one_or_none() or 0
+
+        # Open ticket count
+        ticket_count = (
+            await session.execute(
+                select(func.count(Ticket.id))
+                .where(Ticket.group_id == gid, Ticket.status == "open")
+            )
         ).scalar_one_or_none() or 0
 
         action_rows = await session.execute(
@@ -1491,6 +1593,7 @@ async def app_group_analytics(group_id: int, payload: _InitDataPayload):
             .group_by(AdminLog.action)
         )
         actions_24h = {str(action): int(count) for action, count in action_rows.all()}
+        total_actions_24h = sum(actions_24h.values())
 
         fed_id = int(getattr(group, "federation_id", 0) or 0) if group else 0
         fed_bans = 0
@@ -1505,10 +1608,18 @@ async def app_group_analytics(group_id: int, payload: _InitDataPayload):
         "group_id": gid,
         "group_name": getattr(group, "group_name", None) if group else None,
         "as_of": now.isoformat(),
+        # Frontend-expected fields
+        "member_count": member_count,
+        "verified_count": verified_count,
+        "pending_count": pending_count,
+        "warning_count": warn_total,
+        "ticket_count": ticket_count,
+        "admin_actions_24h": total_actions_24h,
+        # Detailed breakdowns
         "pending_join_verifications": pv_counts,
         "verification_sessions": vs_counts,
         "warnings_total": int(warn_total),
-        "admin_actions_24h": actions_24h,
+        "admin_actions_breakdown": actions_24h,
         "federation_id": fed_id or None,
         "federation_bans": int(fed_bans),
     }

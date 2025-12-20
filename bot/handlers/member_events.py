@@ -74,7 +74,7 @@ def create_member_handlers(container: ServiceContainer) -> Router:
             welcome = await container.welcome_service.get_welcome(group_id)
             if not welcome:
                 return
-            enabled, template = welcome
+            enabled, template, destination = welcome
             if not enabled or not template:
                 return
             try:
@@ -96,7 +96,22 @@ def create_member_handlers(container: ServiceContainer) -> Router:
                 logger.debug(f"Could not create mention for user: {e}")
                 mention = name
             text = container.welcome_service.format_message(template, name, mention, group_name, int(member_count or 0))
-            await bot.send_message(chat_id=group_id, text=text, parse_mode="HTML")
+            
+            # Send to group if destination is 'group' or 'both'
+            if destination in ["group", "both"]:
+                try:
+                    await bot.send_message(chat_id=group_id, text=text, parse_mode="HTML")
+                except Exception as e:
+                    logger.debug(f"Could not send welcome message in group {group_id}: {e}")
+            
+            # Send to DM if destination is 'dm' or 'both'
+            if destination in ["dm", "both"]:
+                try:
+                    user_id = getattr(user, "id", None)
+                    if user_id:
+                        await bot.send_message(chat_id=user_id, text=text, parse_mode="HTML")
+                except Exception as e:
+                    logger.debug(f"Could not send welcome DM to user {user_id}: {e}")
         except Exception as e:
             logger.debug(f"Could not send welcome message in group {group_id}: {e}")
             return

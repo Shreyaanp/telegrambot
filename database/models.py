@@ -123,6 +123,7 @@ class Group(Base):
     # Welcome/Goodbye
     welcome_enabled = Column(Boolean, default=True)
     welcome_message = Column(Text, nullable=True)
+    welcome_destination = Column(String, default="group", nullable=False)  # group|dm|both
     goodbye_enabled = Column(Boolean, default=False)
     goodbye_message = Column(Text, nullable=True)
     
@@ -817,6 +818,10 @@ class Rule(Base):
     match_type = Column(String, nullable=False, default="contains")  # contains|regex
     pattern = Column(Text, nullable=False)
     case_sensitive = Column(Boolean, default=False)
+    
+    # Warning escalation: if action is "warn", how many warnings before kick/ban?
+    warn_threshold = Column(Integer, default=3, nullable=False)  # 0 means no escalation
+    warn_escalation_action = Column(String, default="kick", nullable=False)  # kick|ban
 
     created_by = Column(BigInteger, nullable=False)
     created_at = Column(DateTime, default=utcnow)
@@ -846,4 +851,27 @@ class RuleAction(Base):
 
     __table_args__ = (
         Index("uq_rule_action_order", "rule_id", "action_order", unique=True),
+    )
+
+
+class RuleWarning(Base):
+    """Track warnings issued by specific rules for escalation."""
+
+    __tablename__ = "rule_warnings"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    rule_id = Column(BigInteger, ForeignKey("rules.id"), nullable=False)
+    group_id = Column(BigInteger, ForeignKey("groups.group_id"), nullable=False)
+    telegram_id = Column(BigInteger, nullable=False)
+    warned_at = Column(DateTime, default=utcnow)
+    
+    # For tracking what triggered the warning
+    message_text = Column(Text, nullable=True)
+
+    rule = relationship("Rule")
+    group = relationship("Group")
+
+    __table_args__ = (
+        Index("idx_rule_warnings_lookup", "rule_id", "telegram_id", "warned_at"),
+        Index("idx_rule_warnings_group_user", "group_id", "telegram_id"),
     )
