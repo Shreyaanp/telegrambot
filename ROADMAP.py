@@ -2,7 +2,8 @@
 MERCLE TELEGRAM BOT - DEVELOPMENT ROADMAP
 ==========================================
 Generated: 2024-12-20
-Status: PLANNING PHASE
+Last Updated: 2024-12-20
+Status: IN PROGRESS - Phase 0, 1, 2 COMPLETE. Phase 3 PENDING.
 
 This file serves as both documentation AND executable checklist.
 Run `python ROADMAP.py` to see current progress.
@@ -16,7 +17,7 @@ PRIORITY LEVELS:
 
 ROADMAP = {
     # =========================================================================
-    # PHASE 0: SECURITY FIXES (P0) - Do these FIRST
+    # PHASE 0: SECURITY FIXES (P0) - COMPLETE ✅
     # =========================================================================
     "phase_0_security": {
         "title": "🔒 Security Fixes",
@@ -27,67 +28,43 @@ ROADMAP = {
                 "id": "SEC-001",
                 "title": "Webhook signature validation",
                 "description": """
-                    Problem: Webhook accepts unsigned requests. Anyone who finds the 
-                    webhook URL can POST forged updates.
-                    
-                    Solution: 
-                    1. Add Telegram's secret_token parameter when setting webhook
-                    2. Validate X-Telegram-Bot-Api-Secret-Token header on every request
-                    3. Return 401 for invalid/missing tokens
-                    
-                    Files: webhook_server.py, bot/main.py
+                    DONE: Added WEBHOOK_SECRET env var, validates X-Telegram-Bot-Api-Secret-Token header.
+                    Files: webhook_server.py, bot/config.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "SEC-002", 
                 "title": "Broadcast auth hardening",
                 "description": """
-                    Problem: Any user with 'settings' access in ANY group can broadcast 
-                    to the ENTIRE subscriber list. A compromised admin = mass spam.
-                    
-                    Solution:
-                    1. Create BROADCAST_ADMIN_IDS env var (comma-separated Telegram IDs)
-                    2. Only users in this list can trigger broadcasts
-                    3. Add audit logging for all broadcast attempts
-                    
-                    Files: webhook_server.py:874, webhook_server.py:900
+                    DONE: Added BROADCAST_ADMIN_IDS env var, only listed users can DM broadcast.
+                    Files: webhook_server.py, bot/config.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "SEC-003",
                 "title": "ReDoS protection for rules regex",
                 "description": """
-                    Problem: User-defined regex patterns execute on every message with 
-                    no timeout. Malicious patterns can spike CPU.
-                    
-                    Solution:
-                    1. Add regex complexity validator (max length, no nested quantifiers)
-                    2. Execute regex with timeout (use regex module with timeout or subprocess)
-                    3. Cache compiled patterns
-                    
-                    Files: bot/services/rules_service.py:200
+                    DONE: Added regex validation, timeout protection, dangerous pattern detection.
+                    Files: bot/services/rules_service.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "SEC-004",
                 "title": "Hide webhook path from root endpoint",
                 "description": """
-                    Problem: Root endpoint exposes webhook path in response.
-                    
-                    Solution: Remove webhook path from any public responses.
-                    
+                    DONE: Removed webhook path from / endpoint response.
                     Files: webhook_server.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
         ]
     },
 
     # =========================================================================
-    # PHASE 1: CRITICAL BUG FIXES (P1)
+    # PHASE 1: CRITICAL BUG FIXES (P1) - COMPLETE ✅
     # =========================================================================
     "phase_1_bugs": {
         "title": "🐛 Critical Bug Fixes", 
@@ -98,95 +75,61 @@ ROADMAP = {
                 "id": "BUG-001",
                 "title": "Fix navigation history stack",
                 "description": """
-                    Problem: Back button doesn't maintain proper history. Going to 
-                    ticket A, then ticket B, pressing back goes to ticket A not list.
-                    
-                    Solution:
-                    1. Implement proper history stack (array of {view, state} objects)
-                    2. Push to stack on forward navigation
-                    3. Pop from stack on back navigation
-                    4. Clear stack appropriately on major navigation changes
-                    
+                    DONE: Implemented proper history stack with view state capture/restore.
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "BUG-002",
                 "title": "Fix ticket loading errors",
                 "description": """
-                    Problem: Tickets fail to load in Mini App.
-                    
-                    Solution: Debug API calls, check error handling, ensure proper
-                    state management.
-                    
+                    DONE: Fixed API endpoints and frontend ticket detail loading.
                     Files: static/app.html, webhook_server.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "BUG-003",
                 "title": "Fix rules edit/delete functionality",
                 "description": """
-                    Problem: Rules cannot be edited or deleted from Mini App.
-                    
-                    Solution:
-                    1. Add edit endpoint and UI
-                    2. Fix delete endpoint
-                    3. Add confirmation dialog for delete
-                    
-                    Files: static/app.html, webhook_server.py, bot/services/rules_service.py
+                    DONE: Added confirmation dialog, better spacing, proper API calls.
+                    Files: static/app.html, webhook_server.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "BUG-004",
                 "title": "Fix broadcast transaction blocking",
                 "description": """
-                    Problem: Broadcast holds DB transaction while calling Telegram APIs,
-                    blocking other writers and potentially exhausting connection pool.
-                    
-                    Solution:
-                    1. Fetch and lock targets in one transaction
-                    2. Commit immediately
-                    3. Send messages in separate batches without holding transaction
-                    
-                    Files: bot/services/broadcast_service.py:238, :265
+                    DONE: Split into 2 transactions - fetch/claim targets, then send outside TX.
+                    Files: bot/services/broadcast_service.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "BUG-005",
                 "title": "Add unique constraint to group_members",
                 "description": """
-                    Problem: No unique constraint on (group_id, telegram_id) allows
-                    duplicate entries that skew state.
-                    
-                    Solution:
-                    1. Create migration to add unique constraint
-                    2. Handle duplicates during insertion with ON CONFLICT
-                    
-                    Files: database/models.py:170, new migration
+                    DONE: Added migration with duplicate cleanup and unique constraint.
+                    Files: database/models.py, alembic migration
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "BUG-006",
                 "title": "Remove dead code in rules_service",
                 "description": """
-                    Problem: Unreachable return None at end of apply_group_text_rules.
-                    
-                    Solution: Remove dead code.
-                    
-                    Files: bot/services/rules_service.py:447
+                    DONE: Removed unreachable return None.
+                    Files: bot/services/rules_service.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
         ]
     },
 
     # =========================================================================
-    # PHASE 2: UI/UX CONSISTENCY (P1)
+    # PHASE 2: UI/UX CONSISTENCY (P1) - COMPLETE ✅
     # =========================================================================
     "phase_2_design_system": {
         "title": "🎨 Design System & UI Consistency",
@@ -197,147 +140,88 @@ ROADMAP = {
                 "id": "UI-001",
                 "title": "Create unified design system",
                 "description": """
-                    Problem: Visual density inconsistent - some screens airy, others tight.
-                    Feels like multiple products stitched together.
-                    
-                    Solution:
-                    1. Define spacing scale (4px base: 4, 8, 12, 16, 24, 32, 48)
-                    2. Define typography scale (consistent font sizes, weights)
-                    3. Define component patterns (cards, buttons, inputs, lists)
-                    4. Apply consistently across all views
-                    
-                    Files: static/app.html (CSS section)
+                    DONE: Added CSS variables, form validation styles, consistent spacing.
+                    Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UI-002",
                 "title": "Fix touch interactions",
                 "description": """
-                    Problem: Hover animations imply desktop interactivity that doesn't 
-                    exist on touch devices.
-                    
-                    Solution:
-                    1. Remove hover-only effects or make them touch-friendly
-                    2. Use :active states for touch feedback
-                    3. Ensure tap targets are at least 44px
-                    
+                    DONE: Removed hover-only effects, using :active states.
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UI-003",
                 "title": "Improve header back button",
                 "description": """
-                    Problem: Back button is only an icon with accent color, low affordance.
-                    
-                    Solution:
-                    1. Add text label "Back" next to icon
-                    2. Use distinct styling from accent color
-                    3. Ensure consistent placement
-                    
+                    DONE: Added "Back" text label, better styling.
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UI-004",
                 "title": "Fix status page overflow",
                 "description": """
-                    Problem: Status page locks to single screen height but can overflow
-                    on smaller devices or with longer names/translated text.
-                    
-                    Solution:
-                    1. Use min-height instead of fixed height
-                    2. Allow scrolling when content overflows
-                    3. Test with long text strings
-                    
+                    DONE: Changed to min-height with overflow-y: auto.
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UI-005",
                 "title": "Add group search empty state",
                 "description": """
-                    Problem: Group search never shows "no results" state.
-                    
-                    Solution:
-                    1. Track visible count after filtering
-                    2. Show "No groups found" message
-                    3. Add "Clear search" action
-                    
+                    DONE: Added "No groups found" message with clear search button.
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UI-006",
                 "title": "Redesign analytics page",
                 "description": """
-                    Problem: Analytics page "looks like a 5 year old made it".
-                    
-                    Solution:
-                    1. Use proper data visualization (charts or well-designed stats cards)
-                    2. Group related metrics
-                    3. Add time period selector
-                    4. Make it actually useful
-                    
+                    DONE: Complete redesign with gradient cards, progress bars, icons.
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UI-007",
                 "title": "Add form validation indicators",
                 "description": """
-                    Problem: Form inputs don't show validation until popup error.
-                    
-                    Solution:
-                    1. Add "required" indicators to required fields
-                    2. Show inline validation errors
-                    3. Highlight invalid fields
-                    
+                    DONE: Added .has-error, .form-error, .required-indicator CSS.
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UI-008",
                 "title": "Fix settings save UX",
                 "description": """
-                    Problem: Settings changes look immediate but require "Save All Settings".
-                    
-                    Solution (pick one):
-                    A) Auto-save with debounce + success indicator
-                    B) Sticky save bar + dirty-state indicator
-                    
-                    Recommendation: Auto-save for toggles, explicit save for text fields.
-                    
+                    DONE: Added sticky save bar, saving state, success feedback.
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UI-009",
                 "title": "Fix rules delete UX",
                 "description": """
-                    Problem: Delete icon sits next to toggle, easy to accidentally tap.
-                    
-                    Solution:
-                    1. Add more spacing between toggle and delete
-                    2. Add confirmation dialog for delete
-                    
+                    DONE: Added spacing, confirmation dialog using Telegram's showConfirm.
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
         ]
     },
 
     # =========================================================================
-    # PHASE 3: FEATURE COMPLETENESS (P1)
+    # PHASE 3: FEATURE COMPLETENESS (P1) - PENDING
     # =========================================================================
     "phase_3_features": {
         "title": "✨ Feature Completeness",
@@ -400,19 +284,9 @@ ROADMAP = {
                     - Bot doesn't ask enough questions
                     
                     Solution:
-                    1. Multi-step ticket creation wizard in DM:
-                       - Ask for category/priority first
-                       - Ask for detailed description
-                       - Ask if they want to attach images
-                    2. Image handling:
-                       - Accept images up to 5MB
-                       - Save to local storage (static/tickets/)
-                       - Store file path in ticket_messages
-                       - Display in Mini App ticket view
-                    3. Priority levels:
-                       - Add priority field (low/medium/high/urgent)
-                       - Color-code in UI
-                       - Sort by priority
+                    1. Multi-step ticket creation wizard in DM
+                    2. Image handling (up to 5MB, save locally)
+                    3. Priority levels (low/medium/high/urgent)
                     
                     Files: bot/handlers/commands.py, bot/services/ticket_service.py,
                            database/models.py, static/app.html, webhook_server.py
@@ -472,7 +346,7 @@ ROADMAP = {
     },
 
     # =========================================================================
-    # PHASE 4: PERFORMANCE (P2)
+    # PHASE 4: PERFORMANCE (P2) - PENDING
     # =========================================================================
     "phase_4_performance": {
         "title": "⚡ Performance Optimization",
@@ -501,7 +375,7 @@ ROADMAP = {
     },
 
     # =========================================================================
-    # PHASE 5: ADVANCED FEATURES (P3)
+    # PHASE 5: ADVANCED FEATURES (P3) - PENDING
     # =========================================================================
     "phase_5_advanced": {
         "title": "🚀 Advanced Features",
@@ -559,12 +433,12 @@ ROADMAP = {
 # EXECUTION ORDER
 # =========================================================================
 EXECUTION_ORDER = [
-    "phase_0_security",   # MUST be first - security issues
-    "phase_1_bugs",       # Critical bugs blocking functionality
-    "phase_2_design_system",  # UI consistency
-    "phase_3_features",   # Feature completeness
-    "phase_4_performance", # Performance (can do in parallel with phase 3)
-    "phase_5_advanced",   # Advanced features (post-MVP)
+    "phase_0_security",   # COMPLETE ✅
+    "phase_1_bugs",       # COMPLETE ✅
+    "phase_2_design_system",  # COMPLETE ✅
+    "phase_3_features",   # IN PROGRESS
+    "phase_4_performance", # PENDING
+    "phase_5_advanced",   # PENDING (post-MVP)
 ]
 
 # =========================================================================
@@ -629,4 +503,3 @@ if __name__ == "__main__":
     for task in get_next_tasks(5):
         print(f"[{task['priority']}] {task['id']}: {task['title']}")
     print()
-

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+import signal
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -13,6 +16,104 @@ from sqlalchemy import select
 
 from database.db import db
 from database.models import Rule, RuleAction
+
+logger = logging.getLogger(__name__)
+
+# ============================================================================
+# REGEX SAFETY - Protection against ReDoS attacks
+# ============================================================================
+
+# Maximum allowed regex pattern length
+MAX_REGEX_LENGTH = 500
+
+# Patterns that indicate potential ReDoS vulnerability (nested quantifiers, etc.)
+DANGEROUS_REGEX_PATTERNS = [
+    r'\(\?[^)]*\+[^)]*\)\+',  # Nested + quantifiers
+    r'\(\?[^)]*\*[^)]*\)\*',  # Nested * quantifiers
+    r'\(\?[^)]*\+[^)]*\)\*',  # Mixed nested quantifiers
+    r'\(\?[^)]*\*[^)]*\)\+',  # Mixed nested quantifiers
+    r'\([^)]+\)\{[0-9]+,\}\{[0-9]+,\}',  # Nested repetitions
+    r'(\.\*){3,}',  # Multiple .* in sequence
+    r'(\.\+){3,}',  # Multiple .+ in sequence
+]
+
+
+class RegexTimeoutError(Exception):
+    """Raised when regex execution times out."""
+    pass
+
+
+@contextmanager
+def regex_timeout(seconds: float = 0.1):
+    """
+    Context manager to timeout regex operations.
+    
+    Note: This only works on Unix systems. On Windows, it will not timeout.
+    """
+    def timeout_handler(signum, frame):
+        raise RegexTimeoutError("Regex execution timed out")
+    
+    # Only set alarm on Unix systems
+    if hasattr(signal, 'SIGALRM'):
+        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+        try:
+            yield
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, old_handler)
+    else:
+        # On Windows, just yield without timeout protection
+        yield
+
+
+def validate_regex_pattern(pattern: str) -> tuple[bool, str]:
+    """
+    Validate a regex pattern for safety.
+    
+    Returns:
+        (is_valid, error_message)
+    """
+    if not pattern:
+        return False, "Pattern is empty"
+    
+    if len(pattern) > MAX_REGEX_LENGTH:
+        return False, f"Pattern too long (max {MAX_REGEX_LENGTH} chars)"
+    
+    # Check for dangerous patterns
+    for dangerous in DANGEROUS_REGEX_PATTERNS:
+        try:
+            if re.search(dangerous, pattern):
+                return False, "Pattern contains potentially dangerous constructs (nested quantifiers)"
+        except re.error:
+            pass
+    
+    # Try to compile the pattern
+    try:
+        re.compile(pattern)
+    except re.error as e:
+        return False, f"Invalid regex: {e}"
+    
+    return True, ""
+
+
+def safe_regex_search(pattern: str, text: str, flags: int = 0, timeout_seconds: float = 0.1) -> bool:
+    """
+    Safely execute a regex search with timeout protection.
+    
+    Returns True if pattern matches, False otherwise (including on timeout/error).
+    """
+    try:
+        with regex_timeout(timeout_seconds):
+            return re.search(pattern, text, flags=flags) is not None
+    except RegexTimeoutError:
+        logger.warning(f"Regex timed out: pattern length={len(pattern)}, text length={len(text)}")
+        return False
+    except re.error:
+        return False
+    except Exception as e:
+        logger.warning(f"Regex error: {e}")
+        return False
 
 
 @dataclass(frozen=True)
@@ -96,6 +197,11 @@ class RulesService:
             raise ValueError("only trigger=message_group is supported right now")
 
         if match_type == "regex":
+            # Validate regex for safety (ReDoS protection)
+            is_valid, error_msg = validate_regex_pattern(pattern)
+            if not is_valid:
+                raise ValueError(f"invalid regex: {error_msg}")
+            # Also verify it compiles with the flags
             flags = 0 if case_sensitive else re.IGNORECASE
             try:
                 re.compile(pattern, flags=flags)
@@ -198,6 +304,11 @@ class RulesService:
             return True
 
     def _matches(self, rule: Rule, text: str) -> bool:
+        """
+        Check if a rule's pattern matches the given text.
+        
+        Uses safe_regex_search for regex patterns to prevent ReDoS attacks.
+        """
         pattern = str(getattr(rule, "pattern", "") or "")
         if not pattern:
             return False
@@ -209,10 +320,8 @@ class RulesService:
             return pattern.lower() in text.lower()
         if match_type == "regex":
             flags = 0 if case_sensitive else re.IGNORECASE
-            try:
-                return re.search(pattern, text, flags=flags) is not None
-            except re.error:
-                return False
+            # Use safe regex search with timeout protection
+            return safe_regex_search(pattern, text, flags=flags, timeout_seconds=0.1)
         return False
 
     async def _load_enabled_group_rules_with_actions(self, group_id: int) -> list[tuple[Rule, list[RuleAction]]]:
@@ -443,5 +552,3 @@ class RulesService:
                 return last_match
 
         return last_match
-
-        return None

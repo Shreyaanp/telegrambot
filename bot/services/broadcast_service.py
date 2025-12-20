@@ -232,9 +232,18 @@ class BroadcastService:
         Send up to `batch_size` pending targets for a broadcast.
 
         This is designed to be called from a job worker; it is idempotent per target status.
+        
+        IMPORTANT: We split this into two transactions to avoid holding DB locks while
+        calling Telegram APIs (which can be slow and rate-limited).
         """
         now = datetime.utcnow()
-
+        
+        # ===== TRANSACTION 1: Fetch and claim targets =====
+        broadcast_text = None
+        broadcast_parse_mode = None
+        broadcast_disable_preview = True
+        target_data = []  # List of (target_id, chat_id) tuples
+        
         async with db.session() as session:
             result = await session.execute(select(Broadcast).where(Broadcast.id == int(broadcast_id)))
             broadcast = result.scalar_one_or_none()
@@ -248,6 +257,11 @@ class BroadcastService:
                 broadcast.status = "running"
                 broadcast.started_at = now
 
+            # Store broadcast data for use outside transaction
+            broadcast_text = str(broadcast.text)
+            broadcast_parse_mode = str(broadcast.parse_mode) if broadcast.parse_mode else None
+            broadcast_disable_preview = bool(getattr(broadcast, "disable_web_page_preview", True))
+
             result = await session.execute(
                 select(BroadcastTarget)
                 .where(BroadcastTarget.broadcast_id == int(broadcast_id), BroadcastTarget.status == "pending")
@@ -260,65 +274,116 @@ class BroadcastService:
             if not targets:
                 broadcast.status = "completed"
                 broadcast.finished_at = now
+                await session.commit()
                 return BroadcastJobResult(done=True, detail="no pending targets")
 
+            # Mark targets as "sending" to claim them
             for target in targets:
-                is_dm = int(target.chat_id) > 0
-                try:
-                    reply_markup = None
-                    if is_dm:
-                        reply_markup = InlineKeyboardMarkup(
-                            inline_keyboard=[[InlineKeyboardButton(text="Unsubscribe", callback_data="dm:unsub")]]
-                        )
-                    msg = await bot.send_message(
-                        chat_id=int(target.chat_id),
-                        text=str(broadcast.text),
-                        parse_mode=(str(broadcast.parse_mode) if broadcast.parse_mode else None),
-                        disable_web_page_preview=bool(getattr(broadcast, "disable_web_page_preview", True)),
-                        reply_markup=reply_markup,
+                target.status = "sending"
+                target_data.append((int(target.id), int(target.chat_id)))
+            
+            await session.commit()
+        
+        # ===== SEND MESSAGES (outside transaction) =====
+        results = []  # List of (target_id, chat_id, success, message_id, error)
+        rate_limit_seconds = None
+        
+        for target_id, chat_id in target_data:
+            is_dm = chat_id > 0
+            try:
+                reply_markup = None
+                if is_dm:
+                    reply_markup = InlineKeyboardMarkup(
+                        inline_keyboard=[[InlineKeyboardButton(text="Unsubscribe", callback_data="dm:unsub")]]
                     )
+                msg = await bot.send_message(
+                    chat_id=chat_id,
+                    text=broadcast_text,
+                    parse_mode=broadcast_parse_mode,
+                    disable_web_page_preview=broadcast_disable_preview,
+                    reply_markup=reply_markup,
+                )
+                message_id = int(getattr(msg, "message_id", 0) or 0) or None
+                results.append((target_id, chat_id, True, message_id, None))
+            except TelegramRetryAfter as e:
+                rate_limit_seconds = int(e.retry_after)
+                results.append((target_id, chat_id, False, None, f"retry_after={rate_limit_seconds}"))
+                break  # Stop sending on rate limit
+            except Exception as e:
+                results.append((target_id, chat_id, False, None, str(e)[:2000]))
+        
+        # ===== TRANSACTION 2: Update results =====
+        now = datetime.utcnow()  # Refresh timestamp
+        
+        async with db.session() as session:
+            result = await session.execute(select(Broadcast).where(Broadcast.id == int(broadcast_id)))
+            broadcast = result.scalar_one_or_none()
+            if not broadcast:
+                return BroadcastJobResult(done=True, detail="broadcast missing after send")
+            
+            for target_id, chat_id, success, message_id, error in results:
+                target = await session.get(BroadcastTarget, target_id)
+                if not target:
+                    continue
+                
+                is_dm = chat_id > 0
+                
+                if success:
                     target.status = "sent"
-                    target.telegram_message_id = int(getattr(msg, "message_id", 0) or 0) or None
+                    target.telegram_message_id = message_id
                     target.sent_at = now
                     broadcast.sent_count = int(broadcast.sent_count or 0) + 1
                     if is_dm:
-                        sub = await session.get(DmSubscriber, int(target.chat_id))
+                        sub = await session.get(DmSubscriber, chat_id)
                         if sub:
                             sub.deliverable = True
                             sub.last_ok_at = now
                             sub.last_error = None
                             sub.fail_count = 0
-                except TelegramRetryAfter as e:
-                    broadcast.last_error = f"retry_after={int(e.retry_after)}"
-                    return BroadcastJobResult(
-                        done=False,
-                        retry_after_seconds=int(e.retry_after),
-                        detail="telegram rate limit",
-                    )
-                except Exception as e:
+                else:
                     target.status = "failed"
-                    target.error = str(e)[:2000]
+                    target.error = error
                     target.sent_at = now
                     broadcast.failed_count = int(broadcast.failed_count or 0) + 1
                     if is_dm:
-                        sub = await session.get(DmSubscriber, int(target.chat_id))
+                        sub = await session.get(DmSubscriber, chat_id)
                         if sub:
                             sub.last_fail_at = now
-                            sub.last_error = str(e)[:2000]
+                            sub.last_error = error
                             sub.fail_count = int(getattr(sub, "fail_count", 0) or 0) + 1
-                            if isinstance(e, (TelegramForbiddenError, TelegramNotFound, TelegramUnauthorizedError)):
+                            # Check if it's a permanent failure
+                            if error and any(x in error.lower() for x in ["forbidden", "not found", "unauthorized", "blocked"]):
                                 sub.deliverable = False
-
-            # Decide if we have more work.
+            
+            if rate_limit_seconds:
+                broadcast.last_error = f"retry_after={rate_limit_seconds}"
+            
+            await session.commit()
+        
+        if rate_limit_seconds:
+            return BroadcastJobResult(
+                done=False,
+                retry_after_seconds=rate_limit_seconds,
+                detail="telegram rate limit",
+            )
+        
+        # Check if there are more pending targets
+        async with db.session() as session:
             pending_count_result = await session.execute(
                 select(func.count())
                 .select_from(BroadcastTarget)
                 .where(BroadcastTarget.broadcast_id == int(broadcast_id), BroadcastTarget.status == "pending")
             )
             pending_count = int(pending_count_result.scalar() or 0)
+            
             if pending_count <= 0:
-                broadcast.status = "completed"
-                broadcast.finished_at = now
+                # Mark broadcast as completed
+                result = await session.execute(select(Broadcast).where(Broadcast.id == int(broadcast_id)))
+                broadcast = result.scalar_one_or_none()
+                if broadcast:
+                    broadcast.status = "completed"
+                    broadcast.finished_at = datetime.utcnow()
+                    await session.commit()
                 return BroadcastJobResult(done=True, detail="completed")
 
-            return BroadcastJobResult(done=False, detail=f"pending={pending_count}")
+        return BroadcastJobResult(done=False, detail=f"pending={pending_count}")

@@ -200,12 +200,20 @@ async def lifespan(app: FastAPI):
         await telegram_bot.initialize()
         await telegram_bot.start()
         
-        # Set webhook
+        # Set webhook with secret token for validation
         webhook_url = f"{config.webhook_url}{config.webhook_path}"
-        await telegram_bot.get_bot().set_webhook(
-            url=webhook_url,
-            allowed_updates=telegram_bot.get_dispatcher().resolve_used_update_types()
-        )
+        webhook_kwargs = {
+            "url": webhook_url,
+            "allowed_updates": telegram_bot.get_dispatcher().resolve_used_update_types()
+        }
+        # Add secret token if configured (highly recommended for security)
+        if config.webhook_secret:
+            webhook_kwargs["secret_token"] = config.webhook_secret
+            logger.info("🔒 Webhook secret token configured")
+        else:
+            logger.warning("⚠️ WEBHOOK_SECRET not set - webhook requests are NOT validated!")
+        
+        await telegram_bot.get_bot().set_webhook(**webhook_kwargs)
         logger.info(f"✅ Webhook set to: {webhook_url}")
 
         yield
@@ -872,6 +880,7 @@ async def app_broadcast(payload: _BroadcastMultiPayload):
 
 
 async def _require_any_settings_access(bot_obj: TelegramBot, *, user_id: int, container) -> None:
+    """Check if user has settings access in ANY group."""
     groups = await container.group_service.list_groups()
     for group in groups[:200]:
         try:
@@ -880,6 +889,27 @@ async def _require_any_settings_access(bot_obj: TelegramBot, *, user_id: int, co
         except Exception:
             continue
     raise HTTPException(status_code=403, detail="not allowed")
+
+
+def _require_broadcast_admin(user_id: int) -> None:
+    """
+    Check if user is allowed to send DM broadcasts.
+    
+    DM broadcasts reach ALL bot subscribers across ALL groups, so this is a 
+    highly privileged operation. Only users in BROADCAST_ADMIN_IDS can do this.
+    
+    If BROADCAST_ADMIN_IDS is not configured, DM broadcasts are disabled entirely.
+    """
+    if not config.broadcast_admin_ids:
+        logger.warning(f"DM broadcast attempted by {user_id} but BROADCAST_ADMIN_IDS not configured")
+        raise HTTPException(
+            status_code=403, 
+            detail="DM broadcasts are disabled. Configure BROADCAST_ADMIN_IDS to enable."
+        )
+    
+    if user_id not in config.broadcast_admin_ids:
+        logger.warning(f"DM broadcast attempted by unauthorized user {user_id}")
+        raise HTTPException(status_code=403, detail="not authorized for DM broadcasts")
 
 
 @app.post("/api/app/dm/subscribers")
@@ -891,7 +921,8 @@ async def app_dm_subscribers(payload: _DmSubscribersPayload):
         raise HTTPException(status_code=401, detail=str(e)) from e
 
     user_id = int(auth.user["id"])
-    await _require_any_settings_access(bot_obj, user_id=user_id, container=container)
+    # DM subscriber count is only visible to broadcast admins
+    _require_broadcast_admin(user_id)
 
     count = await container.dm_subscriber_service.count_deliverable()
     return {"deliverable": int(count)}
@@ -899,6 +930,12 @@ async def app_dm_subscribers(payload: _DmSubscribersPayload):
 
 @app.post("/api/app/broadcast/dm")
 async def app_broadcast_dm(payload: _BroadcastDmPayload):
+    """
+    Send a DM broadcast to all bot subscribers.
+    
+    SECURITY: This is a highly privileged operation. Only users listed in 
+    BROADCAST_ADMIN_IDS environment variable can use this endpoint.
+    """
     bot_obj, container = _require_container()
     try:
         auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
@@ -906,7 +943,9 @@ async def app_broadcast_dm(payload: _BroadcastDmPayload):
         raise HTTPException(status_code=401, detail=str(e)) from e
 
     user_id = int(auth.user["id"])
-    await _require_any_settings_access(bot_obj, user_id=user_id, container=container)
+    # CRITICAL: Only broadcast admins can send DM broadcasts
+    _require_broadcast_admin(user_id)
+    logger.info(f"DM broadcast initiated by authorized admin {user_id}")
 
     text = (payload.text or "").strip()
     if not text:
@@ -1481,7 +1520,15 @@ async def webhook_handler(request: Request):
     Handle incoming webhook updates from Telegram.
     
     This is called by Telegram whenever there's a new message, command, or event.
+    Security: Validates X-Telegram-Bot-Api-Secret-Token header if WEBHOOK_SECRET is configured.
     """
+    # Validate webhook secret token if configured
+    if config.webhook_secret:
+        secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if secret_header != config.webhook_secret:
+            logger.warning("⚠️ Rejected webhook request: invalid or missing secret token")
+            return Response(status_code=401)
+    
     try:
         update_data = await request.json()
         update = Update(**update_data)
@@ -1689,6 +1736,7 @@ async def app_delete_my_data(payload: _InitDataPayload):
 async def root():
     """
     Root endpoint with API information.
+    Note: Webhook path is intentionally not exposed for security.
     """
     return {
         "name": "Telegram Verification Bot",
@@ -1696,10 +1744,10 @@ async def root():
         "version": "2.0.0",
         "status": "running" if telegram_bot and telegram_bot.is_running() else "initializing",
         "endpoints": {
-            "webhook": config.webhook_path,
             "health": "/health",
             "status": "/status",
-            "verify": "/verify"
+            "verify": "/verify",
+            "app": "/app"
         },
         "documentation": {
             "commands": "/help",

@@ -1,7 +1,7 @@
 """Database models - Complete schema for full-featured bot."""
 from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index, BigInteger, text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, Index, BigInteger, text, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -183,6 +183,7 @@ class GroupMember(Base):
     
     __table_args__ = (
         Index('idx_group_member', 'group_id', 'telegram_id'),
+        UniqueConstraint('group_id', 'telegram_id', name='uq_group_members_group_telegram'),
     )
     
     def __repr__(self):

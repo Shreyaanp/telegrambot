@@ -34,9 +34,13 @@ class Config:
     # Webhook (for production)
     webhook_path: str = "/webhook"
     webhook_url: str = ""
+    webhook_secret: str = ""  # Secret token for webhook validation
 
     # Web admin endpoints (optional)
     admin_api_token: str = ""
+    
+    # Broadcast admin IDs (comma-separated Telegram user IDs who can broadcast)
+    broadcast_admin_ids: list[int] = field(default_factory=list)
     
     # App URLs
     mercle_ios_url: str = "https://apps.apple.com/ng/app/mercle/id6751991316"
@@ -80,6 +84,15 @@ class Config:
         if not database_url:
             raise RuntimeError("DATABASE_URL environment variable is required")
         
+        # Parse broadcast admin IDs
+        broadcast_ids_str = os.getenv("BROADCAST_ADMIN_IDS", "")
+        broadcast_admin_ids = []
+        if broadcast_ids_str.strip():
+            for id_str in broadcast_ids_str.split(","):
+                id_str = id_str.strip()
+                if id_str.isdigit():
+                    broadcast_admin_ids.append(int(id_str))
+        
         return cls(
             bot_token=bot_token,
             database_url=database_url,
@@ -91,7 +104,9 @@ class Config:
             action_on_timeout=os.getenv("ACTION_ON_TIMEOUT", "kick"),
             webhook_path=os.getenv("WEBHOOK_PATH", "/webhook"),
             webhook_url=os.getenv("WEBHOOK_URL", ""),
+            webhook_secret=os.getenv("WEBHOOK_SECRET", ""),
             admin_api_token=os.getenv("ADMIN_API_TOKEN", ""),
+            broadcast_admin_ids=broadcast_admin_ids,
             auto_delete_verification_messages=os.getenv("AUTO_DELETE_MESSAGES", "true").lower() == "true",
             send_welcome_message=os.getenv("SEND_WELCOME_MESSAGE", "true").lower() == "true",
         )
