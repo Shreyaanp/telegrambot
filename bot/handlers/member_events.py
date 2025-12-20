@@ -352,11 +352,7 @@ def create_member_handlers(container: ServiceContainer) -> Router:
         This triggers when users join via invite link or are added, even if already restricted.
         """
         try:
-            logger.info(f"🔥 NEW_CHAT_MEMBERS handler triggered!")
-            logger.info(f"🔥 Chat: {message.chat.id} ({message.chat.title})")
-            logger.info(f"🔥 Message type: {message.content_type}")
-            logger.info(f"🔥 New members: {message.new_chat_members}")
-            logger.info(f"🔥 New members count: {len(message.new_chat_members) if message.new_chat_members else 0}")
+            logger.info(f"NEW_CHAT_MEMBERS: chat={message.chat.id} ({message.chat.title}), members={len(message.new_chat_members) if message.new_chat_members else 0}")
             
             if not message.new_chat_members:
                 logger.warning("🔥 No new_chat_members in message, returning")

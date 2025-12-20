@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from html import escape
 from typing import Optional
@@ -12,6 +13,8 @@ from sqlalchemy import select
 
 from database.db import db
 from database.models import Group, Ticket, TicketUserState, TicketMessage
+
+logger = logging.getLogger(__name__)
 
 
 class TicketService:
@@ -211,12 +214,15 @@ class TicketService:
         """
         Close a ticket and (best-effort) close the forum topic if one was created.
         """
+        logger.info(f"Closing ticket #{ticket_id} (by user {closed_by_user_id})")
         now = datetime.utcnow()
         async with db.session() as session:
             ticket = await session.get(Ticket, int(ticket_id))
             if not ticket:
+                logger.warning(f"Ticket #{ticket_id} not found")
                 return False
             if str(getattr(ticket, "status", "")) == "closed":
+                logger.info(f"Ticket #{ticket_id} already closed")
                 return True
             ticket.status = "closed"
             ticket.closed_at = now
@@ -226,8 +232,8 @@ class TicketService:
                 state = await session.get(TicketUserState, int(ticket.user_id))
                 if state and int(state.ticket_id) == int(ticket.id):
                     await session.delete(state)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Could not clear user state for ticket #{ticket_id}: {e}")
 
             staff_chat_id = int(ticket.staff_chat_id) if getattr(ticket, "staff_chat_id", None) is not None else None
             staff_thread_id = int(ticket.staff_thread_id) if getattr(ticket, "staff_thread_id", None) is not None else None
@@ -236,8 +242,9 @@ class TicketService:
         if close_topic and staff_chat_id and staff_thread_id:
             try:
                 await bot.close_forum_topic(chat_id=staff_chat_id, message_thread_id=staff_thread_id)
-            except Exception:
-                pass
+                logger.info(f"Closed forum topic {staff_thread_id} for ticket #{ticket_id}")
+            except Exception as e:
+                logger.debug(f"Could not close forum topic for ticket #{ticket_id}: {e}")
 
         if staff_chat_id:
             try:
@@ -246,20 +253,21 @@ class TicketService:
                 if staff_thread_id:
                     kwargs["message_thread_id"] = staff_thread_id
                 await bot.send_message(chat_id=staff_chat_id, text=text, parse_mode="HTML", **kwargs)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Could not notify staff about ticket #{ticket_id} closure: {e}")
 
         if notify_user:
             try:
-                by = f" by <code>{int(closed_by_user_id)}</code>" if closed_by_user_id else ""
+                by = f" by support" if closed_by_user_id else ""
                 await bot.send_message(
                     chat_id=user_id,
-                    text=f"✅ Ticket <code>#{int(ticket_id)}</code> closed{by}.",
+                    text=f"✅ Ticket <code>#{int(ticket_id)}</code> closed{by}.\n\nThank you for contacting support!",
                     parse_mode="HTML",
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Could not notify user about ticket #{ticket_id} closure: {e}")
 
+        logger.info(f"Ticket #{ticket_id} closed successfully")
         return True
 
     async def create_ticket(
@@ -325,6 +333,8 @@ class TicketService:
             )
             session.add(initial_msg)
 
+        logger.info(f"Creating ticket #{ticket_id} for user {user_id} in group {group_id}")
+        
         # Try to create a dedicated forum topic (best UX for staff). If it fails, fall back to logs chat/thread.
         topic_thread_id: int | None = None
         try:
@@ -334,7 +344,9 @@ class TicketService:
                 topic_name = topic_name[:128]
                 topic = await bot.create_forum_topic(chat_id=staff_chat_id, name=topic_name)
                 topic_thread_id = int(getattr(topic, "message_thread_id", 0) or 0) or None
-        except Exception:
+                logger.info(f"Created forum topic {topic_thread_id} for ticket #{ticket_id}")
+        except Exception as e:
+            logger.warning(f"Could not create forum topic for ticket #{ticket_id}: {e}")
             topic_thread_id = None
 
         text = (
@@ -353,7 +365,12 @@ class TicketService:
         elif logs_thread_id:
             kwargs["message_thread_id"] = logs_thread_id
 
-        sent = await bot.send_message(chat_id=staff_chat_id, text=text, parse_mode="HTML", reply_markup=kb, **kwargs)
+        try:
+            sent = await bot.send_message(chat_id=staff_chat_id, text=text, parse_mode="HTML", reply_markup=kb, **kwargs)
+            logger.info(f"Sent ticket #{ticket_id} to staff chat {staff_chat_id}")
+        except Exception as e:
+            logger.error(f"Failed to send ticket #{ticket_id} to staff chat: {e}")
+            raise ValueError(f"Could not notify staff: {e}")
 
         async with db.session() as session:
             ticket = await session.get(Ticket, int(ticket_id))
@@ -362,4 +379,5 @@ class TicketService:
                 if topic_thread_id:
                     ticket.staff_thread_id = int(topic_thread_id)
 
+        logger.info(f"Ticket #{ticket_id} created successfully")
         return int(ticket_id)

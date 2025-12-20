@@ -88,54 +88,103 @@ def create_message_handlers(container: ServiceContainer) -> Router:
             pass
         
         # ========== ANTI-FLOOD CHECK ==========
-        is_flooding, msg_count = await container.antiflood_service.check_flood(
+        is_flooding, msg_count, msg_ids_to_delete, flood_settings = await container.antiflood_service.check_flood(
             group_id=group_id,
-            user_id=user_id
+            user_id=user_id,
+            message_id=message.message_id
         )
         
-        logger.info(f"🌊 Anti-flood check: group={group_id}, user={user_id}, flooding={is_flooding}, count={msg_count}")
+        logger.info(f"🌊 Anti-flood check: group={group_id}, user={user_id}, flooding={is_flooding}, count={msg_count}, limit={flood_settings.get('limit', 10)}")
         
         if is_flooding:
-            # Mute the user for flooding
             try:
-                silent = False
-                mute_seconds = 300
-                try:
-                    group = await container.group_service.get_or_create_group(group_id)
-                    silent = bool(getattr(group, "silent_automations", False))
-                    mute_seconds = int(getattr(group, "antiflood_mute_seconds", 300) or 300)
-                except Exception:
-                    silent = False
-                    mute_seconds = 300
-
-                await container.admin_service.mute_user(
-                    bot=message.bot,
-                    group_id=group_id,
-                    user_id=user_id,
-                    admin_id=message.bot.id,
-                    duration=mute_seconds,
-                    reason=f"Flooding ({msg_count} messages)"
-                )
+                silent = flood_settings.get("silent", False)
+                mute_seconds = flood_settings.get("mute_seconds", 300)
+                action = flood_settings.get("action", "mute")
+                delete_messages = flood_settings.get("delete_messages", True)
+                warn_threshold = flood_settings.get("warn_threshold", 0)
                 
-                # Delete the flood message
-                try:
-                    await message.delete()
-                except:
-                    pass
-
-                if not silent:
+                # Get current warning count
+                warning_count = await container.antiflood_service.get_warning_count(group_id, user_id)
+                
+                # Delete all flood messages if enabled
+                if delete_messages and msg_ids_to_delete:
+                    deleted_count = 0
+                    for msg_id in msg_ids_to_delete:
+                        try:
+                            await message.bot.delete_message(chat_id=group_id, message_id=msg_id)
+                            deleted_count += 1
+                        except Exception as e:
+                            logger.debug(f"Failed to delete flood message {msg_id}: {e}")
+                    
+                    if deleted_count > 0:
+                        logger.info(f"🗑️ Deleted {deleted_count} flood messages from user {user_id} in group {group_id}")
+                    
+                    # Clear tracked message IDs
+                    await container.antiflood_service.clear_message_ids(group_id, user_id)
+                
+                # Check if we should warn first or take action
+                should_take_action = warn_threshold == 0 or warning_count > warn_threshold
+                
+                if not should_take_action:
+                    # Just warn the user
+                    if not silent:
+                        remaining_warnings = warn_threshold - warning_count + 1
+                        await message.answer(
+                            f"⚠️ {message.from_user.mention_html()}, slow down! You're sending messages too fast.\n"
+                            f"📊 {msg_count} messages in the last minute (limit: {flood_settings.get('limit', 10)})\n"
+                            f"⏳ {remaining_warnings} warning(s) remaining before action.",
+                            parse_mode="HTML"
+                        )
+                    logger.info(f"Warned user {user_id} for flooding ({warning_count}/{warn_threshold} warnings)")
+                    return
+                
+                # Take action based on configured action type
+                action_taken = ""
+                
+                if action == "mute":
+                    await container.admin_service.mute_user(
+                        bot=message.bot,
+                        group_id=group_id,
+                        user_id=user_id,
+                        admin_id=message.bot.id,
+                        duration=mute_seconds,
+                        reason=f"Flooding ({msg_count} messages)"
+                    )
                     mins = max(1, int(round(mute_seconds / 60)))
+                    action_taken = f"muted for {mins} minutes"
+                    
+                elif action == "warn":
+                    await container.admin_service.warn_user(
+                        bot=message.bot,
+                        group_id=group_id,
+                        user_id=user_id,
+                        admin_id=message.bot.id,
+                        reason=f"Flooding ({msg_count} messages)"
+                    )
+                    action_taken = "warned"
+                    
+                elif action == "kick":
+                    await message.bot.ban_chat_member(chat_id=group_id, user_id=user_id)
+                    await message.bot.unban_chat_member(chat_id=group_id, user_id=user_id)
+                    action_taken = "kicked"
+                    
+                elif action == "ban":
+                    await message.bot.ban_chat_member(chat_id=group_id, user_id=user_id)
+                    action_taken = "banned"
+
+                if not silent and action_taken:
                     await message.answer(
-                        f"🚫 {message.from_user.mention_html()} has been muted for {mins} minutes due to flooding.\n\n"
-                        f"📊 Sent {msg_count} messages too quickly.",
+                        f"🚫 {message.from_user.mention_html()} has been {action_taken} for flooding.\n\n"
+                        f"📊 Sent {msg_count} messages too quickly (limit: {flood_settings.get('limit', 10)}/min).",
                         parse_mode="HTML"
                     )
                 
-                logger.warning(f"Muted user {user_id} for flooding in group {group_id}")
+                logger.warning(f"Anti-flood action '{action}' taken on user {user_id} in group {group_id}")
                 return
                 
             except Exception as e:
-                logger.error(f"Failed to mute flooding user: {e}")
+                logger.error(f"Failed to handle flooding user: {e}")
 
         # ========== RULES ENGINE ==========
         try:

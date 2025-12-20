@@ -63,6 +63,9 @@ class GroupService:
         antiflood_limit: Optional[int] = None,
         antiflood_enabled: Optional[bool] = None,
         antiflood_mute_seconds: Optional[int] = None,
+        antiflood_action: Optional[str] = None,
+        antiflood_delete_messages: Optional[bool] = None,
+        antiflood_warn_threshold: Optional[int] = None,
         silent_automations: Optional[bool] = None,
         raid_mode_enabled: Optional[bool] = None,
         raid_mode_minutes: Optional[int] = None,
@@ -109,6 +112,15 @@ class GroupService:
                 secs = int(antiflood_mute_seconds or 0)
                 secs = max(30, min(secs, 24 * 60 * 60))
                 group.antiflood_mute_seconds = secs
+            if antiflood_action is not None:
+                action = str(antiflood_action or "").strip() or "mute"
+                if action not in ("mute", "warn", "kick", "ban"):
+                    action = "mute"
+                group.antiflood_action = action
+            if antiflood_delete_messages is not None:
+                group.antiflood_delete_messages = bool(antiflood_delete_messages)
+            if antiflood_warn_threshold is not None:
+                group.antiflood_warn_threshold = max(0, min(int(antiflood_warn_threshold), 10))
             if silent_automations is not None:
                 group.silent_automations = bool(silent_automations)
             if raid_mode_enabled is not None:

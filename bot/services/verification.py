@@ -254,13 +254,15 @@ class VerificationService:
                     # Approve join request or unmute member
                     pending = await self.pending.get_pending(pending_id)
                     if pending:
-                        if pending.kind == "join_request":
+                        kind = str(getattr(pending, "kind", "post_join") or "post_join")
+                        logger.info(f"Processing pending verification {pending_id}, kind={kind}")
+                        if kind == "join_request":
                             try:
                                 await bot.approve_chat_join_request(chat_id=group_id, user_id=telegram_id)
                                 logger.info(f"Approved join request for user {telegram_id} in group {group_id}")
                             except Exception as e:
                                 logger.error(f"Failed to approve join request: {e}")
-                        elif pending.kind == "join":
+                        elif kind == "post_join":
                             # Unmute the user
                             try:
                                 from aiogram.types import ChatPermissions
@@ -284,8 +286,23 @@ class VerificationService:
                         
                         # Mark pending as approved
                         await self.pending.decide(pending_id, status="approved", decided_by=telegram_id)
+                        
+                        # Delete the group prompt message
+                        try:
+                            await self.pending.delete_group_prompt(bot, pending)
+                            logger.info(f"Deleted group prompt for user {telegram_id} in group {group_id}")
+                        except Exception as e:
+                            logger.debug(f"Failed to delete group prompt: {e}")
+                        
+                        # Trigger per-group onboarding sequences (best-effort)
+                        if self.sequences:
+                            try:
+                                await self.sequences.trigger_user_verified(bot=bot, group_id=int(group_id), telegram_id=int(telegram_id))
+                                logger.info(f"Triggered onboarding sequence for user {telegram_id} in group {group_id}")
+                            except Exception as e:
+                                logger.debug(f"Failed to trigger onboarding: {e}")
                 
-                # Update message
+                # Update DM message
                 if message_id:
                     try:
                         await bot.edit_message_text(

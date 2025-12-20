@@ -59,8 +59,12 @@ def create_ticket_bridge_handlers(container: ServiceContainer) -> Router:
         except Exception:
             pass
 
-    @router.message(F.chat.type.in_(["group", "supergroup"]))
+    @router.message(F.chat.type.in_(["group", "supergroup"]), ~F.new_chat_members, ~F.left_chat_member)
     async def relay_staff_to_user(message: Message):
+        # Ignore service messages (new members, left members, etc.)
+        if message.new_chat_members or message.left_chat_member:
+            return
+        
         # Ignore bot messages (including the bot's own ticket creation post).
         if message.from_user and message.from_user.is_bot:
             return
@@ -87,7 +91,9 @@ def create_ticket_bridge_handlers(container: ServiceContainer) -> Router:
                 ticket = None
 
         if not ticket or ticket.get("status") != "open":
-            return
+            # No ticket found - don't handle this message, let other handlers process it
+            return  # This will still mark as handled, but we need the message_router to run
+            # Note: The message_router should be included BEFORE ticket_bridge_router to handle anti-flood
 
         # Allow closing via /close for non-anonymous staff (anonymous admins should use the Close button).
         text = (message.text or "").strip()

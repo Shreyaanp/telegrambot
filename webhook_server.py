@@ -250,9 +250,13 @@ class _GroupSettingsUpdate(BaseModel):
     antiflood_enabled: bool | None = None
     antiflood_limit: int | None = None
     antiflood_mute_seconds: int | None = None
+    antiflood_action: str | None = None  # mute|warn|kick|ban
+    antiflood_delete_messages: bool | None = None
+    antiflood_warn_threshold: int | None = None
     silent_automations: bool | None = None
     raid_mode_enabled: bool | None = None
     raid_mode_minutes: int | None = None
+    raid_mode_duration_minutes: int | None = None  # Alias for raid_mode_minutes
     lock_links: bool | None = None
     lock_media: bool | None = None
     logs_mode: str | None = None  # off|group
@@ -455,10 +459,19 @@ async def app_bootstrap(payload: _InitDataPayload):
                     onboarding = await container.sequence_service.get_onboarding_sequence(gid)
                 except Exception:
                     onboarding = {"enabled": False, "delay_seconds": 0, "text": "", "parse_mode": "Markdown"}
+                
+                # Get member count from Telegram
+                member_count = 0
+                try:
+                    member_count = await bot_obj.get_bot().get_chat_member_count(gid)
+                except Exception:
+                    pass
+                
                 allowed.append(
                     {
                         "group_id": gid,
                         "group_name": group.group_name,
+                        "member_count": member_count,
                         "settings": {
                             "verification_enabled": bool(getattr(group, "verification_enabled", True)),
                             "verification_timeout": int(getattr(group, "verification_timeout", 300) or 300),
@@ -469,9 +482,12 @@ async def app_bootstrap(payload: _InitDataPayload):
                             "captcha_style": str(getattr(group, "captcha_style", "button") or "button"),
                             "captcha_max_attempts": int(getattr(group, "captcha_max_attempts", 3) or 3),
                             "block_no_username": bool(getattr(group, "block_no_username", False)),
-                            "antiflood_enabled": bool(getattr(group, "antiflood_enabled", True)),
+                            "antiflood_enabled": bool(getattr(group, "antiflood_enabled", False)),
                             "antiflood_limit": int(getattr(group, "antiflood_limit", 10) or 10),
                             "antiflood_mute_seconds": int(getattr(group, "antiflood_mute_seconds", 300) or 300),
+                            "antiflood_action": str(getattr(group, "antiflood_action", "mute") or "mute"),
+                            "antiflood_delete_messages": bool(getattr(group, "antiflood_delete_messages", True)),
+                            "antiflood_warn_threshold": int(getattr(group, "antiflood_warn_threshold", 0) or 0),
                             "silent_automations": bool(getattr(group, "silent_automations", False)),
                             "raid_mode_enabled": bool(getattr(group, "raid_mode_until", None) and getattr(group, "raid_mode_until") > now),
                             "raid_mode_remaining_seconds": max(
@@ -594,9 +610,12 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
         antiflood_enabled=payload.antiflood_enabled,
         antiflood_limit=payload.antiflood_limit,
         antiflood_mute_seconds=payload.antiflood_mute_seconds,
+        antiflood_action=payload.antiflood_action,
+        antiflood_delete_messages=payload.antiflood_delete_messages,
+        antiflood_warn_threshold=payload.antiflood_warn_threshold,
         silent_automations=payload.silent_automations,
         raid_mode_enabled=payload.raid_mode_enabled,
-        raid_mode_minutes=payload.raid_mode_minutes,
+        raid_mode_minutes=payload.raid_mode_minutes or payload.raid_mode_duration_minutes,
     )
 
     if payload.lock_links is not None or payload.lock_media is not None:
@@ -619,9 +638,12 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
             "captcha_style": str(getattr(group, "captcha_style", "button") or "button"),
             "captcha_max_attempts": int(getattr(group, "captcha_max_attempts", 3) or 3),
             "block_no_username": bool(getattr(group, "block_no_username", False)),
-            "antiflood_enabled": bool(getattr(group, "antiflood_enabled", True)),
+            "antiflood_enabled": bool(getattr(group, "antiflood_enabled", False)),
             "antiflood_limit": int(getattr(group, "antiflood_limit", 10) or 10),
             "antiflood_mute_seconds": int(getattr(group, "antiflood_mute_seconds", 300) or 300),
+            "antiflood_action": str(getattr(group, "antiflood_action", "mute") or "mute"),
+            "antiflood_delete_messages": bool(getattr(group, "antiflood_delete_messages", True)),
+            "antiflood_warn_threshold": int(getattr(group, "antiflood_warn_threshold", 0) or 0),
             "silent_automations": bool(getattr(group, "silent_automations", False)),
             "raid_mode_enabled": bool(getattr(group, "raid_mode_until", None) and getattr(group, "raid_mode_until") > now),
             "raid_mode_remaining_seconds": max(
@@ -685,6 +707,50 @@ async def app_test_logs_destination(group_id: int, payload: _LogsTestPayload):
     )
 
     return {"group_id": gid, "ok": True, "logs_chat_id": dest_chat_id, "logs_thread_id": thread_id}
+
+
+class _LogsChannelPayload(BaseModel):
+    initData: str
+    chat_id: int
+
+
+@app.post("/api/app/group/{group_id}/logs/channel")
+async def app_set_logs_channel(group_id: int, payload: _LogsChannelPayload):
+    """Set the logs destination channel/group."""
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    gid = int(group_id)
+
+    if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    logs_chat_id = int(payload.chat_id)
+    
+    # Verify bot can access the destination
+    bot = bot_obj.get_bot()
+    try:
+        bot_info = await bot.get_me()
+        bot_member = await bot.get_chat_member(logs_chat_id, bot_info.id)
+        if getattr(bot_member, "status", None) not in ("administrator", "creator", "member"):
+            raise HTTPException(status_code=400, detail="Bot is not a member of that chat")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Cannot access chat: {e}")
+    
+    # Update group settings
+    await container.group_service.update_setting(
+        gid,
+        logs_enabled=True,
+        logs_chat_id=logs_chat_id
+    )
+    
+    return {"group_id": gid, "ok": True, "logs_chat_id": logs_chat_id}
 
 
 @app.post("/api/app/group/{group_id}/broadcast")
@@ -1112,6 +1178,29 @@ class _RuleTogglePayload(BaseModel):
     enabled: bool
 
 
+@app.post("/api/app/group/{group_id}/rules/{rule_id}/delete")
+async def app_delete_rule_by_id(group_id: int, rule_id: int, payload: _RuleTogglePayload):
+    """Delete a rule by ID."""
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    gid = int(group_id)
+
+    if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    deleted = await container.rules_service.delete_rule(group_id=gid, rule_id=int(rule_id))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="not found")
+
+    rules = await container.rules_service.list_rules(gid)
+    return {"group_id": gid, "rules": rules}
+
+
 @app.post("/api/app/group/{group_id}/rules/{rule_id}/toggle")
 async def app_toggle_rule(group_id: int, rule_id: int, payload: _RuleTogglePayload):
     """Toggle a rule's enabled status."""
@@ -1149,8 +1238,163 @@ async def app_list_tickets(group_id: int, payload: _TicketsListPayload):
     if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
         raise HTTPException(status_code=403, detail="not allowed")
 
-    tickets = await container.ticket_service.list_tickets(group_id=gid, status=str(payload.status or "open"))
-    return {"group_id": gid, "tickets": tickets}
+    # Get both open and closed tickets
+    open_tickets = await container.ticket_service.list_tickets(group_id=gid, status="open", limit=50)
+    closed_tickets = await container.ticket_service.list_tickets(group_id=gid, status="closed", limit=20)
+    
+    return {
+        "group_id": gid,
+        "tickets": open_tickets,
+        "open_tickets": open_tickets,
+        "closed_tickets": closed_tickets,
+        "total_open": len(open_tickets),
+        "total_closed": len(closed_tickets),
+    }
+
+
+class _TicketDetailPayload(BaseModel):
+    initData: str
+
+
+class _TicketReplyPayload(BaseModel):
+    initData: str
+    message: str
+
+
+@app.post("/api/app/group/{group_id}/tickets/{ticket_id}")
+async def app_get_ticket_detail(group_id: int, ticket_id: int, payload: _TicketDetailPayload):
+    """Get ticket details and conversation history."""
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    gid = int(group_id)
+
+    if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    # Get ticket info
+    async with db.session() as session:
+        from database.models import Ticket
+        ticket = await session.get(Ticket, int(ticket_id))
+        if not ticket or int(ticket.group_id) != gid:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        
+        ticket_data = {
+            "id": int(ticket.id),
+            "group_id": int(ticket.group_id),
+            "user_id": int(ticket.user_id),
+            "status": str(ticket.status),
+            "subject": str(ticket.subject or ""),
+            "message": str(ticket.message or ""),
+            "created_at": ticket.created_at.isoformat() if ticket.created_at else None,
+            "closed_at": ticket.closed_at.isoformat() if ticket.closed_at else None,
+            "message_count": int(ticket.message_count or 1),
+            "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
+        }
+
+    # Get conversation history
+    messages = await container.ticket_service.get_ticket_messages(ticket_id=ticket_id, limit=100)
+    
+    return {
+        "ticket": ticket_data,
+        "messages": messages,
+    }
+
+
+@app.post("/api/app/group/{group_id}/tickets/{ticket_id}/reply")
+async def app_reply_to_ticket(group_id: int, ticket_id: int, payload: _TicketReplyPayload):
+    """Send a reply to a ticket from the Mini App."""
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    gid = int(group_id)
+    admin_name = auth.user.get("first_name", "Admin")
+
+    if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    message_text = (payload.message or "").strip()
+    if not message_text:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if len(message_text) > 4000:
+        raise HTTPException(status_code=400, detail="Message too long (max 4000 chars)")
+
+    # Get ticket info
+    async with db.session() as session:
+        from database.models import Ticket
+        ticket = await session.get(Ticket, int(ticket_id))
+        if not ticket or int(ticket.group_id) != gid:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        if str(ticket.status) != "open":
+            raise HTTPException(status_code=400, detail="Cannot reply to a closed ticket")
+        
+        ticket_user_id = int(ticket.user_id)
+
+    # Store the message
+    await container.ticket_service.add_message(
+        ticket_id=ticket_id,
+        sender_type="staff",
+        sender_id=user_id,
+        sender_name=admin_name,
+        message_type="text",
+        content=message_text,
+    )
+
+    # Send to user
+    bot = bot_obj.get_bot()
+    try:
+        await bot.send_message(
+            chat_id=ticket_user_id,
+            text=f"<b>Reply from support:</b>\n\n{message_text}",
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning(f"Failed to send ticket reply to user {ticket_user_id}: {e}")
+        # Still return success since message was stored
+
+    return {"ok": True, "ticket_id": ticket_id}
+
+
+@app.post("/api/app/group/{group_id}/tickets/{ticket_id}/close")
+async def app_close_ticket(group_id: int, ticket_id: int, payload: _TicketDetailPayload):
+    """Close a ticket from the Mini App."""
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    gid = int(group_id)
+
+    if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    # Verify ticket belongs to this group
+    async with db.session() as session:
+        from database.models import Ticket
+        ticket = await session.get(Ticket, int(ticket_id))
+        if not ticket or int(ticket.group_id) != gid:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # Close the ticket
+    await container.ticket_service.close_ticket(
+        bot=bot_obj.get_bot(),
+        ticket_id=ticket_id,
+        closed_by_user_id=user_id,
+        notify_user=True,
+        close_topic=True,
+    )
+
+    return {"ok": True, "ticket_id": ticket_id, "status": "closed"}
 
 
 @app.post("/api/app/group/{group_id}/analytics")

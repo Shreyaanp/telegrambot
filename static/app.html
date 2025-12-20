@@ -6,16 +6,17 @@
   <title>Mercle Bot</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    /* ===== DESIGN SYSTEM ===== */
+    /* ===== DESIGN SYSTEM - ALWAYS DARK MODE ===== */
     :root {
-      --bg: var(--tg-theme-bg-color, #1c1c1e);
-      --bg-secondary: var(--tg-theme-secondary-bg-color, #2c2c2e);
+      /* Force dark mode colors regardless of Telegram theme */
+      --bg: #1c1c1e;
+      --bg-secondary: #2c2c2e;
       --bg-secondary-rgb: 44, 44, 46;
       --bg-tertiary: #3a3a3c;
-      --text: var(--tg-theme-text-color, #ffffff);
-      --text-secondary: var(--tg-theme-hint-color, #8e8e93);
-      --accent: var(--tg-theme-button-color, #0a84ff);
-      --accent-text: var(--tg-theme-button-text-color, #ffffff);
+      --text: #ffffff;
+      --text-secondary: #8e8e93;
+      --accent: #0a84ff;
+      --accent-text: #ffffff;
       --success: #30d158;
       --warning: #ff9f0a;
       --danger: #ff453a;
@@ -555,6 +556,9 @@
     <!-- Tickets View -->
     <div id="ticketsView" class="hidden detail-view"></div>
 
+    <!-- Ticket Detail View -->
+    <div id="ticketDetailView" class="hidden detail-view"></div>
+
     <!-- Analytics View -->
     <div id="analyticsView" class="hidden detail-view"></div>
 
@@ -563,6 +567,9 @@
 
     <!-- Onboarding View -->
     <div id="onboardingView" class="hidden detail-view"></div>
+
+    <!-- Broadcast View -->
+    <div id="broadcastView" class="hidden detail-view"></div>
 
     <!-- Account Details View -->
     <div id="accountDetailsView" class="hidden status-page">
@@ -654,9 +661,11 @@
             'faq': 'FAQ',
             'settings': 'Configure Bot',
             'tickets': 'Tickets',
+            'ticketDetail': 'Ticket Details',
             'analytics': 'Analytics',
             'rules': 'Rules',
             'onboarding': 'Onboarding',
+            'broadcast': 'Broadcast',
             'accountDetails': 'Settings',
           };
           headerTitle.textContent = titles[viewName] || 'Mercle Bot';
@@ -675,6 +684,20 @@
         state.viewHistory.push(state.currentView);
       }
       state.currentView = viewName;
+      
+      // Call content loader functions for info pages
+      const contentLoaders = {
+        'whyVerification': showWhyVerification,
+        'howToUnlock': showHowToUnlock,
+        'aboutSettings': showAboutSettings,
+        'privacyPolicy': showPrivacyPolicy,
+        'faq': showFAQ,
+        'accountDetails': showAccountDetails,
+      };
+      
+      if (contentLoaders[viewName]) {
+        contentLoaders[viewName]();
+      }
     }
 
     function goBack() {
@@ -846,26 +869,68 @@
       const isVerified = state.verification.is_verified;
       const groupCount = state.groups.length;
       
-      if (isVerified) {
+      // Get user photo URL from Telegram WebApp
+      const userPhoto = tg?.initDataUnsafe?.user?.photo_url || null;
+      const userName = state.user?.first_name || state.user?.username || 'User';
+      const userInitial = userName.charAt(0).toUpperCase();
+      
+      // Check if verification is expiring soon (less than 2 days)
+      const verifiedUntil = state.verification?.verified_until;
+      let isExpiringSoon = false;
+      let isExpired = false;
+      
+      if (verifiedUntil) {
+        const expiryDate = new Date(verifiedUntil);
+        const now = new Date();
+        const hoursRemaining = (expiryDate - now) / (1000 * 60 * 60);
+        isExpiringSoon = hoursRemaining > 0 && hoursRemaining < 48; // Less than 2 days
+        isExpired = hoursRemaining <= 0;
+      }
+      
+      if (isVerified || (verifiedUntil && !isExpired)) {
         // Verified user view - Clean, intuitive design
-        const verifiedUntil = state.verification.verified_until;
         const mercleId = state.verification.mercle_user_id || 'N/A';
         const timeRemaining = verifiedUntil ? formatTimeRemaining(verifiedUntil) : 'N/A';
         
+        // Determine status color and message
+        let statusColor = '#34C759'; // Green
+        let statusMessage = 'Verified';
+        let expiryWarning = '';
+        
+        if (isExpiringSoon) {
+          statusColor = '#FF9F0A'; // Orange/Warning
+          statusMessage = 'Expiring Soon';
+          expiryWarning = `<div style="margin-top: 12px; padding: 10px 14px; background: rgba(255, 159, 10, 0.15); border-radius: 10px; font-size: 13px; color: #FF9F0A;">
+            ⚠️ Your verification expires in ${timeRemaining}. Please re-verify to maintain access.
+          </div>`;
+        }
+        
         content.innerHTML = `
           <div style="display: flex; flex-direction: column; height: 100%; padding: 16px 0;">
-            <!-- Top Section: Shield Icon + Status -->
+            <!-- Top Section: User Photo + Status -->
             <div style="flex: 0 0 auto; text-align: center; padding: 16px 0 24px;">
-              <div style="width: 100px; height: 100px; margin: 0 auto 14px; position: relative; display: flex; align-items: center; justify-content: center;">
-                <!-- Shield background -->
-                <div style="position: absolute; width: 100%; height: 100%; background: linear-gradient(135deg, #34C759 0%, #30D158 100%); clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%); box-shadow: 0 8px 24px rgba(52, 199, 89, 0.4);"></div>
-                <!-- Checkmark -->
-                <div style="position: relative; z-index: 1; font-size: 48px; color: white; font-weight: bold;">✓</div>
+              <!-- User Profile Photo -->
+              <div style="width: 80px; height: 80px; margin: 0 auto 14px; position: relative;">
+                ${userPhoto 
+                  ? `<img src="${userPhoto}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid ${statusColor};" />`
+                  : `<div style="width: 100%; height: 100%; border-radius: 50%; background: linear-gradient(135deg, ${statusColor} 0%, ${statusColor}dd 100%); display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 700; color: white; border: 3px solid ${statusColor};">${userInitial}</div>`
+                }
+                <!-- Verification badge -->
+                <div style="position: absolute; bottom: -2px; right: -2px; width: 28px; height: 28px; background: ${statusColor}; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid var(--bg);">
+                  <span style="font-size: 14px; color: white;">✓</span>
+                </div>
               </div>
-              <div style="font-size: 22px; font-weight: 700; margin-bottom: 6px; color: var(--text);">Verified</div>
-              <div style="font-size: 14px; color: var(--text-secondary); line-height: 1.5;">
-                You can manage bot settings for your groups.
+              <div style="font-size: 20px; font-weight: 700; margin-bottom: 4px; color: var(--text);">${userName}</div>
+              <div style="font-size: 14px; color: ${statusColor}; font-weight: 600; margin-bottom: 4px;">${statusMessage}</div>
+              <div style="font-size: 13px; color: var(--text-secondary);">
+                ${isExpiringSoon ? `Expires: ${timeRemaining}` : `Valid for ${timeRemaining}`}
               </div>
+              ${expiryWarning}
+              ${isExpiringSoon ? `
+              <button class="btn" onclick="startVerification()" style="margin-top: 12px; background: #FF9F0A; color: white; padding: 10px 20px; font-size: 14px;">
+                🔄 Re-verify Now
+              </button>
+              ` : ''}
             </div>
 
             <!-- Middle Section: Access Menu (Takes remaining space) -->
@@ -1112,15 +1177,24 @@
 
     function startVerification() {
       try {
-        // Close the Mini App - user will interact with bot in DM
-        if (tg?.close) {
-          tg.close();
+        const botUsername = state.botInfo?.username || 'mercleMerci_bot';
+        const verifyLink = `https://t.me/${botUsername}?start=verify`;
+        
+        // Try to open the bot chat with verify command
+        if (tg?.openTelegramLink) {
+          tg.openTelegramLink(verifyLink);
+        } else if (tg?.openLink) {
+          tg.openLink(verifyLink);
         } else {
-          showError('Please open this app from Telegram');
+          // Fallback: just close and show message
+          showError('Please open @' + botUsername + ' and send /verify');
+          if (tg?.close) {
+            setTimeout(() => tg.close(), 2000);
+          }
         }
       } catch (error) {
-        console.error('Error closing Mini App:', error);
-        showError('Failed to close app: ' + error.message);
+        console.error('Error starting verification:', error);
+        showError('Failed to start verification. Please open the bot and send /verify');
       }
     }
 
@@ -1326,6 +1400,152 @@
       `;
     }
 
+    function showAccountDetails() {
+      const content = document.getElementById('accountDetailsContent');
+      const verifiedUntil = state.verification?.verified_until;
+      const mercleId = state.verification?.mercle_user_id || 'N/A';
+      const timeRemaining = verifiedUntil ? formatTimeRemaining(verifiedUntil) : 'N/A';
+      const isVerified = state.verification?.is_verified;
+      
+      // Get user photo URL from Telegram WebApp
+      const userPhoto = tg?.initDataUnsafe?.user?.photo_url || null;
+      const userName = state.user?.first_name || state.user?.username || 'User';
+      const userInitial = userName.charAt(0).toUpperCase();
+      
+      // Check expiry status
+      let isExpiringSoon = false;
+      let isExpired = false;
+      let statusColor = '#34C759'; // Green
+      let statusText = 'Verified';
+      
+      if (verifiedUntil) {
+        const expiryDate = new Date(verifiedUntil);
+        const now = new Date();
+        const hoursRemaining = (expiryDate - now) / (1000 * 60 * 60);
+        isExpiringSoon = hoursRemaining > 0 && hoursRemaining < 48;
+        isExpired = hoursRemaining <= 0;
+        
+        if (isExpired) {
+          statusColor = '#FF3B30'; // Red
+          statusText = 'Expired';
+        } else if (isExpiringSoon) {
+          statusColor = '#FF9F0A'; // Orange
+          statusText = 'Expiring Soon';
+        }
+      }
+      
+      if (!isVerified && !verifiedUntil) {
+        statusColor = '#FF3B30';
+        statusText = 'Not Verified';
+      }
+      
+      content.innerHTML = `
+        <div style="padding: 16px 0;">
+          <!-- User Profile Header -->
+          <div style="text-align: center; margin-bottom: 24px;">
+            <div style="width: 80px; height: 80px; margin: 0 auto 12px; position: relative;">
+              ${userPhoto 
+                ? `<img src="${userPhoto}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover; border: 3px solid ${statusColor};" />`
+                : `<div style="width: 100%; height: 100%; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 700; color: white; border: 3px solid ${statusColor};">${userInitial}</div>`
+              }
+              ${isVerified || verifiedUntil ? `
+              <div style="position: absolute; bottom: -2px; right: -2px; width: 24px; height: 24px; background: ${statusColor}; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid var(--bg);">
+                <span style="font-size: 12px; color: white;">${isExpired ? '!' : '✓'}</span>
+              </div>
+              ` : ''}
+            </div>
+            <div style="font-size: 18px; font-weight: 700; color: var(--text);">${userName}</div>
+            <div style="font-size: 13px; color: var(--text-secondary);">@${state.user?.username || 'N/A'}</div>
+          </div>
+          
+          <div class="card" style="margin-bottom: 16px;">
+            <div class="card-section">
+              <div class="card-row">
+                <div class="card-content">
+                  <div class="card-title">User ID</div>
+                  <div class="card-subtitle">${state.user?.id || 'N/A'}</div>
+                </div>
+              </div>
+              
+              <div class="card-row">
+                <div class="card-content">
+                  <div class="card-title">Verification Status</div>
+                  <div class="card-subtitle" style="color: ${statusColor}; font-weight: 600;">
+                    ${statusText}
+                  </div>
+                </div>
+                ${(isExpiringSoon || isExpired) ? `
+                <button class="btn" onclick="startVerification()" style="background: ${statusColor}; color: white; padding: 6px 12px; font-size: 12px; margin-left: auto;">
+                  Re-verify
+                </button>
+                ` : ''}
+              </div>
+              
+              ${(isVerified || verifiedUntil) ? `
+              <div class="card-row">
+                <div class="card-content">
+                  <div class="card-title">Mercle ID</div>
+                  <div class="card-subtitle">${mercleId}</div>
+                </div>
+              </div>
+              
+              <div class="card-row">
+                <div class="card-content">
+                  <div class="card-title">Verification ${isExpired ? 'Expired' : 'Expires'}</div>
+                  <div class="card-subtitle" style="color: ${isExpired ? '#FF3B30' : (isExpiringSoon ? '#FF9F0A' : 'var(--text-secondary)')};">
+                    ${isExpired ? 'Please re-verify' : timeRemaining}
+                  </div>
+                </div>
+              </div>
+              ` : `
+              <div class="card-row">
+                <div class="card-content">
+                  <div class="card-title" style="color: var(--text-secondary);">
+                    Verify your account to access group settings
+                  </div>
+                </div>
+                <button class="btn btn-primary" onclick="startVerification()" style="padding: 6px 12px; font-size: 12px; margin-left: auto;">
+                  Verify Now
+                </button>
+              </div>
+              `}
+            </div>
+          </div>
+          
+          ${(isExpiringSoon || isExpired) ? `
+          <div style="padding: 12px 16px; background: rgba(${isExpired ? '255, 59, 48' : '255, 159, 10'}, 0.15); border-radius: 12px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <span style="font-size: 20px;">${isExpired ? '⚠️' : '⏰'}</span>
+              <div>
+                <div style="font-size: 14px; font-weight: 600; color: ${statusColor};">
+                  ${isExpired ? 'Verification Expired' : 'Verification Expiring Soon'}
+                </div>
+                <div style="font-size: 12px; color: var(--text-secondary);">
+                  ${isExpired ? 'Re-verify to maintain full access to group features.' : `Expires in ${timeRemaining}. Re-verify to avoid interruption.`}
+                </div>
+              </div>
+            </div>
+            <button class="btn" onclick="startVerification()" style="width: 100%; margin-top: 12px; background: ${statusColor}; color: white;">
+              🔄 Re-verify Now
+            </button>
+          </div>
+          ` : ''}
+          
+          <div style="margin-top: 24px;">
+            <button class="btn btn-danger" onclick="confirmDeleteData()">
+              🗑️ Delete My Data
+            </button>
+          </div>
+          
+          <div style="text-align: center; margin-top: 16px;">
+            <a class="link" onclick="showView('privacyPolicy')" style="font-size: 13px;">Privacy Policy</a>
+            <span style="color: var(--text-secondary); margin: 0 8px;">•</span>
+            <a class="link" onclick="showView('faq')" style="font-size: 13px;">FAQ</a>
+          </div>
+        </div>
+      `;
+    }
+
     // ===== GROUP SELECTION =====
     function openGroupSelection() {
       showView('groupSelection');
@@ -1484,6 +1704,22 @@
                 </div>
               </div>
             </div>
+            
+            <!-- Broadcast -->
+            <div class="card" onclick="loadBroadcast()" style="cursor: pointer; margin-bottom: 10px; transition: transform 0.15s;" onmouseover="this.style.transform='translateY(-1px)';" onmouseout="this.style.transform='';">
+              <div class="card-section" style="padding: 14px 16px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(88, 86, 214, 0.15); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;">
+                    📢
+                  </div>
+                  <div style="flex: 1;">
+                    <div style="font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 2px;">Broadcast</div>
+                    <div style="font-size: 13px; color: var(--text-secondary);">Send announcements</div>
+                  </div>
+                  <div style="font-size: 18px; color: var(--text-secondary);">›</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -1498,46 +1734,195 @@
       
       try {
         const settings = state.selectedGroup.settings || {};
+        
+        // Raid mode status
+        const raidActive = settings.raid_mode_enabled;
+        const raidRemaining = settings.raid_mode_remaining_seconds || 0;
+        const raidMins = Math.ceil(raidRemaining / 60);
+        
         view.innerHTML = `
           <div class="detail-card">
-            <div class="detail-title">⚙️ Configure Bot</div>
-            <p style="color: var(--text-secondary); margin-bottom: 16px;">Manage verification and security settings for this group.</p>
+            <div class="detail-title">🔐 Verification Settings</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Configure how new members are verified.</p>
             
             <div class="toggle-row">
-              <span>Verification Enabled</span>
-              <div class="toggle ${settings.verification_enabled ? 'on' : ''}" onclick="toggleSetting('verification_enabled')">
+              <span>Verification Required</span>
+              <div class="toggle ${settings.verification_enabled ? 'on' : ''}" data-setting="verification_enabled" onclick="toggleSetting('verification_enabled')">
                 <div class="toggle-knob"></div>
               </div>
             </div>
             
-            <div class="form-group">
-              <label class="form-label">Verification Timeout (seconds)</label>
-              <input type="number" class="form-input" id="verificationTimeout" value="${settings.verification_timeout || 300}" />
+            <div class="form-group" id="verificationSettingsGroup" style="display: ${settings.verification_enabled ? 'block' : 'none'};">
+              <label class="form-label">Verification Timeout</label>
+              <select class="form-input" id="verificationTimeout">
+                <option value="60" ${settings.verification_timeout == 60 ? 'selected' : ''}>1 minute</option>
+                <option value="180" ${settings.verification_timeout == 180 ? 'selected' : ''}>3 minutes</option>
+                <option value="300" ${settings.verification_timeout == 300 || !settings.verification_timeout ? 'selected' : ''}>5 minutes</option>
+                <option value="600" ${settings.verification_timeout == 600 ? 'selected' : ''}>10 minutes</option>
+                <option value="1800" ${settings.verification_timeout == 1800 ? 'selected' : ''}>30 minutes</option>
+              </select>
+              <small style="color: var(--text-secondary);">Time users have to verify before action is taken</small>
+              
+              <label class="form-label" style="margin-top: 12px;">Action on Timeout</label>
+              <select class="form-input" id="actionOnTimeout">
+                <option value="mute" ${settings.action_on_timeout !== 'kick' ? 'selected' : ''}>Mute (restrict messaging)</option>
+                <option value="kick" ${settings.action_on_timeout === 'kick' ? 'selected' : ''}>Kick from group</option>
+              </select>
             </div>
-            
-            <div class="toggle-row">
-              <span>Kick Unverified Users</span>
-              <div class="toggle ${settings.action_on_timeout === 'kick' ? 'on' : ''}" onclick="toggleSetting('kick_unverified')">
-                <div class="toggle-knob"></div>
-              </div>
-            </div>
-            
-            <div class="toggle-row">
-              <span>Anti-Flood Enabled</span>
-              <div class="toggle ${settings.antiflood_enabled ? 'on' : ''}" onclick="toggleSetting('antiflood_enabled')">
-                <div class="toggle-knob"></div>
-              </div>
-            </div>
-            
-            <div class="toggle-row">
-              <span>Raid Mode</span>
-              <div class="toggle ${settings.raid_mode_enabled ? 'on' : ''}" onclick="toggleSetting('raid_mode_enabled')">
-                <div class="toggle-knob"></div>
-              </div>
-            </div>
-            
-            <button class="btn btn-primary" onclick="saveSettings()">Save Changes</button>
           </div>
+          
+          <div class="detail-card" style="margin-top: 16px;">
+            <div class="detail-title">🌊 Anti-Flood Protection</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Prevent spam by limiting message rate.</p>
+            
+            <div class="toggle-row">
+              <span>Enable Anti-Flood</span>
+              <div class="toggle ${settings.antiflood_enabled ? 'on' : ''}" data-setting="antiflood_enabled" onclick="toggleSetting('antiflood_enabled')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            
+            <div id="antifloodSettingsGroup" style="display: ${settings.antiflood_enabled ? 'block' : 'none'};">
+              <div class="form-group">
+                <label class="form-label">Message Limit (per minute)</label>
+                <input type="number" class="form-input" id="antifloodLimit" value="${settings.antiflood_limit || ''}" placeholder="e.g., 10" min="3" max="100" />
+                <small style="color: var(--text-secondary);">Messages allowed per minute before action</small>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">Action When Flooding</label>
+                <select class="form-input" id="antifloodAction">
+                  <option value="mute" ${settings.antiflood_action === 'mute' || !settings.antiflood_action ? 'selected' : ''}>Mute user</option>
+                  <option value="warn" ${settings.antiflood_action === 'warn' ? 'selected' : ''}>Warn user</option>
+                  <option value="kick" ${settings.antiflood_action === 'kick' ? 'selected' : ''}>Kick user</option>
+                  <option value="ban" ${settings.antiflood_action === 'ban' ? 'selected' : ''}>Ban user</option>
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">Mute Duration</label>
+                <select class="form-input" id="antifloodMuteSeconds">
+                  <option value="60" ${settings.antiflood_mute_seconds == 60 ? 'selected' : ''}>1 minute</option>
+                  <option value="300" ${settings.antiflood_mute_seconds == 300 || !settings.antiflood_mute_seconds ? 'selected' : ''}>5 minutes</option>
+                  <option value="600" ${settings.antiflood_mute_seconds == 600 ? 'selected' : ''}>10 minutes</option>
+                  <option value="1800" ${settings.antiflood_mute_seconds == 1800 ? 'selected' : ''}>30 minutes</option>
+                  <option value="3600" ${settings.antiflood_mute_seconds == 3600 ? 'selected' : ''}>1 hour</option>
+                </select>
+              </div>
+              
+              <div class="toggle-row">
+                <span>Delete Flood Messages</span>
+                <div class="toggle ${settings.antiflood_delete_messages !== false ? 'on' : ''}" data-setting="antiflood_delete_messages" onclick="toggleSetting('antiflood_delete_messages')">
+                  <div class="toggle-knob"></div>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">Warnings Before Action</label>
+                <select class="form-input" id="antifloodWarnThreshold">
+                  <option value="0" ${!settings.antiflood_warn_threshold ? 'selected' : ''}>No warnings (immediate action)</option>
+                  <option value="1" ${settings.antiflood_warn_threshold == 1 ? 'selected' : ''}>1 warning</option>
+                  <option value="2" ${settings.antiflood_warn_threshold == 2 ? 'selected' : ''}>2 warnings</option>
+                  <option value="3" ${settings.antiflood_warn_threshold == 3 ? 'selected' : ''}>3 warnings</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          
+          <div class="detail-card" style="margin-top: 16px;">
+            <div class="detail-title">🚨 Raid Mode</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Emergency lockdown - blocks all new joins temporarily.</p>
+            
+            ${raidActive ? `
+              <div style="background: rgba(255, 59, 48, 0.15); border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                <div style="color: var(--danger); font-weight: 600;">⚠️ Raid Mode Active</div>
+                <div style="color: var(--text-secondary); font-size: 13px; margin-top: 4px;">
+                  ${raidMins} minute(s) remaining
+                </div>
+              </div>
+            ` : ''}
+            
+            <div class="toggle-row">
+              <span>${raidActive ? 'Raid Mode (Active)' : 'Enable Raid Mode'}</span>
+              <div class="toggle ${raidActive ? 'on' : ''}" data-setting="raid_mode_enabled" onclick="toggleSetting('raid_mode_enabled')" style="${raidActive ? 'background: var(--danger);' : ''}">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            
+            <div id="raidModeSettingsGroup" style="display: ${!raidActive ? 'block' : 'none'};">
+              <div class="form-group">
+                <label class="form-label">Duration</label>
+                <select class="form-input" id="raidModeDuration">
+                  <option value="15">15 minutes</option>
+                  <option value="30" selected>30 minutes</option>
+                  <option value="60">1 hour</option>
+                  <option value="120">2 hours</option>
+                  <option value="360">6 hours</option>
+                  <option value="720">12 hours</option>
+                  <option value="1440">24 hours</option>
+                </select>
+                <small style="color: var(--text-secondary);">Raid mode will auto-disable after this time</small>
+              </div>
+            </div>
+          </div>
+          
+          <div class="detail-card" style="margin-top: 16px;">
+            <div class="detail-title">🔒 Content Locks</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Restrict what members can post.</p>
+            
+            <div class="toggle-row">
+              <span>Lock Links</span>
+              <div class="toggle ${settings.lock_links ? 'on' : ''}" data-setting="lock_links" onclick="toggleSetting('lock_links')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            <small style="color: var(--text-secondary); display: block; margin: -8px 0 12px 0;">Delete messages containing URLs</small>
+            
+            <div class="toggle-row">
+              <span>Lock Media</span>
+              <div class="toggle ${settings.lock_media ? 'on' : ''}" data-setting="lock_media" onclick="toggleSetting('lock_media')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            <small style="color: var(--text-secondary); display: block; margin: -8px 0 12px 0;">Delete photos, videos, documents, etc.</small>
+          </div>
+          
+          <div class="detail-card" style="margin-top: 16px;">
+            <div class="detail-title">📋 Mod Logs</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Send admin action logs to a channel or group.</p>
+            
+            <div class="toggle-row">
+              <span>Enable Logs</span>
+              <div class="toggle ${settings.logs_enabled ? 'on' : ''}" data-setting="logs_enabled" onclick="toggleSetting('logs_enabled')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            
+            <div id="logsSettingsGroup" style="display: ${settings.logs_enabled ? 'block' : 'none'};">
+              <div class="form-group">
+                <label class="form-label">Log Channel/Group ID</label>
+                <input type="text" class="form-input" id="logsChannelId" value="${settings.logs_chat_id || ''}" placeholder="e.g., -1001234567890" />
+                <small style="color: var(--text-secondary);">Enter the chat ID where logs should be sent. Bot must be admin there.</small>
+              </div>
+              
+              <button class="btn btn-secondary" style="width: 100%; margin-top: 8px;" onclick="testLogs()">🔔 Test Logs</button>
+            </div>
+          </div>
+          
+          <div class="detail-card" style="margin-top: 16px;">
+            <div class="detail-title">🔇 Silent Mode</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Suppress bot notification messages.</p>
+            
+            <div class="toggle-row">
+              <span>Silent Automations</span>
+              <div class="toggle ${settings.silent_automations ? 'on' : ''}" data-setting="silent_automations" onclick="toggleSetting('silent_automations')">
+                <div class="toggle-knob"></div>
+              </div>
+            </div>
+            <small style="color: var(--text-secondary); display: block; margin: -8px 0 12px 0;">Don't send public messages for automated actions (mutes, warns, etc.)</small>
+          </div>
+          
+          <button class="btn btn-primary" style="margin-top: 16px; width: 100%;" onclick="saveSettings()">Save All Settings</button>
         `;
       } catch (error) {
         view.innerHTML = `<div style="padding: 20px; color: var(--danger);">Error: ${error.message}</div>`;
@@ -1551,38 +1936,96 @@
         const groupId = state.selectedGroup.group_id;
         const settings = state.selectedGroup.settings || {};
         
-        // Get all current toggle states
-        const toggles = document.querySelectorAll('#settingsView .toggle');
-        const verificationEnabled = toggles[0]?.classList.contains('on') ?? settings.verification_enabled;
-        const kickUnverified = toggles[1]?.classList.contains('on') ?? (settings.action_on_timeout === 'kick');
-        const antifloodEnabled = toggles[2]?.classList.contains('on') ?? settings.antiflood_enabled;
-        const raidModeEnabled = toggles[3]?.classList.contains('on') ?? settings.raid_mode_enabled;
+        // Get toggle states by data-setting attribute
+        const verificationEnabled = document.querySelector('[data-setting="verification_enabled"]')?.classList.contains('on') ?? settings.verification_enabled;
+        const antifloodEnabled = document.querySelector('[data-setting="antiflood_enabled"]')?.classList.contains('on') ?? settings.antiflood_enabled;
+        const antifloodDeleteMessages = document.querySelector('[data-setting="antiflood_delete_messages"]')?.classList.contains('on') ?? true;
+        const raidModeEnabled = document.querySelector('[data-setting="raid_mode_enabled"]')?.classList.contains('on') ?? settings.raid_mode_enabled;
+        const lockLinks = document.querySelector('[data-setting="lock_links"]')?.classList.contains('on') ?? settings.lock_links;
+        const lockMedia = document.querySelector('[data-setting="lock_media"]')?.classList.contains('on') ?? settings.lock_media;
+        const logsEnabled = document.querySelector('[data-setting="logs_enabled"]')?.classList.contains('on') ?? settings.logs_enabled;
+        const silentAutomations = document.querySelector('[data-setting="silent_automations"]')?.classList.contains('on') ?? settings.silent_automations;
         
-        const timeout = parseInt(document.getElementById('verificationTimeout').value) || 300;
+        // Get form values
+        const timeout = parseInt(document.getElementById('verificationTimeout')?.value) || 300;
+        const actionOnTimeout = document.getElementById('actionOnTimeout')?.value || 'mute';
+        const antifloodLimit = parseInt(document.getElementById('antifloodLimit')?.value) || 10;
+        const antifloodAction = document.getElementById('antifloodAction')?.value || 'mute';
+        const antifloodMuteSeconds = parseInt(document.getElementById('antifloodMuteSeconds')?.value) || 300;
+        const antifloodWarnThreshold = parseInt(document.getElementById('antifloodWarnThreshold')?.value) || 0;
+        const raidModeDuration = parseInt(document.getElementById('raidModeDuration')?.value) || 30;
+        const logsChannelId = document.getElementById('logsChannelId')?.value?.trim() || null;
         
         // Call API to save settings
         await api(`/api/app/group/${groupId}/settings`, {
           verification_enabled: verificationEnabled,
           verification_timeout: timeout,
-          action_on_timeout: kickUnverified ? 'kick' : 'mute',
+          action_on_timeout: actionOnTimeout,
           antiflood_enabled: antifloodEnabled,
-          raid_mode_enabled: raidModeEnabled
+          antiflood_limit: antifloodLimit,
+          antiflood_action: antifloodAction,
+          antiflood_mute_seconds: antifloodMuteSeconds,
+          antiflood_delete_messages: antifloodDeleteMessages,
+          antiflood_warn_threshold: antifloodWarnThreshold,
+          raid_mode_enabled: raidModeEnabled,
+          raid_mode_duration_minutes: raidModeDuration,
+          lock_links: lockLinks,
+          lock_media: lockMedia,
+          logs_mode: logsEnabled ? 'group' : 'off',
+          silent_automations: silentAutomations
         });
+        
+        // If logs enabled, set the channel ID separately
+        if (logsEnabled && logsChannelId) {
+          try {
+            await api(`/api/app/group/${groupId}/logs/channel`, {
+              chat_id: parseInt(logsChannelId)
+            });
+          } catch (e) {
+            console.warn('Failed to set logs channel:', e);
+          }
+        }
         
         // Update local state
         state.selectedGroup.settings = {
           ...settings,
           verification_enabled: verificationEnabled,
           verification_timeout: timeout,
-          action_on_timeout: kickUnverified ? 'kick' : 'mute',
+          action_on_timeout: actionOnTimeout,
           antiflood_enabled: antifloodEnabled,
-          raid_mode_enabled: raidModeEnabled
+          antiflood_limit: antifloodLimit,
+          antiflood_action: antifloodAction,
+          antiflood_mute_seconds: antifloodMuteSeconds,
+          antiflood_delete_messages: antifloodDeleteMessages,
+          antiflood_warn_threshold: antifloodWarnThreshold,
+          raid_mode_enabled: raidModeEnabled,
+          lock_links: lockLinks,
+          lock_media: lockMedia,
+          logs_enabled: logsEnabled,
+          logs_chat_id: logsChannelId ? parseInt(logsChannelId) : null,
+          silent_automations: silentAutomations
         };
         
         showSuccess('Settings saved successfully');
+        
+        // Reload settings to show updated state
+        setTimeout(() => loadSettings(), 500);
       } catch (error) {
         console.error('Failed to save settings:', error);
         showError('Failed to save settings: ' + error.message);
+      }
+    }
+    
+    async function testLogs() {
+      if (!state.selectedGroup) return;
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        await api(`/api/app/group/${groupId}/logs/test`);
+        showSuccess('Test log sent! Check your logs channel.');
+      } catch (error) {
+        console.error('Failed to test logs:', error);
+        showError('Failed to test logs: ' + error.message);
       }
     }
 
@@ -1591,10 +2034,31 @@
       const toggle = event.target.closest('.toggle');
       if (toggle) {
         toggle.classList.toggle('on');
+        const isOn = toggle.classList.contains('on');
+        
+        // Show/hide related input fields
+        if (key === 'verification_enabled') {
+          const group = document.getElementById('verificationSettingsGroup');
+          if (group) group.style.display = isOn ? 'block' : 'none';
+        }
+        if (key === 'antiflood_enabled') {
+          const group = document.getElementById('antifloodSettingsGroup');
+          if (group) group.style.display = isOn ? 'block' : 'none';
+        }
+        if (key === 'raid_mode_enabled') {
+          const group = document.getElementById('raidModeSettingsGroup');
+          if (group) group.style.display = isOn ? 'none' : 'block'; // Hide when enabling (show duration picker before)
+        }
+        if (key === 'logs_enabled') {
+          const group = document.getElementById('logsSettingsGroup');
+          if (group) group.style.display = isOn ? 'block' : 'none';
+        }
       }
     }
 
     // ===== TICKETS =====
+    let currentTicketFilter = 'open';
+    
     async function loadTickets() {
       if (!state.selectedGroup) return;
       showView('tickets');
@@ -1604,37 +2068,53 @@
       try {
         const groupId = state.selectedGroup.group_id;
         const data = await api(`/api/app/group/${groupId}/tickets`);
-        const tickets = data.tickets || [];
+        const openTickets = data.open_tickets || [];
+        const closedTickets = data.closed_tickets || [];
+        const totalOpen = data.total_open || 0;
+        const totalClosed = data.total_closed || 0;
         
-        if (tickets.length === 0) {
-          view.innerHTML = `
-            <div class="detail-card">
-              <div class="detail-title">🎫 Support Tickets</div>
-              <p style="color: var(--text-secondary);">Manage user support requests and tickets.</p>
-              <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
-                No active tickets
+        const tickets = currentTicketFilter === 'open' ? openTickets : closedTickets;
+        
+        const ticketHtml = tickets.length === 0 
+          ? `<div style="text-align: center; color: var(--text-secondary); padding: 30px 0;">
+               No ${currentTicketFilter} tickets
+             </div>`
+          : tickets.map(t => `
+              <div class="card" onclick="loadTicketDetail(${t.id})" style="cursor: pointer; margin-bottom: 10px; transition: transform 0.15s;" onmouseover="this.style.transform='translateY(-1px)';" onmouseout="this.style.transform='';">
+                <div class="card-section" style="padding: 14px 16px;">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 10px; height: 10px; border-radius: 50%; background: ${t.status === 'open' ? 'var(--success)' : 'var(--text-secondary)'}; flex-shrink: 0;"></div>
+                    <div style="flex: 1; min-width: 0;">
+                      <div style="font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        #${t.id} - ${escapeHtml(t.subject || 'No subject')}
+                      </div>
+                      <div style="font-size: 13px; color: var(--text-secondary);">
+                        User: ${t.user_id} • ${t.created_at ? new Date(t.created_at).toLocaleDateString() : 'N/A'}
+                      </div>
+                    </div>
+                    <div style="font-size: 18px; color: var(--text-secondary);">›</div>
+                  </div>
+                </div>
               </div>
-            </div>
-          `;
-          return;
-        }
-        
-        const ticketHtml = tickets.map(t => `
-          <div class="card-row" style="border-bottom: 1px solid var(--separator); padding: 12px 0;">
-            <div class="card-content">
-              <div class="card-title">#${t.id} - ${t.subject || 'No subject'}</div>
-              <div class="card-subtitle">Status: ${t.status} | Priority: ${t.priority || 'normal'}</div>
-            </div>
-            <span style="color: ${t.status === 'open' ? 'var(--success)' : 'var(--text-secondary)'};">
-              ${t.status === 'open' ? '●' : '○'}
-            </span>
-          </div>
-        `).join('');
+            `).join('');
         
         view.innerHTML = `
           <div class="detail-card">
-            <div class="detail-title">🎫 Support Tickets (${tickets.length})</div>
-            <p style="color: var(--text-secondary); margin-bottom: 16px;">Manage user support requests and tickets.</p>
+            <div class="detail-title">🎫 Support Tickets</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Manage user support requests.</p>
+            
+            <!-- Filter Tabs -->
+            <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+              <button class="btn ${currentTicketFilter === 'open' ? 'btn-primary' : 'btn-secondary'}" 
+                      onclick="filterTickets('open')" style="flex: 1;">
+                Open (${totalOpen})
+              </button>
+              <button class="btn ${currentTicketFilter === 'closed' ? 'btn-primary' : 'btn-secondary'}" 
+                      onclick="filterTickets('closed')" style="flex: 1;">
+                Closed (${totalClosed})
+              </button>
+            </div>
+            
             ${ticketHtml}
           </div>
         `;
@@ -1643,13 +2123,176 @@
         view.innerHTML = `
           <div class="detail-card">
             <div class="detail-title">🎫 Support Tickets</div>
-            <p style="color: var(--text-secondary);">Manage user support requests and tickets.</p>
-            <div style="margin-top: 20px; text-align: center; color: var(--text-secondary);">
-              No active tickets
+            <p style="color: var(--text-secondary);">Manage user support requests.</p>
+            <div style="margin-top: 20px; text-align: center; color: var(--danger);">
+              Failed to load tickets: ${error.message}
             </div>
           </div>
         `;
       }
+    }
+    
+    function filterTickets(filter) {
+      currentTicketFilter = filter;
+      loadTickets();
+    }
+    
+    async function loadTicketDetail(ticketId) {
+      if (!state.selectedGroup) return;
+      showView('ticketDetail');
+      const view = document.getElementById('ticketDetailView');
+      view.innerHTML = '<div style="padding: 20px; text-align: center;">Loading ticket...</div>';
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        const data = await api(`/api/app/group/${groupId}/tickets/${ticketId}`);
+        const ticket = data.ticket;
+        const messages = data.messages || [];
+        
+        const isOpen = ticket.status === 'open';
+        
+        // Build conversation HTML
+        const conversationHtml = messages.length === 0
+          ? `<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No messages yet</div>`
+          : messages.map(m => {
+              const isUser = m.sender_type === 'user';
+              const isSystem = m.sender_type === 'system';
+              const time = m.created_at ? new Date(m.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+              const date = m.created_at ? new Date(m.created_at).toLocaleDateString() : '';
+              
+              if (isSystem) {
+                return `
+                  <div style="text-align: center; margin: 12px 0;">
+                    <span style="background: var(--bg-tertiary); color: var(--text-secondary); padding: 4px 12px; border-radius: 12px; font-size: 12px;">
+                      ${escapeHtml(m.content || '')}
+                    </span>
+                  </div>
+                `;
+              }
+              
+              return `
+                <div style="display: flex; flex-direction: column; align-items: ${isUser ? 'flex-start' : 'flex-end'}; margin: 8px 0;">
+                  <div style="max-width: 85%; padding: 10px 14px; border-radius: 16px; background: ${isUser ? 'var(--bg-tertiary)' : 'var(--accent)'}; color: ${isUser ? 'var(--text)' : 'var(--accent-text)'};">
+                    <div style="font-size: 14px; line-height: 1.4; word-wrap: break-word;">${escapeHtml(m.content || '')}</div>
+                  </div>
+                  <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; padding: 0 4px;">
+                    ${isUser ? 'User' : (m.sender_name || 'Staff')} • ${time}
+                  </div>
+                </div>
+              `;
+            }).join('');
+        
+        view.innerHTML = `
+          <div class="detail-card">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+              <div>
+                <div class="detail-title" style="margin-bottom: 4px;">Ticket #${ticket.id}</div>
+                <div style="font-size: 14px; color: var(--text-secondary);">${escapeHtml(ticket.subject || 'No subject')}</div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 12px; background: ${isOpen ? 'rgba(48, 209, 88, 0.15)' : 'rgba(142, 142, 147, 0.15)'};">
+                <div style="width: 8px; height: 8px; border-radius: 50%; background: ${isOpen ? 'var(--success)' : 'var(--text-secondary)'};"></div>
+                <span style="font-size: 12px; font-weight: 600; color: ${isOpen ? 'var(--success)' : 'var(--text-secondary)'};">${ticket.status.toUpperCase()}</span>
+              </div>
+            </div>
+            
+            <div style="display: flex; gap: 16px; margin-bottom: 16px; font-size: 13px; color: var(--text-secondary);">
+              <div>👤 User: <code>${ticket.user_id}</code></div>
+              <div>📅 ${ticket.created_at ? new Date(ticket.created_at).toLocaleDateString() : 'N/A'}</div>
+            </div>
+          </div>
+          
+          <!-- Conversation -->
+          <div class="detail-card" style="margin-top: 12px;">
+            <div style="font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px;">💬 Conversation</div>
+            <div id="ticketConversation" style="max-height: 300px; overflow-y: auto; padding: 8px 0;">
+              ${conversationHtml}
+            </div>
+          </div>
+          
+          ${isOpen ? `
+            <!-- Reply Form -->
+            <div class="detail-card" style="margin-top: 12px;">
+              <div style="font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 12px;">✍️ Reply</div>
+              <textarea id="ticketReplyText" class="form-textarea" placeholder="Type your reply..." style="min-height: 80px; margin-bottom: 12px;"></textarea>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-primary" style="flex: 1;" onclick="sendTicketReply(${ticket.id})">
+                  📤 Send Reply
+                </button>
+                <button class="btn btn-secondary" style="background: rgba(255, 59, 48, 0.15); color: var(--danger);" onclick="closeTicket(${ticket.id})">
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+          ` : `
+            <div style="text-align: center; margin-top: 16px; color: var(--text-secondary);">
+              This ticket is closed.
+            </div>
+          `}
+        `;
+        
+        // Scroll conversation to bottom
+        setTimeout(() => {
+          const conv = document.getElementById('ticketConversation');
+          if (conv) conv.scrollTop = conv.scrollHeight;
+        }, 100);
+        
+      } catch (error) {
+        console.error('Failed to load ticket:', error);
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">❌ Error</div>
+            <p style="color: var(--danger);">Failed to load ticket: ${error.message}</p>
+            <button class="btn btn-secondary" onclick="loadTickets()" style="margin-top: 16px;">← Back to Tickets</button>
+          </div>
+        `;
+      }
+    }
+    
+    async function sendTicketReply(ticketId) {
+      const textarea = document.getElementById('ticketReplyText');
+      const message = textarea?.value?.trim();
+      
+      if (!message) {
+        showError('Please enter a message');
+        return;
+      }
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        await api(`/api/app/group/${groupId}/tickets/${ticketId}/reply`, { message });
+        
+        showSuccess('Reply sent!');
+        textarea.value = '';
+        
+        // Reload ticket to show new message
+        await loadTicketDetail(ticketId);
+      } catch (error) {
+        console.error('Failed to send reply:', error);
+        showError('Failed to send reply: ' + error.message);
+      }
+    }
+    
+    async function closeTicket(ticketId) {
+      if (!confirm('Are you sure you want to close this ticket?')) return;
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        await api(`/api/app/group/${groupId}/tickets/${ticketId}/close`);
+        
+        showSuccess('Ticket closed');
+        
+        // Go back to tickets list
+        loadTickets();
+      } catch (error) {
+        console.error('Failed to close ticket:', error);
+        showError('Failed to close ticket: ' + error.message);
+      }
+    }
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
 
     // ===== ANALYTICS =====
@@ -1758,12 +2401,15 @@
         
         const rulesHtml = rules.map(r => `
           <div class="card-row" style="border-bottom: 1px solid var(--separator); padding: 12px 0;">
-            <div class="card-content">
+            <div class="card-content" style="flex: 1;">
               <div class="card-title">${r.name || 'Unnamed Rule'}</div>
               <div class="card-subtitle">${r.match_type}: "${r.pattern}" → ${r.action_type}</div>
             </div>
-            <div class="toggle ${r.enabled ? 'on' : ''}" onclick="toggleRule(${r.id})">
-              <div class="toggle-knob"></div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="toggle ${r.enabled ? 'on' : ''}" onclick="toggleRule(${r.id})">
+                <div class="toggle-knob"></div>
+              </div>
+              <button onclick="deleteRule(${r.id})" style="background: none; border: none; color: var(--danger); font-size: 18px; cursor: pointer; padding: 4px;">🗑️</button>
             </div>
           </div>
         `).join('');
@@ -1812,6 +2458,20 @@
           toggle.classList.toggle('on');
           showError('Failed to toggle rule: ' + error.message);
         }
+      }
+    }
+    
+    async function deleteRule(ruleId) {
+      if (!confirm('Are you sure you want to delete this rule?')) return;
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        await api(`/api/app/group/${groupId}/rules/${ruleId}/delete`, {});
+        showSuccess('Rule deleted');
+        loadRules(); // Reload rules list
+      } catch (error) {
+        console.error('Failed to delete rule:', error);
+        showError('Failed to delete rule: ' + error.message);
       }
     }
 
@@ -1972,6 +2632,103 @@
       } catch (error) {
         console.error('Failed to save onboarding:', error);
         showError('Failed to save: ' + error.message);
+      }
+    }
+
+    // ===== BROADCAST =====
+    async function loadBroadcast() {
+      if (!state.selectedGroup) return;
+      showView('broadcast');
+      const view = document.getElementById('broadcastView');
+      view.innerHTML = '<div style="padding: 20px; text-align: center;">Loading...</div>';
+      
+      try {
+        // Load recent broadcasts
+        const groupId = state.selectedGroup.group_id;
+        let broadcasts = [];
+        try {
+          const data = await api(`/api/app/group/${groupId}/broadcasts`);
+          broadcasts = data.broadcasts || [];
+        } catch (e) {
+          console.warn('Failed to load broadcasts:', e);
+        }
+        
+        const recentHtml = broadcasts.length > 0 ? broadcasts.slice(0, 5).map(b => `
+          <div style="padding: 10px 0; border-bottom: 1px solid var(--separator);">
+            <div style="font-size: 13px; color: var(--text-secondary);">${new Date(b.created_at).toLocaleString()}</div>
+            <div style="font-size: 14px; color: var(--text); margin-top: 4px;">${(b.text || '').substring(0, 100)}${(b.text || '').length > 100 ? '...' : ''}</div>
+            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+              Status: ${b.status} | Sent: ${b.sent_count || 0}/${b.total_targets || 0}
+            </div>
+          </div>
+        `).join('') : '<div style="color: var(--text-secondary); text-align: center; padding: 20px;">No recent broadcasts</div>';
+        
+        view.innerHTML = `
+          <div class="detail-card">
+            <div class="detail-title">📢 Send Broadcast</div>
+            <p style="color: var(--text-secondary); margin-bottom: 16px;">Send an announcement to all group members.</p>
+            
+            <div class="form-group">
+              <label class="form-label">Message</label>
+              <textarea class="form-textarea" id="broadcastText" placeholder="Enter your announcement..." style="min-height: 120px;"></textarea>
+              <small style="color: var(--text-secondary);">Supports HTML formatting: &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, &lt;a href="..."&gt;link&lt;/a&gt;</small>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Send Timing</label>
+              <select class="form-input" id="broadcastDelay">
+                <option value="0">Send immediately</option>
+                <option value="300">In 5 minutes</option>
+                <option value="900">In 15 minutes</option>
+                <option value="1800">In 30 minutes</option>
+                <option value="3600">In 1 hour</option>
+              </select>
+            </div>
+            
+            <button class="btn btn-primary" style="width: 100%;" onclick="sendBroadcast()">📤 Send Broadcast</button>
+          </div>
+          
+          <div class="detail-card" style="margin-top: 16px;">
+            <div class="detail-title">📜 Recent Broadcasts</div>
+            ${recentHtml}
+          </div>
+        `;
+      } catch (error) {
+        view.innerHTML = `<div style="padding: 20px; color: var(--danger);">Error: ${error.message}</div>`;
+      }
+    }
+    
+    async function sendBroadcast() {
+      if (!state.selectedGroup) return;
+      
+      const text = document.getElementById('broadcastText')?.value?.trim();
+      if (!text) {
+        showError('Please enter a message');
+        return;
+      }
+      
+      const delaySeconds = parseInt(document.getElementById('broadcastDelay')?.value) || 0;
+      
+      if (!confirm(`Send this broadcast to ${state.selectedGroup.group_name}?`)) {
+        return;
+      }
+      
+      try {
+        const groupId = state.selectedGroup.group_id;
+        await api(`/api/app/group/${groupId}/broadcast`, {
+          text: text,
+          delay_seconds: delaySeconds,
+          parse_mode: 'HTML'
+        });
+        
+        showSuccess(delaySeconds > 0 ? 'Broadcast scheduled!' : 'Broadcast sent!');
+        document.getElementById('broadcastText').value = '';
+        
+        // Reload to show in recent broadcasts
+        setTimeout(() => loadBroadcast(), 1000);
+      } catch (error) {
+        console.error('Failed to send broadcast:', error);
+        showError('Failed to send: ' + error.message);
       }
     }
 

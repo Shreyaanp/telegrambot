@@ -189,6 +189,26 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             await open_ticket_intake(message.bot, container, user_id=user_id, group_id=sup.group_id)
             return
 
+        # Handle ?start=verify from Mini App
+        if payload == "verify":
+            # Check if user is already verified
+            if await container.user_manager.is_verified(user_id):
+                await message.answer(
+                    "✅ <b>You are already verified!</b>\n\n"
+                    "Your verification is still valid. You can access all features.",
+                    parse_mode="HTML"
+                )
+            else:
+                await message.answer(
+                    "🔐 <b>Verification Required</b>\n\n"
+                    "To verify your account, use the /verify command or tap the button below.",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="✅ Start Verification", callback_data="dm:verify")]
+                    ])
+                )
+            return
+
         await show_dm_home(message.bot, container, user_id=user_id)
 
     @router.message(Command("ticket"))
@@ -324,19 +344,29 @@ def create_command_handlers(container: ServiceContainer) -> Router:
             await _touch_dm_subscriber(message.from_user)
             await show_dm_help(message.bot, container, user_id=message.from_user.id)
         else:
-            await message.reply(
+            help_msg = await message.reply(
                 "<b>Help</b>\n\n"
                 "<b>Members</b>\n"
                 "• <code>/rules</code> — show group rules\n"
                 "• Reply <code>/report [reason]</code> — report to admins\n"
                 "• <code>/ticket</code> — contact admins (opens DM)\n\n"
                 "<b>Mods/Admins</b>\n"
-                "• <code>/mycommands</code> — commands you can use\n"
                 "• <code>/menu</code> — open settings in DM\n"
-                "• <code>/checkperms</code> — bot permissions + join-gate readiness",
+                "• <code>/checkperms</code> — bot permissions + join-gate readiness\n\n"
+                "<i>This message will auto-delete in 60 seconds.</i>",
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
+            # Auto-delete after 60 seconds
+            import asyncio
+            async def delete_later():
+                await asyncio.sleep(60)
+                try:
+                    await help_msg.delete()
+                    await message.delete()
+                except Exception:
+                    pass
+            asyncio.create_task(delete_later())
 
     @router.message(Command("status"))
     async def cmd_user_status(message: Message):
@@ -429,25 +459,19 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         await _touch_dm_subscriber(message.from_user)
         ticket_group_id = await _get_active_ticket_intake_group_id(message.from_user.id)
         if ticket_group_id:
-            # Check if already creating a ticket (race condition protection)
+            # Clear the intake panel state first to prevent race conditions
             async with db.session() as session:
-                from database.models import TicketUserState
-                state = await session.get(TicketUserState, int(message.from_user.id))
-                if state and getattr(state, "creating_ticket", False):
-                    # Already creating, ignore this message
-                    return
-                
-                # Set creating flag
-                if not state:
-                    state = TicketUserState(
-                        user_id=int(message.from_user.id),
-                        ticket_id=0,  # Temporary
-                        creating_ticket=True,
+                result = await session.execute(
+                    select(DmPanelState).where(
+                        DmPanelState.telegram_id == message.from_user.id,
+                        DmPanelState.panel_type == "ticket_intake",
+                        DmPanelState.group_id == int(ticket_group_id),
                     )
-                    session.add(state)
-                else:
-                    state.creating_ticket = True
-                await session.commit()
+                )
+                panel_state = result.scalar_one_or_none()
+                if panel_state:
+                    await session.delete(panel_state)
+                    await session.commit()
             
             try:
                 ticket_id = await container.ticket_service.create_ticket(
@@ -458,23 +482,6 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 )
                 await container.ticket_service.set_active_ticket(user_id=int(message.from_user.id), ticket_id=int(ticket_id))
                 
-                # Clear creating flag
-                async with db.session() as session:
-                    state = await session.get(TicketUserState, int(message.from_user.id))
-                    if state:
-                        state.creating_ticket = False
-                
-                async with db.session() as session:
-                    result = await session.execute(
-                        select(DmPanelState).where(
-                            DmPanelState.telegram_id == message.from_user.id,
-                            DmPanelState.panel_type == "ticket_intake",
-                            DmPanelState.group_id == int(ticket_group_id),
-                        )
-                    )
-                    panel_state = result.scalar_one_or_none()
-                    if panel_state:
-                        await session.delete(panel_state)
                 await message.answer(
                     f"✅ Ticket <code>#{ticket_id}</code> created.\n\n"
                     "Send messages here to add updates.\n"
@@ -482,12 +489,9 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                     parse_mode="HTML",
                 )
             except Exception as e:
-                # Clear creating flag on error
-                async with db.session() as session:
-                    state = await session.get(TicketUserState, int(message.from_user.id))
-                    if state:
-                        state.creating_ticket = False
+                logger.error(f"Failed to create ticket: {e}")
                 await message.answer(f"❌ Could not create ticket: {e}", parse_mode="HTML")
+                # Re-open the intake panel
                 await open_ticket_intake(message.bot, container, user_id=message.from_user.id, group_id=int(ticket_group_id))
             return
 

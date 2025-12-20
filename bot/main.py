@@ -106,13 +106,13 @@ class TelegramBot:
             self.dispatcher.include_router(command_router)
             self.dispatcher.include_router(admin_router)
             self.dispatcher.include_router(content_router)
-            self.dispatcher.include_router(ticket_bridge_router)
             self.dispatcher.include_router(member_router)
             self.dispatcher.include_router(admin_join_router)
             self.dispatcher.include_router(leave_router)
             self.dispatcher.include_router(join_req_router)
             self.dispatcher.include_router(rbac_router)
-            self.dispatcher.include_router(message_router)  # Last, so it doesn't intercept commands
+            self.dispatcher.include_router(message_router)  # Before ticket_bridge, handles anti-flood
+            self.dispatcher.include_router(ticket_bridge_router)  # Last, catches remaining group messages for ticket relay
             logger.info("✅ All handlers registered")
             
             logger.info("=" * 70)
@@ -186,10 +186,9 @@ class TelegramBot:
             await self.bot.set_my_commands(
                 commands=[
                     BotCommand(command="help", description="Help"),
+                    BotCommand(command="rules", description="Show group rules"),
                     BotCommand(command="report", description="Report a message (reply)"),
                     BotCommand(command="ticket", description="Contact admins (support)"),
-                    BotCommand(command="rules", description="Show group rules"),
-                    BotCommand(command="mycommands", description="Show commands you can use"),
                 ],
                 scope=BotCommandScopeAllGroupChats(),
             )

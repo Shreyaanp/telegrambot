@@ -128,9 +128,12 @@ class Group(Base):
     
     # Moderation settings
     warn_limit = Column(Integer, default=3)  # Kick after X warns
-    antiflood_enabled = Column(Boolean, default=True)
+    antiflood_enabled = Column(Boolean, default=False)  # Disabled by default - admin must configure
     antiflood_limit = Column(Integer, default=10)  # Messages per minute
     antiflood_mute_seconds = Column(Integer, default=300)  # Mute duration when flooding
+    antiflood_action = Column(String, default="mute")  # mute|warn|kick|ban
+    antiflood_delete_messages = Column(Boolean, default=True)  # Delete flood messages
+    antiflood_warn_threshold = Column(Integer, default=0)  # Warnings before action (0=immediate)
     silent_automations = Column(Boolean, default=False)
     raid_mode_until = Column(DateTime, nullable=True)
     lock_links = Column(Boolean, default=False)
@@ -302,6 +305,8 @@ class FloodTracker(Base):
     message_count = Column(Integer, default=0)
     window_start = Column(DateTime, default=utcnow)
     last_message = Column(DateTime, default=utcnow)
+    message_ids = Column(Text, nullable=True)  # JSON array of message IDs in current window
+    warning_count = Column(Integer, default=0)  # Warnings given in current window
     
     # Relationships
     group = relationship("Group", back_populates="flood_records")
