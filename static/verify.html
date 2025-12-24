@@ -306,13 +306,54 @@
                 tryOpenApp('direct');
             }
         } else {
-            // Desktop
+            // Desktop - show QR code
             document.getElementById('loader').style.display = 'none';
-            document.getElementById('title').textContent = 'Use Your Mobile Device';
-            document.getElementById('status').innerHTML = `
-                <p>Please open this link on your phone</p>
-                <p style="font-size: 14px;">or scan the QR code in Telegram</p>
-            `;
+            document.getElementById('title').textContent = 'Scan with Mercle App';
+            
+            // Generate QR code for desktop users
+            if (base64Qr) {
+                // Decode base64 QR and display
+                try {
+                    const qrData = atob(base64Qr);
+                    log('📊 QR data decoded for display');
+                    
+                    // Create QR code using a simple library or canvas
+                    const qrContainer = document.createElement('div');
+                    qrContainer.style.cssText = 'background: white; padding: 20px; border-radius: 12px; margin: 20px auto; display: inline-block;';
+                    
+                    // Use qrcode.js library (add to page)
+                    const qrScript = document.createElement('script');
+                    qrScript.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js';
+                    qrScript.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        QRCode.toCanvas(canvas, qrData, { width: 256, margin: 2 }, (error) => {
+                            if (error) {
+                                log('❌ QR generation failed: ' + error);
+                                qrContainer.innerHTML = '<p style="color: #333;">QR code unavailable</p>';
+                            } else {
+                                qrContainer.appendChild(canvas);
+                            }
+                        });
+                    };
+                    document.head.appendChild(qrScript);
+                    
+                    document.getElementById('status').innerHTML = '';
+                    document.getElementById('status').appendChild(qrContainer);
+                    document.getElementById('status').innerHTML += `
+                        <p style="margin-top: 16px;">Open the Mercle app on your phone and scan this code</p>
+                    `;
+                } catch (e) {
+                    log('❌ Failed to decode QR: ' + e);
+                    document.getElementById('status').innerHTML = `
+                        <p>Please open this link on your mobile device</p>
+                    `;
+                }
+            } else {
+                document.getElementById('status').innerHTML = `
+                    <p>Please open this link on your mobile device</p>
+                `;
+            }
+            
             document.getElementById('fallback').style.display = 'flex';
         }
 

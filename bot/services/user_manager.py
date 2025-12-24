@@ -173,7 +173,8 @@ class UserManager:
         chat_id: int,
         expires_at: datetime,
         telegram_username: Optional[str] = None,
-        group_id: Optional[int] = None
+        group_id: Optional[int] = None,
+        from_mini_app: bool = False
     ) -> VerificationSession:
         """Create a new verification session."""
         async with db.session() as session:
@@ -185,13 +186,14 @@ class UserManager:
                 group_id=group_id,
                 created_at=datetime.utcnow(),
                 expires_at=expires_at,
-                status="pending"
+                status="pending",
+                from_mini_app=from_mini_app
             )
             session.add(ver_session)
             await session.commit()
             await session.refresh(ver_session)
             
-            logger.info(f"Created verification session: {session_id} for user {telegram_id}")
+            logger.info(f"Created verification session: {session_id} for user {telegram_id} from_mini_app={from_mini_app}")
             return ver_session
     
     async def get_session(self, session_id: str) -> Optional[VerificationSession]:

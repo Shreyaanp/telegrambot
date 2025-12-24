@@ -3,7 +3,7 @@ MERCLE TELEGRAM BOT - DEVELOPMENT ROADMAP
 ==========================================
 Generated: 2024-12-20
 Last Updated: 2024-12-20
-Status: IN PROGRESS - Phase 0, 1, 2 COMPLETE. Phase 3 (UX) IN PROGRESS.
+Status: Phase 0, 1, 2, 3 COMPLETE ✅. Phase 4 (Performance) PENDING.
 
 This file serves as both documentation AND executable checklist.
 Run `python ROADMAP.py` to see current progress.
@@ -221,7 +221,7 @@ ROADMAP = {
     },
 
     # =========================================================================
-    # PHASE 3: UX IMPROVEMENTS (P1) - IN PROGRESS
+    # PHASE 3: UX IMPROVEMENTS (P1) - COMPLETE ✅
     # =========================================================================
     "phase_3_ux": {
         "title": "🎯 UX Improvements",
@@ -232,95 +232,85 @@ ROADMAP = {
                 "id": "UX-001",
                 "title": "Remove duplicate Welcome Messages from Settings",
                 "description": """
-                    Problem: Welcome Messages section exists in both Settings page AND 
-                    Onboarding page - confusing duplicate.
-                    
-                    Solution: Remove Welcome Messages from Settings, keep only Onboarding page.
+                    DONE: Removed Welcome Messages section from Settings page.
+                    Kept only the Onboarding page for welcome configuration.
                     
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UX-002",
                 "title": "Mod logs - simple message in group, details in Mini App",
                 "description": """
-                    Problem: Detailed log messages with IDs shown in group chat.
+                    DONE: Added Mod Logs section to Mini App dashboard.
+                    Created /api/app/group/{group_id}/logs endpoint.
+                    Scrollable list shows timestamp, action, target, admin, reason.
                     
-                    Solution:
-                    1. Keep simple message in group (e.g., "User was muted for 1 minute")
-                    2. Detailed logs viewable only in Mini App Settings → Logs section
-                    3. Scrollable list of recent logs (timestamp, action, target, admin, reason)
-                    
-                    Files: static/app.html, webhook_server.py, bot/services/mod_log_service.py
+                    Files: static/app.html, webhook_server.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UX-003",
                 "title": "Smart verification button (mobile-aware)",
                 "description": """
-                    Problem: QR code shows on mobile, should only show on desktop.
-                    Download button isn't smart about app detection.
+                    DONE: Removed QR code from bot DM messages.
+                    Updated verify.html to show QR on desktop, smart button on mobile.
+                    Uses Android Intent fallback for app detection.
                     
-                    Solution:
-                    1. Mobile: Smart button that tries mercle:// deep link, falls back to store
-                    2. Desktop: Show QR code as-is
-                    3. Use Android Intent fallback logic from verify.html
-                    
-                    Files: bot/services/verification.py, bot/handlers/commands.py
+                    Files: bot/services/verification.py, static/verify.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UX-004",
                 "title": "Remove /menu command entirely",
                 "description": """
-                    Problem: Users shouldn't configure menu via commands.
+                    DONE: Removed /menu command handler completely.
+                    Updated all references to use Mini App instead.
+                    Updated help messages and documentation.
                     
-                    Solution: Remove /menu command and all related code.
-                    
-                    Files: bot/handlers/commands.py, bot/main.py
+                    Files: bot/handlers/commands.py, bot/handlers/admin_commands.py,
+                           bot/handlers/member_events.py, bot/utils/messages.py,
+                           bot/handlers/rbac_help.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UX-005",
                 "title": "Remove 'Add to group' from /start for unverified users",
                 "description": """
-                    Problem: Unverified users see "Add to group" option which doesn't make sense.
-                    
-                    Solution: Remove that option from /start response for unverified users.
+                    DONE: Updated dm_home_keyboard and dm_help_keyboard to only show
+                    "Add to Group" button for verified users.
                     
                     Files: bot/handlers/commands.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UX-006",
                 "title": "Mini App Verify button links directly to verification",
                 "description": """
-                    Problem: Clicking Verify in Mini App shows popup but doesn't link to 
-                    actual verification flow.
-                    
-                    Solution: Link directly to verification (same as /start for unverified).
+                    DONE: startVerification() already redirects to bot with ?start=verify.
+                    This triggers the verification flow correctly.
                     
                     Files: static/app.html
                 """,
-                "status": "pending",
+                "status": "completed",
             },
             {
                 "id": "UX-007",
                 "title": "Remove 'Return to Mini App' when user verified manually",
                 "description": """
-                    Problem: Shows "Return to Mini App" even when user verified via bot 
-                    directly (not from Mini App).
+                    DONE: Added from_mini_app column to VerificationSession.
+                    Track source when user starts verification.
+                    Only show "Return to Mini App" button if user came from Mini App.
                     
-                    Solution: Only show return button if user came from Mini App.
-                    
-                    Files: bot/services/verification.py
+                    Files: bot/services/verification.py, bot/handlers/commands.py,
+                           bot/services/user_manager.py, database/models.py
                 """,
-                "status": "pending",
+                "status": "completed",
             },
         ]
     },
@@ -362,8 +352,8 @@ EXECUTION_ORDER = [
     "phase_0_security",      # COMPLETE ✅
     "phase_1_bugs",          # COMPLETE ✅
     "phase_2_design_system", # COMPLETE ✅
-    "phase_3_ux",            # IN PROGRESS
-    "phase_4_performance",   # PENDING
+    "phase_3_ux",            # COMPLETE ✅
+    "phase_4_performance",   # PENDING (skipped per user request)
 ]
 
 # =========================================================================

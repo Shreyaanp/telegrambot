@@ -76,6 +76,8 @@ def create_message_handlers(container: ServiceContainer) -> Router:
 
         # Keep a lightweight per-group username→id mapping for @username moderation flows.
         try:
+            # Ensure group exists before touching user state (prevents foreign key violation)
+            await container.group_service.register_group(group_id, message.chat.title)
             await container.pending_verification_service.touch_group_user_throttled(
                 group_id,
                 user_id,
@@ -84,7 +86,8 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                 last_name=message.from_user.last_name,
                 source="message",
             )
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to touch group user state: {e}")
             pass
         
         # ========== ANTI-FLOOD CHECK ==========
@@ -339,6 +342,8 @@ def create_message_handlers(container: ServiceContainer) -> Router:
             
         if message.from_user and not message.from_user.is_bot:
             try:
+                # Ensure group exists before touching user state (prevents foreign key violation)
+                await container.group_service.register_group(int(message.chat.id), message.chat.title)
                 await container.pending_verification_service.touch_group_user_throttled(
                     int(message.chat.id),
                     int(message.from_user.id),
@@ -347,7 +352,8 @@ def create_message_handlers(container: ServiceContainer) -> Router:
                     last_name=message.from_user.last_name,
                     source="message",
                 )
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to touch group user state: {e}")
                 pass
                 
         _, lock_media = await container.lock_service.get_locks(message.chat.id)

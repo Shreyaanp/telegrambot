@@ -1240,7 +1240,7 @@ def create_admin_handlers(container: ServiceContainer) -> Router:
         ack = (
             "✅ Report sent to admins."
             if logs_enabled
-            else "✅ Report recorded. Admins: enable Logs in <code>/menu</code> → Logs."
+            else "✅ Report recorded. Admins: enable Logs in the Mini App settings."
         )
         try:
             await message.reply(ack, parse_mode="HTML")

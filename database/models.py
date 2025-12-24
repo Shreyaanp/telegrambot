@@ -204,6 +204,7 @@ class VerificationSession(Base):
     expires_at = Column(DateTime, nullable=False)
     status = Column(String, default="pending")  # pending, approved, rejected, expired
     message_ids = Column(Text, nullable=True)  # Comma-separated message IDs to delete
+    from_mini_app = Column(Boolean, default=False)  # Whether user initiated from Mini App
     
     # Relationships
     group = relationship("Group", back_populates="sessions")

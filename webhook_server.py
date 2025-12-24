@@ -2,7 +2,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, timezone
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
@@ -245,6 +245,10 @@ class _InitDataPayload(BaseModel):
     initData: str
 
 
+class _VerificationStartPayload(BaseModel):
+    initData: str
+
+
 class _GroupSettingsUpdate(BaseModel):
     initData: str
     verification_enabled: bool | None = None
@@ -439,11 +443,30 @@ async def _bot_preflight(bot, group_id: int) -> dict:
 
 
 @app.get("/app")
-async def mini_app():
+async def mini_app(request: Request):
     """Telegram Mini App (settings UI)."""
     try:
+        import time
+        version = f"v2.1.{int(time.time())}"
         with open("static/app.html", "r", encoding="utf-8") as f:
-            return HTMLResponse(content=f.read())
+            content = f.read()
+            # Add version marker in HTML for debugging
+            content = content.replace(
+                '<title>Mercle Bot v2.1</title>',
+                f'<title>Mercle Bot v2.1</title>\n  <!-- Version: {version} - DIRECT DEEPLINK -->'
+            )
+            # Add aggressive cache-busting headers
+            return HTMLResponse(
+                content=content,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0, private",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                    "X-Content-Type-Options": "nosniff",
+                    "ETag": version,
+                    "Last-Modified": time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
+                }
+            )
     except FileNotFoundError:
         return HTMLResponse(content="<h1>Mini App not deployed</h1>", status_code=404)
 
@@ -461,7 +484,7 @@ async def app_bootstrap(payload: _InitDataPayload):
 
     groups = await container.group_service.list_groups()
     allowed = []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     for group in groups[:200]:
         gid = int(group.group_id)
         try:
@@ -473,10 +496,16 @@ async def app_bootstrap(payload: _InitDataPayload):
                 except Exception:
                     onboarding = {"enabled": False, "delay_seconds": 0, "text": "", "parse_mode": "Markdown"}
                 
-                # Get member count from Telegram
+                # Get member count and photo from Telegram
                 member_count = 0
+                photo_url = None
                 try:
+                    chat = await bot_obj.get_bot().get_chat(gid)
                     member_count = await bot_obj.get_bot().get_chat_member_count(gid)
+                    if chat.photo:
+                        # Get the file URL for the small photo
+                        file = await bot_obj.get_bot().get_file(chat.photo.small_file_id)
+                        photo_url = f"https://api.telegram.org/file/bot{container.config.bot_token}/{file.file_path}"
                 except Exception:
                     pass
                 
@@ -485,6 +514,7 @@ async def app_bootstrap(payload: _InitDataPayload):
                         "group_id": gid,
                         "group_name": group.group_name,
                         "member_count": member_count,
+                        "photo_url": photo_url,
                         "settings": {
                             "verification_enabled": bool(getattr(group, "verification_enabled", True)),
                             "verification_timeout": int(getattr(group, "verification_timeout", 300) or 300),
@@ -550,6 +580,151 @@ async def app_bootstrap(payload: _InitDataPayload):
             "mercle_user_id": mercle_user_id
         }
     }
+
+
+@app.post("/api/verification/start")
+async def verification_start(payload: _VerificationStartPayload):
+    """
+    Create a Mercle verification session and return deeplink for Mini App.
+    This allows direct verification from Mini App without going through bot chat.
+    """
+    logger.info("=" * 80)
+    logger.info("🔵 VERIFICATION START API CALLED")
+    logger.info("=" * 80)
+    logger.info(f"📥 Request received at: {datetime.now(timezone.utc).isoformat()}")
+    logger.info(f"📥 initData length: {len(payload.initData) if payload.initData else 0}")
+    logger.info(f"📥 initData sample: {payload.initData[:50] if payload.initData else 'EMPTY'}...")
+    
+    bot_obj, container = _require_container()
+    try:
+        logger.info("🔐 Step 1: Validating initData...")
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+        logger.info("✅ Step 1: initData validation successful")
+    except WebAppAuthError as e:
+        logger.error(f"❌ Step 1: initData validation FAILED: {str(e)}")
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user = auth.user
+    user_id = int(user["id"])
+    username = user.get("username")
+    logger.info(f"👤 User: {user_id} (@{username})")
+
+    try:
+        # Check if already verified
+        logger.info("🔍 Step 2: Checking if user is already verified...")
+        is_verified = await container.user_manager.is_verified(user_id)
+        logger.info(f"✅ Step 2: User verified status: {is_verified}")
+        
+        if is_verified:
+            logger.info("✅ User already verified, returning success")
+            return {
+                "success": True,
+                "already_verified": True,
+                "message": "You are already verified!"
+            }
+
+        # Create Mercle SDK session
+        logger.info("🔧 Step 3: Creating Mercle SDK session...")
+        metadata = {
+            "telegram_user_id": user_id,
+            "telegram_username": username or "unknown",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "from_mini_app": True,
+        }
+        logger.info(f"📋 Metadata: {metadata}")
+        
+        sdk_response = await container.mercle_sdk.create_session(metadata=metadata)
+        session_id = sdk_response["session_id"]
+        base64_qr = sdk_response.get("base64_qr", "")
+        
+        logger.info(f"✅ Step 3: Mercle session created: {session_id}")
+        logger.info(f"📱 QR data length: {len(base64_qr)}")
+        
+        # Save session to database
+        logger.info("💾 Step 4: Saving session to database...")
+        timeout_seconds = container.config.verification_timeout
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)
+        await container.user_manager.create_session(
+            session_id=session_id,
+            telegram_id=user_id,
+            chat_id=user_id,  # DM chat
+            expires_at=expires_at,
+            telegram_username=username,
+            group_id=None,
+            from_mini_app=True
+        )
+        logger.info(f"✅ Step 4: Session saved, expires at: {expires_at.isoformat()}")
+        
+        # Build deeplinks
+        logger.info("🔗 Step 5: Building deeplinks...")
+        import urllib.parse
+        
+        # Mobile deeplink (opens Mercle app directly)
+        deeplink_params = urllib.parse.urlencode({
+            "session_id": session_id,
+            "app_name": "Telegram Verification Bot",
+            "app_domain": "telegram.mercle.ai",
+            "base64_qr": base64_qr
+        })
+        mobile_deeplink = f"mercle://scan-authenticate?{deeplink_params}"
+        
+        # Android intent URL (fallback to Play Store)
+        android_intent = f"intent://scan-authenticate?{deeplink_params}#Intent;scheme=mercle;package=com.mercle.app;S.browser_fallback_url=https://play.google.com/store/apps/details?id=com.mercle.app;end"
+        
+        # Universal link (works for both mobile and desktop)
+        universal_link = (
+            f"https://telegram.mercle.ai/verify"
+            f"?session_id={session_id}"
+            f"&app_name={urllib.parse.quote('Telegram Verification Bot')}"
+            f"&app_domain={urllib.parse.quote('telegram.mercle.ai')}"
+            f"&base64_qr={urllib.parse.quote(base64_qr)}"
+        )
+        
+        logger.info(f"✅ Step 5: Deeplinks created")
+        logger.info(f"  📱 Mobile: {mobile_deeplink[:80]}...")
+        logger.info(f"  🤖 Android: {android_intent[:80]}...")
+        logger.info(f"  🌐 Universal: {universal_link[:80]}...")
+        
+        # Start background polling task
+        logger.info("🔄 Step 6: Starting background polling task...")
+        import asyncio
+        task = asyncio.create_task(
+            container.verification_service._poll_verification(
+                bot_obj.get_bot(),
+                session_id,
+                user_id,
+                user_id,  # chat_id = user_id for DM
+                None,  # group_id
+                timeout_seconds,
+                "mute"  # action_on_timeout (doesn't matter for DM verification)
+            )
+        )
+        container.verification_service.active_verifications[session_id] = task
+        logger.info("✅ Step 6: Polling task started")
+        
+        logger.info("=" * 80)
+        logger.info("✅ VERIFICATION START API SUCCESS")
+        logger.info(f"📤 Returning response with session_id: {session_id}")
+        logger.info("=" * 80)
+        
+        return {
+            "success": True,
+            "already_verified": False,
+            "session_id": session_id,
+            "mobile_deeplink": mobile_deeplink,
+            "android_intent": android_intent,
+            "universal_link": universal_link,
+            "timeout_seconds": timeout_seconds
+        }
+        
+    except Exception as e:
+        logger.error("=" * 80)
+        logger.error("❌ VERIFICATION START API ERROR")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        logger.error("=" * 80)
+        logger.error(f"Full traceback:", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to start verification: {str(e)}")
 
 
 @app.post("/api/app/group/{group_id}/settings")
@@ -643,7 +818,7 @@ async def app_update_group_settings(group_id: int, payload: _GroupSettingsUpdate
 
     group = await container.group_service.get_or_create_group(gid)
     preflight = await _bot_preflight(bot_obj.get_bot(), gid)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     return {
         "group_id": gid,
@@ -1098,6 +1273,52 @@ async def app_update_onboarding_steps(group_id: int, payload: _OnboardingStepsUp
     return {"group_id": gid, "onboarding": onboarding}
 
 
+class _LogsListPayload(BaseModel):
+    initData: str
+    limit: int = 50
+
+
+@app.post("/api/app/group/{group_id}/logs")
+async def app_list_logs(group_id: int, payload: _LogsListPayload):
+    """Get recent mod logs for a group."""
+    bot_obj, container = _require_container()
+    try:
+        auth = validate_webapp_init_data(payload.initData, bot_token=container.config.bot_token)
+    except WebAppAuthError as e:
+        logger.error(f"Logs API auth error: {e}")
+        raise HTTPException(status_code=401, detail=str(e)) from e
+
+    user_id = int(auth.user["id"])
+    gid = int(group_id)
+
+    if not await can_user(bot_obj.get_bot(), gid, user_id, "settings"):
+        logger.warning(f"Logs API: user {user_id} not allowed for group {gid}")
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    try:
+        limit = min(int(payload.limit or 50), 100)
+        logs = await container.logs_service.get_recent_logs(gid, limit=limit)
+        logger.info(f"Logs API: fetched {len(logs)} logs for group {gid}")
+        
+        return {
+            "group_id": gid,
+            "logs": [
+                {
+                    "id": int(log.id),
+                    "action": str(log.action),
+                    "admin_id": int(log.admin_id),
+                    "target_id": int(log.target_id) if log.target_id else None,
+                    "reason": str(log.reason) if log.reason else None,
+                    "timestamp": log.timestamp.isoformat() if log.timestamp else None,
+                }
+                for log in logs
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Logs API error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @app.post("/api/app/group/{group_id}/rules")
 async def app_list_rules(group_id: int, payload: _RulesListPayload):
     bot_obj, container = _require_container()
@@ -1527,7 +1748,7 @@ async def app_group_analytics(group_id: int, payload: _InitDataPayload):
         Ticket,
     )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     since = now - timedelta(hours=24)
 
     # Get member count from Telegram

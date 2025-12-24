@@ -1,4 +1,4 @@
-"""Command handlers for the bot - DM home, secure /menu binding, and deep-link flows."""
+"""Command handlers for the bot - DM home and deep-link flows."""
 from __future__ import annotations
 
 import html
@@ -81,7 +81,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
 
     async def show_link_expired(chat_id: int, bot):
         try:
-            await bot.send_message(chat_id=chat_id, text="Link expired. Run /menu again in the group.", parse_mode="HTML")
+            await bot.send_message(chat_id=chat_id, text="Link expired. Please use the Mini App to manage settings.", parse_mode="HTML")
         except Exception as e:
             # User may have blocked the bot or deleted the chat
             logger.warning(f"Failed to send link expired message to {chat_id}: {e}")
@@ -199,12 +199,30 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                     parse_mode="HTML"
                 )
             else:
+                # Track that user came from Mini App for showing return button after verification
+                # Note: We store a marker in the panel state but don't send a message (text would be empty)
+                async with db.session() as session:
+                    from database.models import DmPanelState
+                    result = await session.execute(
+                        select(DmPanelState).where(
+                            DmPanelState.telegram_id == user_id,
+                            DmPanelState.panel_type == "from_mini_app"
+                        )
+                    )
+                    state = result.scalar_one_or_none()
+                    if not state:
+                        session.add(DmPanelState(
+                            telegram_id=user_id,
+                            panel_type="from_mini_app",
+                            message_id=0  # Marker only, no actual message
+                        ))
+                
                 await message.answer(
                     "🔐 <b>Verification Required</b>\n\n"
                     "To verify your account, use the /verify command or tap the button below.",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="✅ Start Verification", callback_data="dm:verify")]
+                        [InlineKeyboardButton(text="✅ Start Verification", callback_data="dm:verify_from_app")]
                     ])
                 )
             return
@@ -227,7 +245,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         if not getattr(group, "logs_enabled", False) or not getattr(group, "logs_chat_id", None):
             await message.reply(
                 "Support is not configured for this group.\n\n"
-                "Admins: enable a logs destination in <code>/menu</code> → Logs.",
+                "Admins: enable logs in the Mini App settings.",
                 parse_mode="HTML",
             )
             return
@@ -273,71 +291,6 @@ def create_command_handlers(container: ServiceContainer) -> Router:
         
         await message.answer("\n".join(lines), parse_mode="HTML")
 
-    @router.message(Command("menu"))
-    async def cmd_menu(message: Message):
-        if message.chat.type == "private":
-            groups = await container.group_service.list_groups()
-            if not groups:
-                await message.answer("No groups found yet. Add me to a group and run <code>/menu</code> there.", parse_mode="HTML")
-                return
-
-            user_id = message.from_user.id
-            allowed = []
-            for group in groups[:50]:
-                group_id = int(group.group_id)
-                try:
-                    if await can_user(message.bot, group_id, user_id, "settings"):
-                        allowed.append(group)
-                except Exception:
-                    continue
-
-            if not allowed:
-                await message.answer("I don't see any groups where you can manage settings yet. Run <code>/menu</code> in the group once.", parse_mode="HTML")
-                return
-
-            buttons = []
-            for group in allowed[:12]:
-                title = group.group_name or str(group.group_id)
-                buttons.append([InlineKeyboardButton(text=title, callback_data=f"cfg:{int(group.group_id)}:home")])
-            buttons.append([InlineKeyboardButton(text="Close", callback_data="dm:home")])
-            await message.answer(
-                "<b>Choose a group</b>",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-            )
-            return
-
-        if message.chat.type not in ["group", "supergroup"]:
-            return
-
-        group_id = message.chat.id
-        admin_id = message.from_user.id
-        await container.group_service.register_group(group_id, message.chat.title)
-
-        is_admin = await is_user_admin(message.bot, group_id, admin_id)
-        if not await can_user(message.bot, group_id, admin_id, "settings"):
-            await message.reply("Admins only. Ask an admin to run /menu.", parse_mode="HTML")
-            return
-
-        if not await is_bot_admin(message.bot, group_id):
-            await message.reply("I need to be admin. Run <code>/checkperms</code>.", parse_mode="HTML")
-            return
-
-        bot_info = await message.bot.get_me()
-        restrict_ok = await can_restrict_members(message.bot, group_id, bot_info.id)
-        delete_ok = await can_delete_messages(message.bot, group_id, bot_info.id)
-        if not (restrict_ok and delete_ok):
-            await message.reply("Missing permissions. Run <code>/checkperms</code>.", parse_mode="HTML")
-            return
-
-        token = await container.token_service.create_config_token(group_id=group_id, admin_id=admin_id)
-        deep_link = f"https://t.me/{bot_info.username}?start=cfg_{token}"
-        await message.reply(
-            "Open settings in DM:",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Open Settings", url=deep_link)]]),
-        )
-
     @router.message(Command("help"))
     async def cmd_help(message: Message):
         if message.chat.type == "private":
@@ -351,7 +304,7 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 "• Reply <code>/report [reason]</code> — report to admins\n"
                 "• <code>/ticket</code> — contact admins (opens DM)\n\n"
                 "<b>Mods/Admins</b>\n"
-                "• <code>/menu</code> — open settings in DM\n"
+                "• Use the Mini App to manage settings\n"
                 "• <code>/checkperms</code> — bot permissions + join-gate readiness\n\n"
                 "<i>This message will auto-delete in 60 seconds.</i>",
                 parse_mode="HTML",
@@ -715,6 +668,19 @@ def create_command_handlers(container: ServiceContainer) -> Router:
                 telegram_id=callback.from_user.id,
                 chat_id=callback.from_user.id,
                 username=callback.from_user.username,
+                from_mini_app=False,
+            )
+        elif action == "verify_from_app":
+            await callback.answer()
+            if await container.user_manager.is_verified(callback.from_user.id):
+                await callback.message.answer("✅ You are already verified.", parse_mode="HTML")
+                return
+            await container.verification_service.start_verification(
+                bot=callback.bot,
+                telegram_id=callback.from_user.id,
+                chat_id=callback.from_user.id,
+                username=callback.from_user.username,
+                from_mini_app=True,
             )
         elif action == "unsub":
             await container.dm_subscriber_service.set_opt_out(telegram_id=callback.from_user.id, opted_out=True)
@@ -1080,14 +1046,16 @@ def dm_home_text() -> str:
     )
 
 
-def dm_home_keyboard(bot_username: str) -> InlineKeyboardMarkup:
+def dm_home_keyboard(bot_username: str, is_verified: bool = False) -> InlineKeyboardMarkup:
     add_link = f"https://t.me/{bot_username}?startgroup=true" if bot_username else ""
     rows = []
-    if add_link:
+    # Only show "Add to Group" for verified users
+    if add_link and is_verified:
         rows.append([InlineKeyboardButton(text="Add to Group", url=add_link)])
     rows.append([InlineKeyboardButton(text="Help", callback_data="dm:help")])
     rows.append([InlineKeyboardButton(text="Status", callback_data="dm:status")])
-    rows.append([InlineKeyboardButton(text="Verify", callback_data="dm:verify")])
+    if not is_verified:
+        rows.append([InlineKeyboardButton(text="Verify", callback_data="dm:verify")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1096,7 +1064,7 @@ def dm_help_text() -> str:
         "<b>Help</b>\n"
         "1) Add me to a group\n"
         "2) Promote me to admin (Restrict, Delete)\n"
-        "3) Run <code>/menu</code> in the group (settings open in DM)\n\n"
+        "3) Use the Mini App to configure settings\n\n"
         "<b>Moderation</b>\n"
         "• Reply in the group with <code>/actions</code>\n\n"
         "<b>Custom roles</b>\n"
@@ -1105,10 +1073,11 @@ def dm_help_text() -> str:
     )
 
 
-def dm_help_keyboard(bot_username: str) -> InlineKeyboardMarkup:
+def dm_help_keyboard(bot_username: str, is_verified: bool = False) -> InlineKeyboardMarkup:
     add_link = f"https://t.me/{bot_username}?startgroup=true" if bot_username else ""
     rows = []
-    if add_link:
+    # Only show "Add to Group" for verified users
+    if add_link and is_verified:
         rows.append([InlineKeyboardButton(text="Add to Group", url=add_link)])
     rows.append([InlineKeyboardButton(text="Back", callback_data="dm:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -1169,9 +1138,7 @@ async def show_dm_status(bot, container: ServiceContainer, user_id: int):
 async def show_dm_home(bot, container: ServiceContainer, user_id: int):
     bot_info = await bot.get_me()
     is_verified = await container.user_manager.is_verified(user_id)
-    kb = dm_home_keyboard(bot_info.username or "")
-    if is_verified:
-        kb.inline_keyboard = [row for row in kb.inline_keyboard if not (row and row[0].callback_data == "dm:verify")]
+    kb = dm_home_keyboard(bot_info.username or "", is_verified=is_verified)
     await container.panel_service.upsert_dm_panel(
         bot=bot,
         user_id=user_id,
@@ -1183,12 +1150,13 @@ async def show_dm_home(bot, container: ServiceContainer, user_id: int):
 
 async def show_dm_help(bot, container: ServiceContainer, user_id: int):
     bot_info = await bot.get_me()
+    is_verified = await container.user_manager.is_verified(user_id)
     await container.panel_service.upsert_dm_panel(
         bot=bot,
         user_id=user_id,
         panel_type="home",
         text=dm_help_text(),
-        reply_markup=dm_help_keyboard(bot_info.username or ""),
+        reply_markup=dm_help_keyboard(bot_info.username or "", is_verified=is_verified),
     )
 
 

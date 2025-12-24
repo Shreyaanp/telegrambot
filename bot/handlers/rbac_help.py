@@ -39,7 +39,6 @@ def create_rbac_help_handlers(container: ServiceContainer) -> Router:
             allowed.append("/actions (reply)")
 
         if is_admin or await has_role_permission(gid, uid, "settings"):
-            allowed.append("/menu")
             allowed.append("/checkperms")
             allowed.append("/raid [minutes|off]")
             allowed.append("/fed")

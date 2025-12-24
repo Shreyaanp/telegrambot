@@ -181,8 +181,8 @@ Reply to a user and send `/actions` to get buttons (Kick/Ban/Tempban/Mute/Unmute
 - Grant **Restrict Members** and **Delete Messages** (Pin optional).
 
 **Settings:**
-- Use `/menu` in the group to open DM settings.
-- In DM `/menu`, pick your group to toggle verification, timeout, action (kick/mute), antiflood, and welcome.
+- Use the Mini App to manage all bot settings.
+- Configure verification, timeout, action (kick/mute), antiflood, and welcome messages.
 
 Need more? Contact your group admins."""
 

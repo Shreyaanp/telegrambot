@@ -74,7 +74,8 @@ class VerificationService:
         telegram_id: int,
         chat_id: int,
         username: Optional[str] = None,
-        group_id: Optional[int] = None
+        group_id: Optional[int] = None,
+        from_mini_app: bool = False
     ) -> bool:
         """
         Start verification flow for a user.
@@ -85,12 +86,13 @@ class VerificationService:
             chat_id: Where to send verification message (user DM or group)
             username: User's Telegram username
             group_id: Group ID if verification is for group join
+            from_mini_app: Whether the user initiated verification from the Mini App
             
         Returns:
             True if verification started successfully, False otherwise
         """
         try:
-            logger.info(f"Starting verification for user {telegram_id} ({username})")
+            logger.info(f"Starting verification for user {telegram_id} ({username}) from_mini_app={from_mini_app}")
             
             # Determine per-group settings
             timeout_seconds = self.config.verification_timeout
@@ -105,6 +107,7 @@ class VerificationService:
                 "telegram_user_id": telegram_id,
                 "telegram_username": username or "unknown",
                 "timestamp": datetime.utcnow().isoformat(),
+                "from_mini_app": from_mini_app,
             }
             if group_id:
                 metadata["group_id"] = group_id
@@ -124,7 +127,8 @@ class VerificationService:
                 chat_id=chat_id,
                 expires_at=expires_at,
                 telegram_username=username,
-                group_id=group_id
+                group_id=group_id,
+                from_mini_app=from_mini_app
             )
             
             # Generate QR code image
@@ -141,49 +145,27 @@ class VerificationService:
                 f"&base64_qr={urllib.parse.quote(base64_qr)}"
             )
             
-            # Build inline keyboard with clear CTAs
+            # Build inline keyboard - single smart button that handles mobile/desktop
+            # The /verify page detects device type and shows appropriate UI
             keyboard = [
                 [
                     InlineKeyboardButton(
-                        text="🚀 Verify Now (Tap Here!)",
+                        text="🚀 Verify Now",
                         url=universal_link
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="📥 Get Mercle App (iOS)",
-                        url=self.config.mercle_ios_url
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="📥 Get Mercle App (Android)",
-                        url=self.config.mercle_android_url
                     )
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
             
-            # Send verification message
+            # Send verification message (no QR image - the verify page handles device detection)
             message_text = verification_prompt_message(timeout_seconds)
             
-            sent_message = None
-            if qr_image:
-                qr_file = BufferedInputFile(qr_image.read(), filename="qr_code.png")
-                sent_message = await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=qr_file,
-                    caption=message_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-            else:
-                sent_message = await bot.send_message(
-                    chat_id=chat_id,
-                    text=message_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
+            sent_message = await bot.send_message(
+                chat_id=chat_id,
+                text=message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
             
             # Store message ID for later deletion
             if sent_message:
@@ -730,12 +712,18 @@ class VerificationService:
                 except Exception:
                     bot_username = None
                 
-                success_msg = verification_success_message(mercle_user_id, bot_username)
-                keyboard = [
-                    [InlineKeyboardButton(text="🏠 Return to Mini App", url=f"https://t.me/{bot_username}/app")] if bot_username else [],
-                    [InlineKeyboardButton(text="📥 Download Mercle (iOS)", url=self.config.mercle_ios_url)],
-                    [InlineKeyboardButton(text="📥 Download Mercle (Android)", url=self.config.mercle_android_url)],
-                ]
+                # Check if user came from Mini App to show return button
+                show_return_button = False
+                if session_obj and hasattr(session_obj, 'from_mini_app') and session_obj.from_mini_app:
+                    show_return_button = True
+                
+                success_msg = verification_success_message(mercle_user_id, bot_username if show_return_button else None)
+                keyboard = []
+                # Only show "Return to Mini App" if user initiated from Mini App
+                if show_return_button and bot_username:
+                    keyboard.append([InlineKeyboardButton(text="🏠 Return to Mini App", url=f"https://t.me/{bot_username}/app")])
+                keyboard.append([InlineKeyboardButton(text="📥 Download Mercle (iOS)", url=self.config.mercle_ios_url)])
+                keyboard.append([InlineKeyboardButton(text="📥 Download Mercle (Android)", url=self.config.mercle_android_url)])
                 # Filter out empty rows
                 keyboard = [row for row in keyboard if row]
                 

@@ -586,7 +586,7 @@ def create_admin_join_handlers(container: ServiceContainer) -> Router:
 
         if action == "help":
             await callback.answer()
-            await callback.message.answer("Promote the bot to admin and enable Restrict + Delete, then run /menu.", parse_mode="HTML")
+            await callback.message.answer("Promote the bot to admin and enable Restrict + Delete, then use the Mini App.", parse_mode="HTML")
             return
 
         if action == "recheck":
@@ -623,14 +623,14 @@ async def _send_or_update_setup_card(bot, container: ServiceContainer, group_id:
     status_line = f"Restrict: {'✅' if restrict_ok else '❌'}  Delete: {'✅' if delete_ok else '❌'}  Pin: {'✅' if pin_ok else '◻️'} (opt)"
 
     if restrict_ok and delete_ok:
-        text = "✅ Ready. Use /actions to moderate. Use /menu to configure."
+        text = "✅ Ready. Use /actions to moderate. Use the Mini App to configure."
         auto_delete_after = 600
     else:
         text = (
             "<b>Setup</b>\n"
             "1) Promote me to admin\n"
             "2) Enable: Restrict, Delete\n"
-            "3) Run <code>/menu</code>\n\n"
+            "3) Use the Mini App to configure\n\n"
             f"{status_line}"
         )
         auto_delete_after = None
